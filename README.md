@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/elaris-logo.png" alt="ELARIS Logo" width="140" />
+  <img src="./assets/logo.png" alt="ELARIS Logo" width="140" />
 </p>
 
 <h1 align="center">ELARIS Core</h1>
