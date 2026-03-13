@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/elaris-control/core/main/assets/logo.png" width="100" alt="ELARIS Logo">
+  <img src="./assets/logo.png" alt="ELARIS Logo" width="140" />
 </p>
 
 <h1 align="center">ELARIS Core</h1>
@@ -52,7 +52,7 @@ Additional modules (Solar, Pool, Irrigation, Hydronic, Load Shifting, Custom Log
 
 ```bash
 # 1. Clone
-git clone https://github.com/Elaris-Control/core.git
+git clone https://github.com/elaris-control/core.git
 cd core
 
 # 2. Install dependencies
@@ -144,8 +144,6 @@ docs/                 # Architecture and protocol documentation
 ---
 
 ## Roadmap
-
-Planned additions to the core runtime:
 
 - [ ] Alarm system module
 - [ ] HVAC / split unit control
