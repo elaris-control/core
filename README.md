@@ -6,6 +6,14 @@
 
 <p align="center"><strong>Modular automation engine for home, building, and light industrial control.</strong></p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/node-20+-green" alt="Node">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
+  <img src="https://img.shields.io/badge/platform-Raspberry%20Pi-red" alt="Platform">
+  <img src="https://img.shields.io/badge/protocol-MQTT-purple" alt="MQTT">
+</p>
+
 ELARIS Core is the open foundation of the ELARIS ecosystem — a runtime automation platform built around MQTT device integration, a role-aware control model, and a modular logic system designed for real installations.
 
 ---
