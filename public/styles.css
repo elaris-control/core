@@ -376,6 +376,236 @@ select, option { background-color: #0d1221; color: var(--text); }
 }
 
 /* ══════════════════════════════════════════════════════════════
+   MOBILE UI — max-width: 768px
+   All rules here are mobile-only, desktop unchanged
+══════════════════════════════════════════════════════════════ */
+
+/* Bottom navigation bar */
+#mobileNav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 60px;
+  background: rgba(13,18,33,.97);
+  border-top: 1px solid var(--line2);
+  z-index: 100;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+#mobileNav nav {
+  display: flex;
+  height: 100%;
+  align-items: stretch;
+}
+#mobileNav a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+  transition: color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+#mobileNav a .mn-icon { font-size: 20px; line-height: 1; }
+#mobileNav a.active { color: var(--blue); }
+#mobileNav a:active { color: var(--blue); }
+
+/* Pages slide-up sheet */
+#mnPageSheet {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+}
+#mnPageSheet.open { display: block; }
+#mnPageSheetBg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  animation: mnFadeIn .2s ease;
+}
+#mnPageSheetPanel {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: var(--bg, #0d1221);
+  border-top: 1px solid var(--line, rgba(255,255,255,.12));
+  border-radius: 16px 16px 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  max-height: 70vh;
+  overflow-y: auto;
+  animation: mnSlideUp .25s ease;
+}
+.mn-sheet-handle {
+  width: 36px; height: 4px;
+  background: var(--line, rgba(255,255,255,.18));
+  border-radius: 999px;
+  margin: 10px auto 0;
+}
+.mn-sheet-title {
+  font-size: 13px; font-weight: 800;
+  letter-spacing: .5px; text-transform: uppercase;
+  color: var(--muted, #5a6a85);
+  padding: 14px 20px 10px;
+  border-bottom: 1px solid var(--line, rgba(255,255,255,.07));
+}
+.mn-sheet-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px;
+  text-decoration: none;
+  color: var(--text, #e2e8f0);
+  border-bottom: 1px solid var(--line, rgba(255,255,255,.05));
+  -webkit-tap-highlight-color: transparent;
+}
+.mn-sheet-item:active { background: var(--hover, rgba(255,255,255,.05)); }
+.mn-sheet-item-icon { font-size: 22px; flex-shrink: 0; }
+.mn-sheet-item-name { flex: 1; font-size: 15px; font-weight: 600; }
+.mn-sheet-item-arrow { font-size: 20px; color: var(--muted, #5a6a85); }
+.mn-sheet-loading, .mn-sheet-empty {
+  padding: 32px 20px; text-align: center;
+  color: var(--muted, #5a6a85); font-size: 13px; line-height: 1.6;
+}
+.mn-sheet-new {
+  display: block; width: calc(100% - 40px); margin: 12px 20px 20px;
+  padding: 14px; border-radius: 10px; border: 1px dashed var(--blue, #1d8cff);
+  background: rgba(29,140,255,.08); color: var(--blue, #1d8cff);
+  font-size: 14px; font-weight: 700; cursor: pointer; letter-spacing: .3px;
+  -webkit-tap-highlight-color: transparent;
+}
+.mn-sheet-new:active { background: rgba(29,140,255,.18); }
+.mn-sheet-edit {
+  display: block; width: calc(100% - 40px); margin: 0 20px 24px;
+  padding: 12px; border-radius: 10px; border: 1px solid var(--line, rgba(255,255,255,.1));
+  background: transparent; color: var(--muted2, #8899aa);
+  font-size: 13px; font-weight: 600; cursor: pointer; letter-spacing: .3px;
+  -webkit-tap-highlight-color: transparent;
+}
+.mn-sheet-edit:active { background: var(--hover, rgba(255,255,255,.05)); }
+@keyframes mnFadeIn  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes mnSlideUp { from { transform: translateY(100%) } to { transform: translateY(0) } }
+
+@media (max-width: 768px) {
+  /* Show bottom nav */
+  #mobileNav { display: block; }
+  body.mn-sheet-open { overflow: hidden; }
+
+  /* Push content above bottom nav */
+  .app { padding-bottom: 60px; }
+  body { padding-bottom: 60px; }
+
+  /* Touch-friendly buttons — minimum 44px */
+  .btn {
+    min-height: 44px;
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+  .btn-sm { min-height: 36px; padding: 7px 12px; }
+
+  /* Larger inputs for touch */
+  input, select, textarea {
+    min-height: 44px;
+    font-size: 16px !important; /* prevents iOS zoom on focus */
+    padding: 10px 14px;
+  }
+
+  /* Cards — less padding on small screens */
+  .card, .card-step {
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  /* Topbar — compact */
+  .topbar {
+    margin: 8px 10px 0 !important;
+    padding: 8px 10px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .topbar .actions { gap: 6px; }
+  .topbar .actions .btn { min-height: 36px; padding: 6px 10px; font-size: 12px; }
+
+  /* Hide desktop-only elements */
+  .side { display: none !important; } /* use bottom nav instead */
+  #menuBtn { display: none !important; }
+
+  /* Topbar cleanup — hide non-essential buttons */
+  #themeBtn { display: none !important; }
+  #pwaInstallBtn { display: none !important; }
+
+  /* Sites button — icon only */
+  #sitesBtn { font-size: 11px; padding: 6px 10px; min-height: 36px; }
+
+  /* Crumbs — compact */
+  .crumbs { gap: 6px; }
+  #sitePill { display: none; }
+
+  /* Hide entities from mobile (power-user page) */
+  #entitiesLink { display: none !important; }
+  a[href="/entities.html"] { display: none !important; }
+
+  /* Tables — horizontal scroll */
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Pills / badges — smaller */
+  .pill { font-size: 10px; padding: 3px 8px; }
+
+  /* Main content area */
+  .main { padding: 10px; }
+  .ebody { padding: 12px; gap: 12px; }
+
+  /* Grids — always single column */
+  .form-grid { grid-template-columns: 1fr !important; }
+  .summary-grid { grid-template-columns: 1fr 1fr; }
+
+  /* Entity / IO list items */
+  .entity-item {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .entity-item .entity-remove { grid-column: span 2; justify-self: end; }
+
+  /* Module cards */
+  .mod-card { padding: 14px; }
+
+  /* Font sizes — nothing below 12px */
+  .form-row label { font-size: 12px; }
+  .form-hint { font-size: 11px; }
+
+  /* Step labels — hide text on very small screens */
+  .step-label { display: none; }
+  .step-line { width: 16px; }
+
+  /* Stepper — scrollable */
+  .stepper { overflow-x: auto; padding-bottom: 4px; }
+
+  /* Dropdown menus — full width */
+  .menu {
+    width: calc(100vw - 20px);
+    left: 50%;
+    transform: translateX(-50%);
+    right: auto;
+  }
+
+  /* ESPHome terminal — shorter */
+  .terminal { height: 200px; }
+
+  /* Hide verbose helper text in tight spaces */
+  .entity-header { display: none; }
+
+  /* PWA safe area for notch phones */
+  #mobileNav {
+    padding-bottom: env(safe-area-inset-bottom);
+    height: calc(60px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
    WINDOW MANAGER
 ══════════════════════════════════════════════════════════════ */
 

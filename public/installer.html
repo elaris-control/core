@@ -13,6 +13,7 @@
     })();
   </script>
   <script src="/csrf.js?v=1"></script>
+  <link rel="stylesheet" href="/mobile-nav.css">
   <style>
     :root{
       --bg: var(--bg, #f5f7fb); --panel: var(--card, #fff); --line: var(--line, #e6eaf2);
@@ -100,6 +101,57 @@
     .zoneAct:hover{ transform: translateY(-1px); }
     .zoneAct.danger{ border-color: rgba(220,38,38,.35); color: rgba(220,38,38,.95); }
 
+  @media (max-width: 768px) {
+  /* Fixed top bar */
+  .top {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 50;
+    border-radius: 0;
+    border-left: none; border-right: none; border-top: none;
+    padding: 8px 12px;
+    gap: 6px;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  /* Hide non-essential top content on mobile */
+  .topMeta { display: none; }
+  .title .muted { display: none; }
+  .title { font-size: 13px; gap: 6px; white-space: nowrap; }
+  .topActions a[href="/help.html"],
+  .topActions a[href="/"],
+  .topActions #themeBtn { display: none !important; }
+  .topActions { gap: 6px; flex-shrink: 0; }
+  .topActions .btn { min-height: 40px; font-size: 11px; padding: 6px 10px; white-space: nowrap; }
+
+  /* Body scrolls normally — only top is fixed */
+  .wrap {
+    padding: 0;
+    padding-top: 62px;
+    padding-bottom: 68px;
+  }
+
+  /* Cards */
+  .card { margin: 10px; padding: 10px; border-radius: 10px; }
+
+  /* Table — wrap in horizontal scroll container */
+  .card > table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+  }
+  table { width: max-content; min-width: 100%; border-collapse: collapse; }
+  th { padding: 10px 8px; font-size: 11px; white-space: nowrap; background: var(--panel); }
+  td { padding: 10px 8px; font-size: 12px; white-space: nowrap; background: var(--panel); }
+  tr:nth-child(even) td { background: rgba(255,255,255,.03); }
+  .btn { min-height: 40px; }
+
+  /* Input fields — prevent iOS zoom */
+  input, select { font-size: 16px !important; min-height: 44px; }
+}
   </style>
 </head>
 <body>
@@ -584,5 +636,6 @@
   </div>
 
 <script src="/role-ui.js?v=2"></script>
+<script src="/mobile-nav.js"></script>
 </body>
 </html>

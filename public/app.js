@@ -1,5 +1,6 @@
 // ELARIS app.js v22 — clean dashboard, no drag/drop
 
+
 const $ = id => document.getElementById(id);
 
 const state = {
@@ -445,6 +446,9 @@ document.addEventListener('DOMContentLoaded',()=>{
     await loadModuleInstances();
     startClock();
     await Promise.all([loadWeatherWidget(),loadScenesWidget(),loadSummaryCards(),loadEventsWidget(),loadNavPages()]);
+    const _qs=new URLSearchParams(location.search);
+    if(_qs.get('newPage')==='1'){ history.replaceState(null,'','/'); openPageEditor(); }
+    else if(_qs.get('editPages')==='1'){ history.replaceState(null,'','/'); openPageManager(); }
     setInterval(loadWeatherWidget,15*60*1000);
     setInterval(loadEventsWidget,60*1000);
     setInterval(loadScenesWidget,30*1000);

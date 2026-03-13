@@ -1,0 +1,141 @@
+/* ELARIS — Mobile nav styles (for pages that don't load styles.css) */
+#mobileNav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 60px;
+  background: rgba(13,18,33,.97);
+  border-top: 1px solid rgba(255,255,255,.12);
+  z-index: 100;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+#mobileNav nav {
+  display: flex;
+  height: 100%;
+  align-items: stretch;
+}
+#mobileNav a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  text-decoration: none;
+  color: #5a6a85;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+  -webkit-tap-highlight-color: transparent;
+}
+#mobileNav a .mn-icon { font-size: 20px; line-height: 1; }
+#mobileNav a.active { color: #1d8cff; }
+#mobileNav a:active { color: #1d8cff; }
+
+/* Pages slide-up sheet */
+#mnPageSheet {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+}
+#mnPageSheet.open { display: block; }
+
+#mnPageSheetBg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  animation: mnFadeIn .2s ease;
+}
+#mnPageSheetPanel {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: #0d1221;
+  border-top: 1px solid rgba(255,255,255,.12);
+  border-radius: 16px 16px 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  max-height: 70vh;
+  overflow-y: auto;
+  animation: mnSlideUp .25s ease;
+}
+.mn-sheet-handle {
+  width: 36px; height: 4px;
+  background: rgba(255,255,255,.18);
+  border-radius: 999px;
+  margin: 10px auto 0;
+}
+.mn-sheet-title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  color: #5a6a85;
+  padding: 14px 20px 10px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+}
+.mn-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  text-decoration: none;
+  color: #e2e8f0;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+  -webkit-tap-highlight-color: transparent;
+}
+.mn-sheet-item:active { background: rgba(255,255,255,.05); }
+.mn-sheet-item-icon { font-size: 22px; flex-shrink: 0; }
+.mn-sheet-item-name { flex: 1; font-size: 15px; font-weight: 600; }
+.mn-sheet-item-arrow { font-size: 20px; color: #5a6a85; }
+.mn-sheet-loading,
+.mn-sheet-empty {
+  padding: 32px 20px;
+  text-align: center;
+  color: #5a6a85;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.mn-sheet-new {
+  display: block;
+  width: calc(100% - 40px);
+  margin: 12px 20px 20px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px dashed #1d8cff;
+  background: rgba(29,140,255,.08);
+  color: #1d8cff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: .3px;
+  -webkit-tap-highlight-color: transparent;
+}
+.mn-sheet-new:active { background: rgba(29,140,255,.18); }
+.mn-sheet-edit {
+  display: block;
+  width: calc(100% - 40px);
+  margin: 0 20px 24px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.1);
+  background: transparent;
+  color: #8899aa;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: .3px;
+  -webkit-tap-highlight-color: transparent;
+}
+.mn-sheet-edit:active { background: rgba(255,255,255,.05); }
+
+@keyframes mnFadeIn  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes mnSlideUp { from { transform: translateY(100%) } to { transform: translateY(0) } }
+
+@media (max-width: 768px) {
+  #mobileNav { display: block; }
+  body { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
+  body.mn-sheet-open { overflow: hidden; }
+}
