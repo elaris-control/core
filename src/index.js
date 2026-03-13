@@ -89,7 +89,7 @@ async function main() {
   ensureDirForFile(DB_PATH);
   return initDB(DB_PATH);
 })();
-  const wsApi = initWS(server, { db: dbApi.db });
+  const wsApi = initWS(server, { db: dbApi.db, getRole: (req) => auth.getRole(req) });
 
   // ── Live log broadcasting ───────────────────────────────────────────────
   const _origLog        = console.log.bind(console);

@@ -87,6 +87,38 @@ body { margin:0; }
   border-radius:999px; padding:2px 8px; flex-shrink:0;
 }
 .empty-state { color:var(--muted); font-size:11px; padding:8px 0; }
+
+/* Console / command bar */
+.console-bar {
+  display:flex; align-items:center; gap:8px;
+  padding:8px 16px 10px; flex-shrink:0;
+  border-top:1px solid var(--line);
+  background:var(--panel,#0b1324);
+}
+.console-prompt {
+  color:#22d97a; font-family:monospace; font-size:13px; font-weight:700; flex-shrink:0;
+  user-select:none;
+}
+.console-input {
+  flex:1; background:transparent; border:none; outline:none;
+  color:var(--text); font-family:monospace; font-size:13px;
+  caret-color:#22d97a;
+}
+.console-input::placeholder { color:var(--muted); }
+.console-run {
+  padding:5px 14px; font-size:11px; font-weight:700;
+  background:rgba(34,217,122,.12); border:1px solid rgba(34,217,122,.28);
+  color:#22d97a; border-radius:6px; cursor:pointer; flex-shrink:0;
+  font-family:monospace;
+}
+.console-run:active { background:rgba(34,217,122,.22); }
+.log-line.cmd   .log-text { color:#22d97a; font-weight:700; }
+.log-line.cmd   .log-lvl  { color:#22d97a; background:rgba(34,217,122,.08); border-color:rgba(34,217,122,.2); }
+.log-line.cout  .log-text { color:#c8d8f0; }
+.log-line.cerr  .log-text { color:#ffb4b4; }
+.log-line.cerr  .log-lvl  { color:#ffb4b4; background:rgba(255,107,107,.08); border-color:rgba(255,107,107,.16); }
+.log-line.cdone .log-text { color:var(--muted2); font-style:italic; }
+.log-line.cdone .log-lvl  { color:var(--muted2); }
 </style>
 </head>
 <body>
@@ -164,13 +196,21 @@ body { margin:0; }
       </div>
     </div>
     <div class="log-paused-banner" id="pausedBanner">&#9646;&#9646; PAUSED — scroll up to read, click Resume to continue</div>
+    <div class="console-bar" id="consoleBar" style="display:none">
+      <span class="console-prompt">$&nbsp;</span>
+      <input id="consoleInput" class="console-input" type="text" placeholder="bash command… (↑↓ history, Enter to run)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <button class="console-run" id="consoleRunBtn">&#9166; Run</button>
+    </div>
   </div>
 </div>
 
 <script src="/theme.js"></script>
 <script>
 var MAX_BUFFER_LINES = 300;
-var MAX_VISIBLE_LINES = 60;
+var MAX_VISIBLE_LINES = parseInt(localStorage.getItem('elaris_log_limit') || '60', 10);
+var isEngineer = false;
+var cmdHistory = [];
+var cmdHistIdx = -1;
 var paused = false;
 var filter = 'all';
 var searchQuery = '';
@@ -186,12 +226,6 @@ function pad2(n){ return String(n).padStart(2,'0'); }
 function fmtTs(ts){
   var d = new Date(ts);
   return pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds());
-}
-
-function levelLabel(l){
-  if (l === 'warn') return 'WARN';
-  if (l === 'error') return 'ERROR';
-  return 'INFO';
 }
 
 function escHtml(s){
@@ -223,6 +257,16 @@ function buildVisibleEntries(){
   return grouped;
 }
 
+function levelLabel(l){
+  if (l === 'warn')  return 'WARN';
+  if (l === 'error') return 'ERROR';
+  if (l === 'cmd')   return 'CMD';
+  if (l === 'cout')  return 'OUT';
+  if (l === 'cerr')  return 'ERR';
+  if (l === 'cdone') return 'DONE';
+  return 'INFO';
+}
+
 function renderLine(entry){
   var div = document.createElement('div');
   div.className = 'log-line ' + (entry.level || 'info');
@@ -233,6 +277,40 @@ function renderLine(entry){
     (entry.repeat > 1 ? '<span class="log-repeat">×' + entry.repeat + '</span>' : '');
   return div;
 }
+
+// Console exec
+function execCommand(){
+  var inp = document.getElementById('consoleInput');
+  var cmd = inp.value.trim();
+  if (!cmd || !ws || ws.readyState !== WebSocket.OPEN) return;
+  inp.value = '';
+  cmdHistIdx = -1;
+  if (!cmdHistory.length || cmdHistory[0] !== cmd) cmdHistory.unshift(cmd);
+  if (cmdHistory.length > 50) cmdHistory.pop();
+
+  var cmdId = String(Date.now());
+  appendEntry({ level: 'cmd', text: '$ ' + cmd, ts: Date.now() });
+  ws.send(JSON.stringify({ type: 'exec_command', command: cmd, cmdId: cmdId }));
+  scrollToBottom();
+}
+
+// Up/Down history
+document.addEventListener('DOMContentLoaded', function(){
+  var inp = document.getElementById('consoleInput');
+  inp.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') { execCommand(); return; }
+    if (e.key === 'ArrowUp'){
+      e.preventDefault();
+      if (cmdHistIdx < cmdHistory.length - 1){ cmdHistIdx++; inp.value = cmdHistory[cmdHistIdx]; }
+    }
+    if (e.key === 'ArrowDown'){
+      e.preventDefault();
+      if (cmdHistIdx > 0){ cmdHistIdx--; inp.value = cmdHistory[cmdHistIdx]; }
+      else { cmdHistIdx = -1; inp.value = ''; }
+    }
+  });
+  document.getElementById('consoleRunBtn').addEventListener('click', execCommand);
+});
 
 function isAtBottom(term) {
   return term.scrollHeight - term.scrollTop - term.clientHeight < 80;
@@ -337,6 +415,13 @@ document.getElementById('searchInput').addEventListener('input', function(){
   rebuildTerminal(true);
 });
 
+document.getElementById('lineLimit').value = MAX_VISIBLE_LINES;
+document.getElementById('lineLimit').addEventListener('change', function(){
+  MAX_VISIBLE_LINES = parseInt(this.value, 10);
+  localStorage.setItem('elaris_log_limit', this.value);
+  rebuildTerminal(false);
+});
+
 // Detect manual scroll — stop follow, show jump button
 document.getElementById('terminal').addEventListener('scroll', function(){
   var term = this;
@@ -366,6 +451,13 @@ function connect(){
       if (msg.type === 'log'){
         appendEntry({ level: msg.level || 'info', text: msg.text || '', ts: msg.ts || Date.now() });
       }
+      if (msg.type === 'exec_result'){
+        appendEntry({ level: msg.stream === 'err' ? 'cerr' : 'cout', text: msg.text || '', ts: Date.now() });
+      }
+      if (msg.type === 'exec_done'){
+        appendEntry({ level: 'cdone', text: 'exit ' + msg.code, ts: Date.now() });
+        scrollToBottom();
+      }
     } catch {}
   };
 
@@ -392,6 +484,10 @@ function connect(){
     var r = await fetch('/api/me', { credentials: 'include' });
     var d = await r.json();
     if (!d.ok || !d.user){ location.href = '/login.html'; return; }
+    // Show console bar for engineer/admin
+    var role = (d.user.role || '').toUpperCase();
+    isEngineer = role === 'ENGINEER' || role === 'ADMIN';
+    if (isEngineer) document.getElementById('consoleBar').style.display = '';
   } catch { location.href = '/login.html'; return; }
   connect();
 })();

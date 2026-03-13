@@ -1,6 +1,7 @@
 const WebSocket = require("ws");
+const { spawn }  = require("child_process");
 
-function initWS(server) {
+function initWS(server, { db, getRole } = {}) {
   const wss = new WebSocket.Server({ server });
 
   const logSubs = new Set();
@@ -35,8 +36,9 @@ function initWS(server) {
     }
   }
 
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws, req) => {
     ws._clientId = null;
+    ws._isEngineer = typeof getRole === "function" && getRole(req) === "ENGINEER";
     ws.send(JSON.stringify({ type: "hello", ts: Date.now() }));
 
     ws.on("message", (data) => {
@@ -58,6 +60,35 @@ function initWS(server) {
 
         if (msg.type === "unsubscribe_logs") {
           logSubs.delete(ws);
+        }
+
+        if (msg.type === "exec_command") {
+          if (!ws._isEngineer) {
+            ws.send(JSON.stringify({ type: "exec_result", stream: "err", text: "Permission denied — engineer access required.", cmdId: msg.cmdId }));
+            ws.send(JSON.stringify({ type: "exec_done", code: 1, cmdId: msg.cmdId }));
+            return;
+          }
+          const cmd = String(msg.command || "").trim();
+          if (!cmd) return;
+
+          const cmdId = msg.cmdId || String(Date.now());
+          const send = (stream, text) => {
+            if (ws.readyState === WebSocket.OPEN)
+              ws.send(JSON.stringify({ type: "exec_result", stream, text, cmdId }));
+          };
+
+          const proc = spawn("bash", ["-c", cmd], { cwd: process.env.HOME || "/", env: process.env });
+          const TIMEOUT_MS = 30_000;
+          const killer = setTimeout(() => { proc.kill(); send("err", "[killed: 30s timeout]"); }, TIMEOUT_MS);
+
+          proc.stdout.on("data", d => String(d).split("\n").filter(Boolean).forEach(l => send("out", l)));
+          proc.stderr.on("data", d => String(d).split("\n").filter(Boolean).forEach(l => send("err", l)));
+          proc.on("close", code => {
+            clearTimeout(killer);
+            if (ws.readyState === WebSocket.OPEN)
+              ws.send(JSON.stringify({ type: "exec_done", code, cmdId }));
+          });
+          proc.on("error", e => { clearTimeout(killer); send("err", e.message); });
         }
       } catch {}
     });
