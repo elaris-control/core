@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem('elaris_theme')||'dark';}catch(e){document.documentElement.dataset.theme='dark';}</script>
+  <script src="/csrf.js?v=1"></script>
+  <title>ELARIS — Logs</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/styles.css?v=22">
+<style>
+html, body { height:100%; overflow:hidden; }
+body { margin:0; }
+.app { height:100vh; overflow:hidden; }
+.lpage { display:flex; flex-direction:column; flex:1; overflow:hidden; min-width:0; height:100vh; }
+.ltopbar { display:flex; align-items:center; gap:8px; padding:10px 16px; border-bottom:1px solid var(--line); flex-shrink:0; flex-wrap:wrap; position:sticky; top:0; z-index:5; background:var(--panel,#0b1324); }
+.ltopbar h1 { font-size:15px; font-weight:800; margin-right:auto; }
+
+.filter-btn {
+  font-size:10px; padding:4px 10px; border-radius:6px;
+  border:1px solid var(--line); background:transparent;
+  color:var(--muted2); cursor:pointer; font-family:monospace;
+  transition:.15s; font-weight:700;
+}
+.filter-btn:hover { border-color:var(--line2); color:var(--text); }
+.filter-btn.active { border-color:var(--blue); background:rgba(29,140,255,.10); color:#8fc7ff; }
+.filter-btn.warn.active  { border-color:rgba(245,200,66,.32); background:rgba(245,200,66,.08); color:#ffd978; }
+.filter-btn.error.active { border-color:rgba(255,107,107,.32); background:rgba(255,107,107,.08); color:#ffb4b4; }
+
+.toggle-btn {
+  font-size:10px; padding:4px 10px; border-radius:999px;
+  border:1px solid var(--line); background:rgba(255,255,255,.03);
+  color:var(--muted2); cursor:pointer; font-family:monospace; font-weight:700;
+}
+.toggle-btn.active { border-color:rgba(34,217,122,.28); background:rgba(34,217,122,.08); color:#8ff0bf; }
+
+.ws-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex-shrink:0; transition:.3s; }
+.ws-dot.connected { background:var(--good); box-shadow:0 0 6px var(--good); }
+.ws-dot.error     { background:var(--bad); }
+
+.terminal-shell { flex:1; min-height:0; overflow:hidden; display:flex; flex-direction:column; padding:12px 16px 16px; }
+.terminal-meta { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; flex-shrink:0; flex-wrap:wrap; }
+.terminal-meta-left, .terminal-meta-right { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.search-mini, .select-mini {
+  font-size:10px; padding:5px 8px; border-radius:6px; border:1px solid var(--line);
+  background:rgba(255,255,255,.04); color:var(--text); font-family:monospace; font-weight:700;
+}
+.search-mini { min-width:220px; }
+.search-mini:focus, .select-mini:focus { outline:none; border-color:var(--line2); }
+.terminal {
+  flex:1; min-height:0; overflow-y:auto; padding:12px 16px;
+  font-family:monospace; font-size:12px; line-height:1.6;
+  background:rgba(255,255,255,.02); color:var(--text); border:1px solid var(--line); border-radius:12px;
+}
+.terminal::-webkit-scrollbar { width:8px; }
+.terminal::-webkit-scrollbar-track { background:transparent; }
+.terminal::-webkit-scrollbar-thumb { background:rgba(255,255,255,.14); border-radius:999px; }
+
+.log-line { display:flex; gap:10px; align-items:baseline; padding:2px 0; border-radius:6px; }
+.log-line:hover { background:rgba(255,255,255,.025); }
+.log-ts   { color:#7183a5; font-size:10px; flex-shrink:0; user-select:none; }
+.log-lvl  { font-size:10px; font-weight:800; flex-shrink:0; width:40px; text-align:center;
+            border-radius:999px; padding:1px 6px; border:1px solid transparent; }
+.log-text { color:#dfe7f3; word-break:break-word; flex:1; }
+.log-repeat { font-size:10px; color:#8fa4c7; flex-shrink:0; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.03); border-radius:999px; padding:1px 6px; }
+
+.log-line.info  .log-lvl  { color:#8fc7ff; background:rgba(29,140,255,.08); border-color:rgba(29,140,255,.16); }
+.log-line.warn  .log-lvl  { color:#ffd978; background:rgba(245,200,66,.08); border-color:rgba(245,200,66,.16); }
+.log-line.error .log-lvl  { color:#ffb4b4; background:rgba(255,107,107,.08); border-color:rgba(255,107,107,.16); }
+.log-line.info  .log-text { color:#dfe7f3; }
+.log-line.warn  .log-text { color:#ffe7a8; }
+.log-line.error .log-text { color:#ffc6c6; }
+
+.terminal-hint { font-size:11px; color:var(--muted2); }
+.log-paused-banner {
+  display:none; text-align:center; padding:6px; font-size:11px; font-weight:700;
+  background:rgba(245,200,0,.10); color:#ffd978; border-top:1px solid rgba(245,200,0,.18);
+  flex-shrink:0;
+}
+.log-paused-banner.show { display:block; }
+
+.btn-pause { min-width:72px; }
+.count-pill {
+  font-size:10px; font-family:monospace; color:var(--muted2);
+  background:rgba(255,255,255,.05); border:1px solid var(--line);
+  border-radius:999px; padding:2px 8px; flex-shrink:0;
+}
+.empty-state { color:var(--muted); font-size:11px; padding:8px 0; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="sidebar">
+    <div class="brand">
+      <img class="brandLogo" src="/logo.png" alt="ELARIS" onerror="this.style.display='none'">
+      <div class="brandText"><div class="name">ELARIS</div><div class="tagline">Smart Control</div></div>
+    </div>
+    <div class="groupTitle">Main</div>
+    <nav class="nav">
+      <a href="/">&#127968; Dashboard</a>
+    </nav>
+    <div id="navContainer"></div>
+    <div class="groupTitle">System</div>
+    <nav class="nav">
+      <a href="/scenes.html">&#127916; Scenes</a>
+      <a href="/history.html">&#128200; History</a>
+      <a href="/settings.html">&#9881;&#65039; Settings</a>
+      <a href="/entities.html">&#128268; Entities</a>
+      <a href="/installer.html" id="installerLink">&#128295; Installer</a>
+      <a href="/modules.html" id="modulesLink">&#129513; Modules</a>
+      <a href="/logs.html" class="active">&#128203; Logs</a>
+      <a href="/esphome.html">&#128376; ESPHome</a>
+      <a href="/help.html">&#10067; Help</a>
+      <a href="/admin.html" id="adminLink" style="display:none">Admin</a>
+    </nav>
+    <div style="padding:16px 20px 8px;margin-top:auto">
+      <button class="btn" style="width:100%;font-size:11px" onclick="window.location.href='/'">&#8592; Dashboard</button>
+    </div>
+  </aside>
+  <div class="overlay" id="overlay" onclick="document.body.classList.remove('sideOpen')"></div>
+
+  <div class="lpage">
+    <div class="ltopbar">
+      <button class="btn" id="menuBtn" style="display:none" onclick="document.body.classList.add('sideOpen')">&#9776;</button>
+      <h1>&#128203; Live Logs</h1>
+      <div class="ws-dot" id="wsDot"></div>
+      <button class="filter-btn active" data-level="all">ALL</button>
+      <button class="filter-btn" data-level="info">INFO</button>
+      <button class="filter-btn warn" data-level="warn">WARN</button>
+      <button class="filter-btn error" data-level="error">ERROR</button>
+
+      <button class="toggle-btn active" id="autoScrollBtn" onclick="toggleAutoScroll()">Auto-scroll ON</button>
+      <button class="toggle-btn active" id="collapseBtn" onclick="toggleCollapse()">Collapse repeats</button>
+      <button class="btn btn-pause" id="pauseBtn" onclick="togglePause()">&#9646;&#9646; Pause</button>
+      <button class="btn" onclick="clearLogs()">&#128465; Clear</button>
+      <button class="btn" id="themeBtn" onclick="toggleTheme()" style="margin-left:auto">&#127769;</button>
+    </div>
+
+    <div class="terminal-shell">
+      <div class="terminal-meta">
+        <div class="terminal-meta-left">
+          <span class="count-pill" id="countPill">0 lines</span>
+          <span class="terminal-hint" id="rangeHint">showing last 60 visible lines</span>
+        </div>
+        <div class="terminal-meta-right">
+          <input id="searchInput" class="search-mini" type="text" placeholder="Search logs...">
+          <label class="terminal-hint" for="lineLimit">Visible</label>
+          <select id="lineLimit" class="select-mini">
+            <option value="40">40</option>
+            <option value="60" selected>60</option>
+            <option value="100">100</option>
+            <option value="150">150</option>
+          </select>
+        </div>
+      </div>
+      <div style="position:relative;flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden">
+        <div class="terminal" id="terminal">
+          <div style="color:var(--muted);font-size:11px;padding:8px 0">Connecting to server…</div>
+        </div>
+        <button id="jumpBtn" onclick="scrollToBottom()" style="display:none;position:absolute;bottom:12px;right:18px;padding:5px 14px;font-size:11px;font-weight:700;background:var(--blue);color:#fff;border:none;border-radius:999px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.4);z-index:10">
+          &#8595; Latest
+        </button>
+      </div>
+    </div>
+    <div class="log-paused-banner" id="pausedBanner">&#9646;&#9646; PAUSED — scroll up to read, click Resume to continue</div>
+  </div>
+</div>
+
+<script src="/theme.js"></script>
+<script>
+var MAX_BUFFER_LINES = 300;
+var MAX_VISIBLE_LINES = 60;
+var paused = false;
+var filter = 'all';
+var searchQuery = '';
+var autoScroll = true;
+var collapseRepeats = true;
+var allLogs = [];   // raw entries { level, text, ts }
+var ws = null;
+var reconnectT = null;
+var userScrolled = false;
+
+function pad2(n){ return String(n).padStart(2,'0'); }
+
+function fmtTs(ts){
+  var d = new Date(ts);
+  return pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds());
+}
+
+function levelLabel(l){
+  if (l === 'warn') return 'WARN';
+  if (l === 'error') return 'ERROR';
+  return 'INFO';
+}
+
+function escHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function normalizeText(s){ return String(s || '').toLowerCase(); }
+
+function buildVisibleEntries(){
+  var visible = allLogs.filter(function(entry){
+    if (filter !== 'all' && entry.level !== filter) return false;
+    if (searchQuery && normalizeText(entry.text).indexOf(searchQuery) === -1) return false;
+    return true;
+  });
+
+  if (!collapseRepeats) return visible.map(function(entry){ return Object.assign({ repeat: 1 }, entry); });
+
+  var grouped = [];
+  for (var i = 0; i < visible.length; i++) {
+    var entry = visible[i];
+    var prev = grouped[grouped.length - 1];
+    if (prev && prev.level === entry.level && prev.text === entry.text) {
+      prev.repeat += 1;
+      prev.ts = entry.ts;
+    } else {
+      grouped.push({ level: entry.level, text: entry.text, ts: entry.ts, repeat: 1 });
+    }
+  }
+  return grouped;
+}
+
+function renderLine(entry){
+  var div = document.createElement('div');
+  div.className = 'log-line ' + (entry.level || 'info');
+  div.innerHTML =
+    '<span class="log-ts">'  + fmtTs(entry.ts) + '</span>' +
+    '<span class="log-lvl">' + levelLabel(entry.level) + '</span>' +
+    '<span class="log-text">'+ escHtml(entry.text) + '</span>' +
+    (entry.repeat > 1 ? '<span class="log-repeat">×' + entry.repeat + '</span>' : '');
+  return div;
+}
+
+function isAtBottom(term) {
+  return term.scrollHeight - term.scrollTop - term.clientHeight < 80;
+}
+
+function scrollToBottom() {
+  var term = document.getElementById('terminal');
+  term.scrollTop = term.scrollHeight;
+  userScrolled = false;
+  document.getElementById('jumpBtn').style.display = 'none';
+}
+
+function rebuildTerminal(forceBottom){
+  var term = document.getElementById('terminal');
+  var wasAtBottom = isAtBottom(term);
+  var prevScroll = term.scrollTop;
+  var visible = buildVisibleEntries();
+  var start = Math.max(0, visible.length - MAX_VISIBLE_LINES);
+  var sliced = visible.slice(start);
+
+  term.innerHTML = '';
+  if (!sliced.length) {
+    term.innerHTML = '<div class="empty-state">No logs match the current filters.</div>';
+  } else {
+    for (var i = 0; i < sliced.length; i++) term.appendChild(renderLine(sliced[i]));
+  }
+
+  if (forceBottom || (autoScroll && !userScrolled && wasAtBottom)) {
+    term.scrollTop = term.scrollHeight;
+    userScrolled = false;
+    document.getElementById('jumpBtn').style.display = 'none';
+  } else if (!autoScroll || userScrolled) {
+    term.scrollTop = prevScroll;
+    if (!isAtBottom(term)) document.getElementById('jumpBtn').style.display = '';
+  }
+
+  updateCount(visible.length, sliced.length);
+}
+
+function appendEntry(entry){
+  allLogs.push(entry);
+  if (allLogs.length > MAX_BUFFER_LINES) allLogs.shift();
+  if (!paused) rebuildTerminal(false);
+}
+
+function updateCount(totalVisible, shownVisible){
+  var visibleCount = totalVisible == null ? buildVisibleEntries().length : totalVisible;
+  var shownCount = shownVisible == null ? Math.min(visibleCount, MAX_VISIBLE_LINES) : shownVisible;
+  document.getElementById('countPill').textContent = shownCount + ' shown / ' + visibleCount + ' matched';
+  document.getElementById('rangeHint').textContent = 'buffer ' + allLogs.length + ' • last ' + MAX_VISIBLE_LINES + ' visible lines';
+}
+
+function clearLogs(){
+  allLogs = [];
+  rebuildTerminal(true);
+}
+
+function togglePause(){
+  paused = !paused;
+  var btn = document.getElementById('pauseBtn');
+  var banner = document.getElementById('pausedBanner');
+  if (paused){
+    btn.innerHTML = '&#9654; Resume';
+    btn.classList.add('btnPrimary');
+    banner.classList.add('show');
+  } else {
+    btn.innerHTML = '&#9646;&#9646; Pause';
+    btn.classList.remove('btnPrimary');
+    banner.classList.remove('show');
+    rebuildTerminal(true);
+  }
+}
+
+function toggleAutoScroll(){
+  autoScroll = !autoScroll;
+  var btn = document.getElementById('autoScrollBtn');
+  btn.classList.toggle('active', autoScroll);
+  btn.textContent = autoScroll ? 'Auto-scroll ON' : 'Auto-scroll OFF';
+  if (autoScroll) scrollToBottom();
+}
+
+function toggleCollapse(){
+  collapseRepeats = !collapseRepeats;
+  var btn = document.getElementById('collapseBtn');
+  btn.classList.toggle('active', collapseRepeats);
+  btn.textContent = collapseRepeats ? 'Collapse repeats' : 'Raw lines';
+  rebuildTerminal(false);
+}
+
+// Filter buttons
+document.querySelectorAll('.filter-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    filter = btn.dataset.level;
+    document.querySelectorAll('.filter-btn').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    rebuildTerminal(true);
+  });
+});
+
+document.getElementById('searchInput').addEventListener('input', function(){
+  searchQuery = normalizeText(this.value).trim();
+  rebuildTerminal(true);
+});
+
+// Detect manual scroll — stop follow, show jump button
+document.getElementById('terminal').addEventListener('scroll', function(){
+  var term = this;
+  if (isAtBottom(term)) {
+    userScrolled = false;
+    document.getElementById('jumpBtn').style.display = 'none';
+  } else {
+    userScrolled = true;
+    document.getElementById('jumpBtn').style.display = '';
+  }
+});
+
+// WebSocket
+function connect(){
+  var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(proto + '://' + location.host);
+
+  ws.onopen = function(){
+    document.getElementById('wsDot').className = 'ws-dot connected';
+    ws.send(JSON.stringify({ type: 'subscribe_logs' }));
+    appendEntry({ level: 'info', text: '--- connected to server ---', ts: Date.now() });
+  };
+
+  ws.onmessage = function(e){
+    try {
+      var msg = JSON.parse(e.data);
+      if (msg.type === 'log'){
+        appendEntry({ level: msg.level || 'info', text: msg.text || '', ts: msg.ts || Date.now() });
+      }
+    } catch {}
+  };
+
+  ws.onclose = function(){
+    document.getElementById('wsDot').className = 'ws-dot error';
+    appendEntry({ level: 'warn', text: '--- disconnected, reconnecting in 3s… ---', ts: Date.now() });
+    reconnectT = setTimeout(connect, 3000);
+  };
+
+  ws.onerror = function(){
+    ws.close();
+  };
+}
+// Mobile menu button
+(function(){
+  var mq = window.matchMedia('(max-width:768px)');
+  function check(){ document.getElementById('menuBtn').style.display = mq.matches ? '' : 'none'; }
+  mq.addEventListener('change', check); check();
+})();
+
+// Auth check + boot
+(async function(){
+  try {
+    var r = await fetch('/api/me', { credentials: 'include' });
+    var d = await r.json();
+    if (!d.ok || !d.user){ location.href = '/login.html'; return; }
+  } catch { location.href = '/login.html'; return; }
+  connect();
+})();
+</script>
+</body>
+</html>

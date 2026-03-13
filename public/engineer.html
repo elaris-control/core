@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ELARIS Engineer Unlock</title>
+
+  <!-- Apply saved theme ASAP (avoid flash) -->
+  <script>
+    (function(){
+      try{
+        var t = localStorage.getItem("elaris_theme");
+        if(t) document.documentElement.dataset.theme = t;
+      }catch(e){}
+    })();
+  </script>
+  <script src="/csrf.js?v=1"></script>
+
+  <style>
+    :root{
+      --bg:#f4f6f9;
+      --panel:#ffffff;
+      --text:#0f172a;
+      --muted:#667085;
+      --line:#d0d5dd;
+      --shadow:0 10px 28px rgba(0,0,0,.10);
+      --btn:#111827;
+      --btnText:#ffffff;
+      --ghost:transparent;
+      --focus:rgba(255,106,0,.35);
+    }
+    :root[data-theme="dark"]{
+      --bg:#0b1220;
+      --panel:#0f1a2e;
+      --text:#e5e7eb;
+      --muted:#93a4bd;
+      --line:rgba(148,163,184,.18);
+      --shadow:0 18px 55px rgba(0,0,0,.45);
+      --btn:#1f2a44;
+      --btnText:#ffffff;
+      --ghost:rgba(255,255,255,.02);
+      --focus:rgba(255,106,0,.45);
+    }
+
+    html{ color-scheme: light; }
+    :root[data-theme="dark"]{ color-scheme: dark; }
+
+    body{
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 40px;
+      margin:0;
+    }
+
+    .card{
+      max-width: 440px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 18px;
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
+
+    .hdr{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom: 10px;
+    }
+
+    h2{ margin:0; font-size:18px; }
+
+    .muted{
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 10px;
+      line-height: 1.35;
+    }
+
+    input{
+      padding: 11px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--ghost);
+      color: inherit;
+      outline: none;
+      margin-top: 8px;
+    }
+    input:focus-visible{
+      outline: 3px solid var(--focus);
+      outline-offset: 2px;
+    }
+
+    #btn{
+      margin-top: 10px;
+      padding: 11px 12px;
+      border-radius: 12px;
+      border: 0;
+      width: 100%;
+      cursor: pointer;
+      background: var(--btn);
+      color: var(--btnText);
+      font-weight: 800;
+      letter-spacing: .2px;
+    }
+
+    #themeBtn{
+      width:auto;
+      padding: 8px 10px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: var(--ghost);
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .err{
+      color:#ef4444;
+      font-size:13px;
+      margin-top:10px;
+      white-space:pre-wrap;
+    }
+
+    .ver{
+      margin-top:10px;
+      font-size:12px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    <div class="hdr">
+      <h2>Engineer Unlock</h2>
+      <button type="button" id="themeBtn" aria-label="Theme">🌙</button>
+    </div>
+
+    <div class="muted">Βάλε τον engineer code για να ανοίξει το Installer.</div>
+
+    <input id="code" type="password" placeholder="Engineer code" autocomplete="one-time-code" />
+    <button id="btn" type="button">Unlock</button>
+
+    <div id="msg" class="err"></div>
+    <div class="muted">After unlock you will be redirected to <b>/installer.html</b>.</div>
+
+    <div class="ver">Engineer theme v2</div>
+  </div>
+
+  <script>
+    // Theme toggle (same key with dashboard/settings)
+    (function(){
+      const KEY = "elaris_theme";
+
+      function apply(theme){
+        const t = (theme === "dark") ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+        try{ localStorage.setItem(KEY, t); }catch(e){}
+        const b = document.getElementById("themeBtn");
+        if(b) b.textContent = (t === "dark") ? "☀️" : "🌙";
+        document.documentElement.style.colorScheme = (t === "dark") ? "dark" : "light";
+      }
+
+      function init(){
+        let t = "light";
+        try{ t = localStorage.getItem(KEY) || "light"; }catch(e){}
+        apply(t);
+
+        const b = document.getElementById("themeBtn");
+        if(b){
+          b.addEventListener("click", (e)=>{
+            e.preventDefault();
+            const cur = document.documentElement.dataset.theme || "light";
+            apply(cur === "dark" ? "light" : "dark");
+          });
+        }
+      }
+
+      if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+      else init();
+    })();
+  </script>
+
+  <script>
+    async function unlock() {
+      const code = document.getElementById("code").value.trim();
+      const msg = document.getElementById("msg");
+      msg.textContent = "";
+
+      if (!code) { msg.textContent = "Βάλε code."; return; }
+
+      const res = await fetch("/api/engineer/unlock", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        credentials: "same-origin",
+        body: JSON.stringify({ code })
+      });
+
+      const data = await res.json().catch(()=> ({}));
+      if (!res.ok) {
+        msg.textContent = "Unlock failed: " + (data.error || res.status);
+        return;
+      }
+
+      location.href = "/installer.html";
+    }
+
+    document.getElementById("btn").addEventListener("click", unlock);
+    document.getElementById("code").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") unlock();
+    });
+  </script>
+</body>
+</html>

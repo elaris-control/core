@@ -1,0 +1,23 @@
+{
+  "name": "elaris-core",
+  "version": "0.2.0",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "NODE_ENV=development node src/index.js",
+    "recover-admin": "node scripts/recover_admin.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.6.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "js-yaml": "^4.1.1",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "mqtt": "^5.10.4",
+    "nodemailer": "^8.0.2",
+    "ws": "^8.18.0"
+  }
+}

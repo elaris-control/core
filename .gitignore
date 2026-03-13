@@ -1,0 +1,54 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env / secrets
+.env
+*.env
+
+# Runtime logs
+logs/
+*.log
+
+# SQLite (runtime + backups)
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.bak
+*.old*
+*dump*.sql
+
+# App data folder (keep directory placeholder)
+data/*
+!data/.gitkeep
+
+# License key (never commit)
+license.json
+
+# Claude Code workspace files
+.claude/
+.mcp.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ESPHome generated YAMLs
+data/esphome/
+
+# Pro modules (not open source)
+src/automation/pool_spa.js
+src/automation/hydronic_manager.js
+src/automation/irrigation.js
+src/automation/solar_v2.js
+src/automation/load_shifter.js
+src/automation/custom.js
+src/automation/custom_test_helper.js
+src/modules/pool_spa.js
+src/modules/hydronic_manager.js
+src/modules/irrigation.js
+src/modules/load_shifter.js
+src/modules/custom.js

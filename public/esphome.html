@@ -1,0 +1,2170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem('elaris_theme')||'dark';}catch(e){document.documentElement.dataset.theme='dark';}</script>
+  <script src="/csrf.js?v=1"></script>
+  <title>ELARIS — ESPHome Installer</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/styles.css?v=22">
+<style>
+.epage { display:flex; flex-direction:column; flex:1; overflow:hidden; min-width:0; }
+.etopbar { display:flex; align-items:center; gap:8px; padding:10px 16px; border-bottom:1px solid var(--line); flex-shrink:0; }
+.etopbar h1 { font-size:15px; font-weight:800; margin-right:auto; }
+.ebody { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:20px; }
+
+/* Stepper */
+.stepper { display:flex; align-items:center; gap:0; flex-shrink:0; }
+.step-item { display:flex; align-items:center; gap:0; }
+.step-dot {
+  width:28px; height:28px; border-radius:50%; border:2px solid var(--line);
+  display:flex; align-items:center; justify-content:center;
+  font-size:11px; font-weight:800; color:var(--muted); flex-shrink:0;
+  transition:.2s;
+}
+.step-dot.active  { border-color:var(--blue); background:var(--blue); color:#fff; }
+.step-dot.done    { border-color:var(--good); background:var(--good); color:#fff; }
+.step-label { font-size:10px; color:var(--muted); margin-left:6px; font-weight:700; white-space:nowrap; }
+.step-label.active { color:var(--text); }
+.step-line { width:24px; height:2px; background:var(--line); margin:0 4px; flex-shrink:0; }
+
+/* Cards */
+.card-step { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:20px; }
+.card-step h2 { font-size:13px; font-weight:800; margin-bottom:16px; }
+
+/* Form */
+.form-row { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+.form-row label { font-size:11px; font-weight:700; color:var(--muted2); }
+.form-row input, .form-row select {
+  background:var(--input, rgba(255,255,255,.05)); border:1px solid var(--line);
+  border-radius:8px; padding:8px 12px; font-size:13px; color:var(--text);
+  width:100%; box-sizing:border-box; font-family:inherit;
+}
+.form-row input:focus, .form-row select:focus {
+  outline:none; border-color:var(--blue); background:rgba(29,140,255,.06);
+}
+.form-hint { font-size:10px; color:var(--muted); margin-top:2px; }
+.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 16px; }
+
+/* Toggle */
+.toggle-row { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.toggle-row > label:not(.toggle) { font-size:12px; font-weight:700; flex:1; }
+.toggle-row .toggle { flex:0 0 auto; width:36px; height:20px; display:inline-block; }
+.toggle { position:relative; width:36px; height:20px; flex-shrink:0; }
+.toggle input { opacity:0; width:0; height:0; }
+.toggle-track {
+  position:absolute; inset:0; border-radius:10px;
+  background:var(--line2); cursor:pointer; transition:.2s;
+}
+.toggle input:checked + .toggle-track { background:var(--blue); }
+.toggle-track::after {
+  content:''; position:absolute; width:14px; height:14px; border-radius:50%;
+  background:#fff; top:3px; left:3px; transition:.2s;
+}
+.toggle input:checked + .toggle-track::after { left:19px; }
+
+/* Entities list */
+.entity-list { display:flex; flex-direction:column; gap:8px; margin-bottom:14px; }
+.entity-item {
+  background:rgba(255,255,255,.03); border:1px solid var(--line);
+  border-radius:10px; padding:12px 14px;
+  display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:8px; align-items:center;
+}
+.entity-item select, .entity-item input {
+  background:var(--input, rgba(255,255,255,.05)); border:1px solid var(--line);
+  border-radius:6px; padding:5px 8px; font-size:12px; color:var(--text);
+  width:100%; box-sizing:border-box; font-family:inherit;
+}
+.entity-remove { background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px; padding:2px 4px; line-height:1; }
+.entity-remove:hover { color:var(--bad); }
+.entity-header { display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:8px; padding:0 14px; margin-bottom:4px; }
+.entity-header span { font-size:10px; font-weight:700; color:var(--muted); }
+
+/* Status dot */
+.status-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+.status-dot.ok    { background:var(--good); box-shadow:0 0 6px var(--good); }
+.status-dot.error { background:var(--bad); }
+
+/* Terminal */
+.terminal {
+  background:#0d1117; border:1px solid var(--line); border-radius:10px;
+  padding:12px 14px; font-family:monospace; font-size:12px; line-height:1.6;
+  height:300px; overflow-y:auto; color:#e6edf3;
+}
+.terminal::-webkit-scrollbar { width:6px; }
+.terminal::-webkit-scrollbar-thumb { background:var(--line2); border-radius:3px; }
+.tl-warn  { color:#e3b341; }
+.tl-error { color:#f85149; }
+.tl-info  { color:#e6edf3; }
+.tl-ts    { color:#484f58; margin-right:6px; font-size:10px; }
+
+/* Misc */
+.pill-info { display:inline-flex; align-items:center; gap:6px; padding:4px 10px;
+  border-radius:999px; font-size:11px; font-weight:700;
+  background:rgba(29,140,255,.1); border:1px solid rgba(29,140,255,.25); color:var(--blue); }
+.pill-warn { background:rgba(245,200,0,.1); border-color:rgba(245,200,0,.3); color:var(--warn); }
+.pill-ok   { background:rgba(34,217,122,.1); border-color:rgba(34,217,122,.3); color:var(--good); }
+.pill-err  { background:rgba(255,69,69,.1);  border-color:rgba(255,69,69,.3);  color:var(--bad); }
+.btn-nav { min-width:90px; }
+.yaml-pre { background:#0d1117; border:1px solid var(--line); border-radius:8px;
+  padding:12px; font-size:11px; font-family:monospace; white-space:pre; overflow-x:auto;
+  color:#e6edf3; max-height:250px; overflow-y:auto; }
+.guide-steps { display:flex; flex-direction:column; gap:10px; margin-bottom:16px; }
+.guide-step { display:flex; gap:12px; align-items:flex-start; font-size:12px; line-height:1.6; }
+.guide-num { flex-shrink:0; width:24px; height:24px; border-radius:50%; background:var(--blue); color:#fff; font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+.guide-tip { background:rgba(29,140,255,.08); border:1px solid rgba(29,140,255,.2); border-radius:8px; padding:10px 14px; font-size:11px; color:var(--muted2); line-height:1.6; }
+.guide-step code { background:rgba(255,255,255,.08); border-radius:4px; padding:1px 5px; font-family:monospace; font-size:11px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="sidebar">
+    <div class="brand">
+      <img class="brandLogo" src="/logo.png" alt="ELARIS" onerror="this.style.display='none'">
+      <div class="brandText"><div class="name">ELARIS</div><div class="tagline">Smart Control</div></div>
+    </div>
+    <div class="groupTitle">Main</div>
+    <nav class="nav">
+      <a href="/">&#127968; Dashboard</a>
+    </nav>
+    <div id="navContainer"></div>
+    <div class="groupTitle">System</div>
+    <nav class="nav">
+      <a href="/scenes.html">&#127916; Scenes</a>
+      <a href="/history.html">&#128200; History</a>
+      <a href="/settings.html">&#9881;&#65039; Settings</a>
+      <a href="/entities.html">&#128268; Entities</a>
+      <a href="/installer.html" id="installerLink">&#128295; Installer</a>
+      <a href="/modules.html" id="modulesLink">&#129513; Modules</a>
+      <a href="/logs.html">&#128203; Logs</a>
+      <a href="/esphome.html" class="active">&#128376; ESPHome</a>
+      <a href="/help.html">&#10067; Help</a>
+      <a href="/admin.html" id="adminLink" style="display:none">Admin</a>
+    </nav>
+    <div style="padding:16px 20px 8px;margin-top:auto">
+      <button class="btn" style="width:100%;font-size:11px" onclick="window.location.href='/'">&#8592; Dashboard</button>
+    </div>
+  </aside>
+  <div class="overlay" id="overlay" onclick="document.body.classList.remove('sideOpen')"></div>
+
+  <div class="epage">
+    <div class="etopbar">
+      <button class="btn btn-sm" onclick="toggleGuide()" id="guideBtn" title="How to use ESPHome">📖 Guide</button>
+      <button class="btn" id="menuBtn" style="display:none" onclick="document.body.classList.add('sideOpen')">&#9776;</button>
+      <h1>&#128376; ESPHome Installer</h1>
+      <!-- stepper -->
+
+      <div class="stepper" id="stepper">
+        <div class="step-item"><div class="step-dot active" id="sd1">1</div><span class="step-label active" id="sl1">Setup</span></div>
+        <div class="step-line"></div>
+        <div class="step-item"><div class="step-dot" id="sd2">2</div><span class="step-label" id="sl2">Device</span></div>
+        <div class="step-line"></div>
+        <div class="step-item"><div class="step-dot" id="sd3">3</div><span class="step-label" id="sl3">Network</span></div>
+        <div class="step-line"></div>
+        <div class="step-item"><div class="step-dot" id="sd4">4</div><span class="step-label" id="sl4">Entities</span></div>
+        <div class="step-line"></div>
+        <div class="step-item"><div class="step-dot" id="sd5">5</div><span class="step-label" id="sl5">Flash</span></div>
+      </div>
+      <button class="btn" id="themeBtn" onclick="toggleTheme()" style="margin-left:auto;flex-shrink:0">&#127769;</button>
+    </div>
+
+    <div class="ebody">
+
+      <div id="guidePanel" class="card-step" style="display:none">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+    <h2 style="margin:0;flex:1">📖 ESPHome Guide</h2>
+    <button class="btn btn-sm" onclick="toggleGuide()">✕ Close</button>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+    <button class="btn btn-sm" id="guideTab1Btn" onclick="showGuideTab(1)">1 · Flash a Peripheral Sensor</button>
+    <button class="btn btn-sm" id="guideTab2Btn" onclick="showGuideTab(2)">2 · Flash a Kincony Board</button>
+    <button class="btn btn-sm" id="guideTab3Btn" onclick="showGuideTab(3)">3 · After Flashing</button>
+  </div>
+  <div id="guideTab1" class="guide-tab">
+    <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Use the Peripheral Library to generate a YAML for a sensor (anemometer, rain, CO2, etc.) and flash it onto a generic ESP32 board.</p>
+    <div class="guide-steps">
+      <div class="guide-step"><span class="guide-num">1</span><div><strong>Wire the sensor</strong> to an ESP32 dev board. Note the GPIO pin used.</div></div>
+      <div class="guide-step"><span class="guide-num">2</span><div>Click <strong>Peripheral Library</strong> → select your sensor type.</div></div>
+      <div class="guide-step"><span class="guide-num">3</span><div>Fill in: <strong>Device Name</strong> (e.g. <code>wind-station</code>), <strong>GPIO pin</strong>, <strong>MQTT Broker IP</strong> (Pi's IP), WiFi credentials.</div></div>
+      <div class="guide-step"><span class="guide-num">4</span><div>Click <strong>Generate YAML</strong> → <strong>Copy</strong> the YAML to clipboard.</div></div>
+      <div class="guide-step"><span class="guide-num">5</span><div>Click <strong>Import YAML</strong> (topbar) → paste the YAML → Import. This saves the sensor as a board profile.</div></div>
+      <div class="guide-step"><span class="guide-num">6</span><div>In <strong>Step 1</strong> of the installer: select the newly imported profile.</div></div>
+      <div class="guide-step"><span class="guide-num">7</span><div><strong>Connect ESP32 via USB</strong> → select the serial port → click <strong>Flash</strong>.</div></div>
+      <div class="guide-step"><span class="guide-num">8</span><div>After flash the ESP32 reboots and connects to WiFi + MQTT automatically.</div></div>
+      <div class="guide-step"><span class="guide-num">9</span><div>See tab <strong>3 · After Flashing</strong> for next steps in ELARIS.</div></div>
+    </div>
+    <div class="guide-tip">💡 Use a <strong>data USB cable</strong> (not charge-only). Most ESP32 boards use CP2102 or CH340 — install the driver on your PC if the port doesn't appear.</div>
+  </div>
+  <div id="guideTab2" class="guide-tab" style="display:none">
+    <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Flash a Kincony relay board (KC868-A4/A8/A16/A32) using the built-in board profiles — all GPIOs and I2C expanders are pre-configured.</p>
+    <div class="guide-steps">
+      <div class="guide-step"><span class="guide-num">1</span><div>In <strong>Step 1</strong> select your board (e.g. <em>Kincony KC868-A16</em>).</div></div>
+      <div class="guide-step"><span class="guide-num">2</span><div>Enter a <strong>Device Name</strong> (e.g. <code>kc868-living</code>) — lowercase, numbers and dashes only.</div></div>
+      <div class="guide-step"><span class="guide-num">3</span><div>Enter <strong>WiFi SSID &amp; Password</strong>. For Ethernet boards enable the Ethernet toggle and leave WiFi blank.</div></div>
+      <div class="guide-step"><span class="guide-num">4</span><div>Enter <strong>MQTT Broker</strong> — your Pi's local IP (e.g. <code>192.168.1.10</code>).</div></div>
+      <div class="guide-step"><span class="guide-num">5</span><div>Click <strong>Next</strong> to review entities (relays, inputs). Rename them if needed — the names appear in ELARIS.</div></div>
+      <div class="guide-step"><span class="guide-num">6</span><div>Click <strong>Next</strong> → YAML preview. Connect board via USB, select port → <strong>Flash</strong>.</div></div>
+      <div class="guide-step"><span class="guide-num">7</span><div>Board reboots after flash and connects to MQTT. IOs appear in ELARIS within ~30 seconds.</div></div>
+    </div>
+    <div class="guide-tip">💡 If ESPHome is not installed, use the <strong>Install ESPHome</strong> button at the top of this page first.</div>
+  </div>
+  <div id="guideTab3" class="guide-tab" style="display:none">
+    <p style="font-size:12px;color:var(--muted);margin-bottom:16px">What to do in ELARIS after a successful flash.</p>
+    <div class="guide-steps">
+      <div class="guide-step"><span class="guide-num">1</span><div>The ESP boots and publishes sensors/relays to MQTT. This takes 15–30 seconds.</div></div>
+      <div class="guide-step"><span class="guide-num">2</span><div>Open <strong>ELARIS main app</strong> → go to <strong>Installer</strong> (plug icon). Your device appears with pending IOs.</div></div>
+      <div class="guide-step"><span class="guide-num">3</span><div>Click <strong>Approve</strong> on each IO you want to use. Approved IOs become available for automation.</div></div>
+      <div class="guide-step"><span class="guide-num">4</span><div>Go to <strong>Automation</strong> → open or create a module instance (e.g. <em>Awning Control</em>).</div></div>
+      <div class="guide-step"><span class="guide-num">5</span><div>In <strong>Map IOs</strong>: assign your approved IOs to module inputs. E.g. map <code>wind-station / Wind Speed</code> → <strong>Wind Sensor</strong> of the Awning module.</div></div>
+      <div class="guide-step"><span class="guide-num">6</span><div>Set <strong>Setpoints</strong> (e.g. retract above 40 km/h) → Save. Automation is now live.</div></div>
+    </div>
+    <div class="guide-tip">💡 You can mix IOs from different devices in one module: relays from KC868-A16 + wind sensor from a separate ESP32 — all via MQTT.</div>
+    <div class="guide-tip" style="margin-top:8px">💡 Device not appearing? Check: (1) MQTT broker running, (2) Mosquitto listens on <code>0.0.0.0:1883</code> not just localhost, (3) device and Pi on same network.</div>
+  </div>
+</div>
+
+      <!-- ── Installer registry / saved configs ── -->
+      <div id="savedPanel" style="display:none">
+        <div style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Installer Devices</div>
+        <div id="deviceList" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"></div>
+        <div id="savedConfigsWrap" style="display:none">
+          <div style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:4px 0 8px">Saved Configs</div>
+          <div id="savedList" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px"></div>
+        </div>
+      </div>
+
+      <!-- ── YAML Import / Device Browser buttons ── -->
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn" onclick="togglePeripheralLibrary()" style="font-size:12px">&#128268; Peripheral Library</button>
+        <button class="btn" onclick="toggleDeviceBrowser()" style="font-size:12px">&#127760; Browse ESPHome Devices</button>
+        <button class="btn" onclick="toggleYamlImporter()" style="font-size:12px">&#128196; Import Board from YAML</button>
+      </div>
+
+      <!-- ── ESPHome Device Browser ── -->
+      <div class="card-step" id="deviceBrowserPanel" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h2 style="margin:0">&#127760; ESPHome Device Browser</h2>
+          <button class="btn" onclick="document.getElementById('deviceBrowserPanel').style.display='none'">&#215; Close</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:12px">
+          Browse 750+ devices from <strong>devices.esphome.io</strong>. Click a device to preview its YAML, then import it to the catalog.
+        </p>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <input id="browserSearch" class="inp" type="text" placeholder="Search... (e.g. kincony, shelly, sonoff)"
+            style="flex:1;min-width:200px" oninput="filterBrowserList()">
+          <button class="btn btn-primary" onclick="loadDeviceBrowser()" id="browserLoadBtn">Load Device List</button>
+        </div>
+        <div id="browserStatus" style="font-size:12px;color:var(--muted2);margin-bottom:8px"></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div style="flex:0 0 250px;max-height:380px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--radius-sm);background:rgba(0,0,0,.15)" id="browserList">
+            <div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">Click "Load Device List" to start</div>
+          </div>
+          <div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em" id="browserSelectedLabel">No device selected</span>
+              <button class="btn btn-primary btn-sm" id="browserImportBtn" style="display:none" onclick="importBrowserDevice()">&#8659; Import to Catalog</button>
+            </div>
+            <textarea id="browserYamlPreview" class="inp" readonly
+              style="flex:1;min-height:320px;font-family:monospace;font-size:11px;resize:vertical;white-space:pre;overflow:auto"
+              placeholder="YAML will appear here..."></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Peripheral Library ── -->
+      <div class="card-step" id="peripheralLibraryPanel" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h2 style="margin:0">&#128268; Peripheral Library</h2>
+          <button class="btn" onclick="document.getElementById('peripheralLibraryPanel').style.display='none'">&#215; Close</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:12px">
+          Pick a sensor/peripheral template, fill in the fields, and generate a ready-to-flash ESPHome YAML config.
+        </p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <!-- Left: sensor list -->
+          <div style="flex:0 0 240px;display:flex;flex-direction:column;gap:4px">
+            <div style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Categories &amp; Sensors</div>
+            <div id="plSensorList" style="max-height:480px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--radius-sm);background:rgba(0,0,0,.15)"></div>
+          </div>
+          <!-- Right: form + yaml -->
+          <div style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:10px">
+            <div id="plFormArea" style="display:none">
+              <div id="plSensorTitle" style="font-size:13px;font-weight:800;margin-bottom:10px"></div>
+              <!-- Common fields -->
+              <div class="form-grid">
+                <div class="form-row">
+                  <label>Device Name</label>
+                  <input type="text" id="plDeviceName" value="my-sensor">
+                </div>
+                <div class="form-row">
+                  <label>MQTT Broker IP</label>
+                  <input type="text" id="plMqttBroker" value="192.168.1.x">
+                </div>
+                <div class="form-row">
+                  <label>WiFi SSID</label>
+                  <input type="text" id="plWifiSsid" placeholder="Your WiFi SSID">
+                </div>
+                <div class="form-row">
+                  <label>WiFi Password</label>
+                  <input type="text" id="plWifiPassword" placeholder="Your WiFi Password">
+                </div>
+              </div>
+              <!-- Sensor-specific fields injected here -->
+              <div id="plSensorFields"></div>
+              <button class="btn btn-primary" onclick="plGenerateYaml()" style="margin-top:4px;font-size:12px">&#9881; Generate YAML</button>
+            </div>
+            <div id="plYamlArea" style="display:none;display:flex;flex-direction:column;gap:8px">
+              <div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em">Generated YAML</div>
+              <textarea id="plYamlOutput" readonly
+                style="flex:1;min-height:320px;font-family:monospace;font-size:11px;resize:vertical;white-space:pre;overflow:auto;background:#0d1117;border:1px solid var(--line);border-radius:8px;padding:10px;color:#e6edf3;width:100%;box-sizing:border-box"
+                placeholder="YAML will appear here..."></textarea>
+              <div style="display:flex;gap:8px">
+                <button class="btn" onclick="plCopyYaml()" style="font-size:12px">&#128203; Copy to Clipboard</button>
+                <button class="btn" onclick="plDownloadYaml()" style="font-size:12px">&#8659; Download .yaml</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── YAML Board Importer ── -->
+      <div class="card-step" id="yamlImportPanel" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h2 style="margin:0">&#128196; Import Board from ESPHome YAML</h2>
+          <button class="btn" onclick="document.getElementById('yamlImportPanel').style.display='none'">&#215; Close</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:12px">
+          Paste an ESPHome YAML config (from devices.esphome.io, Kincony wiki, or any community source) or enter its URL.
+          The app will extract relays, DI, AI, AO and save it as a new board profile.
+        </p>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <input id="yamlUrl" placeholder="https://… (optional — paste YAML below instead)" style="flex:1;min-width:240px" />
+          <button class="btn" onclick="fetchYamlFromUrl()">Fetch URL</button>
+        </div>
+        <textarea id="yamlText" placeholder="Paste ESPHome YAML here…" style="width:100%;height:200px;font-family:monospace;font-size:11px;padding:10px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03);color:var(--text);resize:vertical"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn btnPrimary" onclick="parseYaml()">&#128269; Parse YAML</button>
+          <span style="font-size:12px;color:var(--muted)" id="yamlParseMsg"></span>
+        </div>
+
+        <div id="yamlPreview" style="display:none;margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:14px">
+          <div style="font-weight:800;margin-bottom:10px">Preview — found entities</div>
+          <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+            <input id="yamlProfileId" placeholder="profile-id (e.g. kincony_a32)" style="flex:1;min-width:180px" />
+            <input id="yamlProfileLabel" placeholder="Label (e.g. KinCony KC868-A32)" style="flex:1;min-width:220px" />
+          </div>
+          <div id="yamlEntityList" style="font-size:12px;font-family:monospace;max-height:260px;overflow-y:auto;background:rgba(0,0,0,.12);border-radius:8px;padding:10px;margin-bottom:10px"></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btnAccent" onclick="saveYamlProfile()">&#10003; Save Board Profile</button>
+            <span style="font-size:12px;color:var(--muted)" id="yamlSaveMsg"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Step 1: Setup ── -->
+      <div class="card-step" id="step1">
+        <h2>&#128376; Step 1 — Check & Connect</h2>
+        <div id="esphomeStatus" style="margin-bottom:16px">
+          <span style="color:var(--muted);font-size:12px">Checking ESPHome…</span>
+        </div>
+
+        <!-- Install panel (shown when esphome not found) -->
+        <div id="installPanel" style="display:none;margin-bottom:16px;padding:14px;border:1px solid rgba(245,200,0,.3);border-radius:10px;background:rgba(245,200,0,.06)">
+          <div style="font-size:12px;font-weight:700;color:var(--warn);margin-bottom:8px">&#9888; ESPHome not installed</div>
+          <div style="font-size:11px;color:var(--muted2);margin-bottom:10px">
+            Click <strong>Install ESPHome</strong> to automatically create a Python virtual environment and install ESPHome.<br>
+            This takes <strong>2–5 minutes</strong> and only needs to be done once.
+          </div>
+          <button class="btn btnPrimary" id="btnInstall" onclick="installEsphome()">&#8681; Install ESPHome</button>
+          <div class="terminal" id="setupTerminal" style="display:none;margin-top:12px;height:180px">
+            <span style="color:#484f58">Waiting…</span>
+          </div>
+        </div>
+
+        <div class="toggle-row" style="margin-bottom:10px">
+          <label>Flash via Network (OTA)</label>
+          <label class="toggle"><input type="checkbox" id="useOTA" onchange="onFlashModeChange()"><span class="toggle-track"></span></label>
+        </div>
+        <div id="usbPortRow" class="form-row">
+          <label>USB Port</label>
+          <div style="display:flex;gap:8px">
+            <select id="portSelect" style="flex:1" onchange="updateStep1UI()">
+              <option value="">— scanning… —</option>
+            </select>
+            <button class="btn" onclick="refreshPorts()">&#8635; Refresh</button>
+          </div>
+          <span class="form-hint">Connect the ESP board via USB-C to the Raspberry Pi. Required for first-time flash.</span>
+        </div>
+        <div id="otaRow" class="form-row" style="display:none">
+          <label>Device IP Address</label>
+          <input type="text" id="otaIp" placeholder="192.168.1.x" oninput="updateStep1UI()">
+          <span class="form-hint">Device must already be running ESPHome firmware (previously flashed via USB).</span>
+        </div>
+        <div id="step1Summary" style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 4px"></div>
+        <div id="step1Note" style="font-size:11px;color:var(--muted2);margin-bottom:6px"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px">
+          <button class="btn btnPrimary btn-nav" id="btn1Next" onclick="goStep(2)">Next &#8250;</button>
+        </div>
+      </div>
+
+      <!-- ── Step 2: Device ── -->
+      <div class="card-step" id="step2" style="display:none">
+        <h2>&#129504; Step 2 — Device</h2>
+        <div class="form-row">
+          <label>Device Name</label>
+          <input type="text" id="deviceName" placeholder="e.g. boiler_node" oninput="updateSafeName()">
+          <span class="form-hint">Safe name: <code id="safeNamePreview">—</code></span>
+        </div>
+        <div class="form-row">
+          <label>Board</label>
+          <select id="boardSelect" onchange="onBoardChange()">
+            <option value="">— select board —</option>
+          </select>
+        </div>
+        <div class="form-row" id="customBoardRow" style="display:none">
+          <label>Custom Board ID</label>
+          <input type="text" id="customBoard" placeholder="e.g. esp32-poe">
+        </div>
+        <div id="boardNotes" style="display:none;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:12px;color:var(--muted2);margin-top:-2px"></div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px">
+          <button class="btn btn-nav" onclick="goStep(1)">&#8249; Back</button>
+          <button class="btn btnPrimary btn-nav" onclick="goStep(3)">Next &#8250;</button>
+        </div>
+      </div>
+
+      <!-- ── Step 3: Network ── -->
+      <div class="card-step" id="step3" style="display:none">
+        <h2>&#127760; Step 3 — Network</h2>
+        <div class="toggle-row">
+          <label>Use Ethernet (LAN8720)</label>
+          <label class="toggle"><input type="checkbox" id="useEthernet" onchange="onNetChange()"><span class="toggle-track"></span></label>
+        </div>
+        <div id="wifiFields">
+          <div class="form-grid">
+            <div class="form-row">
+              <label>WiFi SSID</label>
+              <input type="text" id="wifiSsid" placeholder="MyNetwork">
+            </div>
+            <div class="form-row">
+              <label>WiFi Password</label>
+              <input type="password" id="wifiPass" placeholder="••••••••">
+            </div>
+          </div>
+        </div>
+        <div id="ethInfo" style="display:none;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:12px;color:var(--muted2)">
+          &#128268; LAN8720 Ethernet — board profile decides the exact clock pin/mode. A16/A8 profiles now generate the documented Ethernet block automatically.
+        </div>
+        <div class="form-row" style="margin-top:14px">
+          <label>MQTT Broker IP</label>
+          <input type="text" id="mqttHost" placeholder="192.168.1.x">
+          <span class="form-hint">IP of the Raspberry Pi running Elaris (same machine = your local IP)</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px">
+          <button class="btn btn-nav" onclick="goStep(2)">&#8249; Back</button>
+          <button class="btn btnPrimary btn-nav" onclick="goStep(4)">Next &#8250;</button>
+        </div>
+      </div>
+
+      <!-- ── Step 4: Entities ── -->
+      <div class="card-step" id="step4" style="display:none">
+        <h2>&#128268; Step 4 — Entities (optional)</h2>
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:14px">Add sensors and relays. For board profiles like A16 use logical channels such as OUT1 / IN1 instead of raw GPIO. Leave empty to flash a minimal device.</p>
+        <div class="entity-header">
+          <span>Type</span><span>Name</span><span>Source / Channel</span><span></span>
+        </div>
+        <div class="entity-list" id="entityList"></div>
+        <button class="btn" onclick="addEntity()" style="width:100%">+ Add Entity</button>
+        <div style="display:flex;justify-content:space-between;margin-top:16px">
+          <button class="btn btn-nav" onclick="goStep(3)">&#8249; Back</button>
+          <button class="btn btnPrimary btn-nav" onclick="goStep(5)">Next &#8250;</button>
+        </div>
+      </div>
+
+      <!-- ── Step 5: Flash ── -->
+      <div class="card-step" id="step5" style="display:none">
+        <h2>&#9889; Step 5 — Review & Flash</h2>
+        <div id="flashStatus" style="margin-bottom:12px"></div>
+        <div id="validationBox" style="display:none;margin-bottom:12px;padding:12px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03)"></div>
+
+        <details style="margin-bottom:14px">
+          <summary style="font-size:12px;font-weight:700;cursor:pointer;color:var(--muted2)">&#128196; Generated YAML</summary>
+          <pre class="yaml-pre" id="yamlPreview"></pre>
+        </details>
+
+        <p style="font-size:11px;color:var(--muted);margin-bottom:10px">
+          &#9200; First compile takes <strong>5–15 minutes</strong> on Raspberry Pi (downloading toolchain). Subsequent flashes are faster.
+        </p>
+
+        <div class="terminal" id="flashTerminal">
+          <span style="color:#484f58">Waiting to start…</span>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+          <button class="btn btn-nav" onclick="goStep(4)" id="btnBack5">&#8249; Back</button>
+          <button class="btn" onclick="saveCurrentConfig()" title="Save this config for reuse">&#128190; Save</button>
+          <button class="btn btnPrimary" id="btnFlash" onclick="startFlash()" style="flex:1">
+            &#9889; Flash Device
+          </button>
+          <button class="btn" id="btnCancel" onclick="cancelFlash()" style="display:none">
+            &#9632; Cancel
+          </button>
+        </div>
+
+        <div id="flashDone" style="display:none;margin-top:16px;padding:14px;border-radius:10px;border:1px solid var(--good);background:rgba(34,217,122,.08);text-align:center">
+          <div style="font-size:20px;margin-bottom:6px">&#10003;</div>
+          <div style="font-weight:800;font-size:13px">Flash Complete!</div>
+          <div style="font-size:12px;color:var(--muted2);margin-top:4px">Use <strong>Open Installer</strong> to check when the device appears online.</div>
+        </div>
+      </div>
+
+    </div><!-- ebody -->
+  </div>
+</div>
+
+<script src="/theme.js"></script>
+<script>
+var currentStep = 1;
+var boards      = [];
+var presets     = {};
+var entities    = [];
+var flashing    = false;
+var ws          = null;
+var generatedYaml = '';
+var lastValidation = null;
+var esphomeClientId = 'esph_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+// ── Stepper ────────────────────────────────────────────────────────────────
+function goStep(n) {
+  if (n === currentStep) return;
+  if (!validateStep(currentStep)) return;
+  document.getElementById('step' + currentStep).style.display = 'none';
+  currentStep = n;
+  document.getElementById('step' + n).style.display = '';
+
+  for (var i = 1; i <= 5; i++) {
+    var dot = document.getElementById('sd' + i);
+    var lbl = document.getElementById('sl' + i);
+    dot.className = 'step-dot' + (i < n ? ' done' : i === n ? ' active' : '');
+    lbl.className = 'step-label' + (i === n ? ' active' : '');
+  }
+
+  if (n === 5) buildYamlPreview();
+}
+
+function validateStep(n) {
+  if (n === 1) {
+    var useOTA = document.getElementById('useOTA').checked;
+    var usb = document.getElementById('portSelect').value;
+    var otaIp = document.getElementById('otaIp').value.trim();
+
+    if (useOTA) {
+      if (!otaIp) { alert('Enter the device IP address for OTA flashing.'); return false; }
+    } else {
+      if (!usb) { alert('Select a USB port first.'); return false; }
+    }
+  }
+
+  if (n === 2) {
+    var nm = document.getElementById('deviceName').value.trim();
+    if (!nm) { alert('Enter a device name.'); return false; }
+    var brd = document.getElementById('boardSelect').value;
+    if (!brd) { alert('Select a board.'); return false; }
+    if (brd === '__custom__' && !document.getElementById('customBoard').value.trim()) {
+      alert('Enter a custom board ID.'); return false;
+    }
+  }
+  if (n === 3) {
+    var eth = document.getElementById('useEthernet').checked;
+    if (!eth) {
+      if (!document.getElementById('wifiSsid').value.trim()) { alert('Enter WiFi SSID.'); return false; }
+      if (!document.getElementById('wifiPass').value.trim()) { alert('Enter WiFi password.'); return false; }
+    }
+    if (!document.getElementById('mqttHost').value.trim()) { alert('Enter MQTT broker IP.'); return false; }
+  }
+  return true;
+}
+
+function summaryPill(text, color, border) {
+  return '<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:800;background:rgba(255,255,255,.04);color:' + (color || 'var(--muted2)') + ';border:1px solid ' + (border || 'var(--line)') + '">' + escHtml(text) + '</span>';
+}
+
+function updateStep1UI() {
+  var useOTA = document.getElementById('useOTA').checked;
+  var usb = document.getElementById('portSelect').value;
+  var otaIp = document.getElementById('otaIp').value.trim();
+  var hasInstall = document.getElementById('installPanel').style.display === 'none';
+  var ready = useOTA ? !!otaIp : !!usb;
+  var summary = document.getElementById('step1Summary');
+  var note = document.getElementById('step1Note');
+  var btn = document.getElementById('btn1Next');
+
+  if (btn) {
+    btn.disabled = !ready;
+    btn.style.opacity = ready ? '1' : '.65';
+    btn.style.cursor = ready ? 'pointer' : 'not-allowed';
+  }
+
+  var parts = [];
+  parts.push(summaryPill(useOTA ? 'Mode: OTA' : 'Mode: USB', useOTA ? '#1d8cff' : '#22d97a', useOTA ? 'rgba(29,140,255,.28)' : 'rgba(34,217,122,.28)'));
+  parts.push(summaryPill(useOTA ? ('Target: ' + (otaIp || 'missing IP')) : ('Port: ' + (usb || 'not selected')), ready ? '#22d97a' : '#f59e0b', ready ? 'rgba(34,217,122,.28)' : 'rgba(245,158,11,.35)'));
+  parts.push(summaryPill(hasInstall ? 'ESPHome ready' : 'ESPHome not installed', hasInstall ? '#22d97a' : '#f59e0b', hasInstall ? 'rgba(34,217,122,.28)' : 'rgba(245,158,11,.35)'));
+
+  if (summary) summary.innerHTML = parts.join('');
+  if (note) {
+    note.textContent = useOTA
+      ? (ready ? 'OTA mode selected. Use this only for devices already flashed with ESPHome.' : 'Enter the current device IP address to continue with OTA flashing.')
+      : (ready ? 'USB target selected. This is the recommended path for first-time flashing.' : 'Connect a board via USB-C and select the detected serial port to continue.');
+  }
+}
+
+function renderFlashReviewSummary(mode) {
+  var payload = buildPayload();
+  var boardSel = document.getElementById('boardSelect');
+  var boardLabel = boardSel && boardSel.selectedIndex >= 0 ? boardSel.options[boardSel.selectedIndex].text : (payload.board_profile_id || '—');
+  var transport = document.getElementById('useOTA').checked
+    ? ('OTA → ' + (document.getElementById('otaIp').value.trim() || 'missing IP'))
+    : ('USB → ' + (document.getElementById('portSelect').value || 'not selected'));
+  var entityCount = (payload.entities || []).length;
+  var html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">';
+  html += summaryPill('Device: ' + (payload.device_name || '—'), '#22d97a', 'rgba(34,217,122,.28)');
+  html += summaryPill('Board: ' + boardLabel, '#1d8cff', 'rgba(29,140,255,.28)');
+  html += summaryPill(transport, '#f59e0b', 'rgba(245,158,11,.35)');
+  html += summaryPill('Entities: ' + entityCount, 'var(--text)', 'var(--line)');
+  html += '</div>';
+  if (mode === 'running') {
+    html += '<div style="font-size:11px;color:var(--muted2)">Compilation and flashing started. Keep this page open while the Raspberry Pi builds the firmware.</div>';
+  } else if (mode === 'done') {
+    html += '<div style="font-size:11px;color:var(--good)">Flash finished successfully. The device should appear in Installer after it boots and connects.</div>';
+  } else if (mode === 'error') {
+    html += '<div style="font-size:11px;color:var(--bad)">Flash finished with an error. Review the terminal output below.</div>';
+  } else {
+    html += '<div style="font-size:11px;color:var(--muted2)">Review the target and config below before starting the first compile/flash.</div>';
+  }
+  document.getElementById('flashStatus').innerHTML = html;
+}
+
+// ── Step 1: check & ports ──────────────────────────────────────────────────
+async function checkSetup() {
+  try {
+    var r = await api('/esphome/check');
+    var el = document.getElementById('esphomeStatus');
+    if (r.ok) {
+      el.innerHTML = '<span class="pill-ok">&#10003; ESPHome ' + escHtml(r.version) + '</span>';
+      document.getElementById('installPanel').style.display = 'none';
+    } else {
+      el.innerHTML = '<span class="pill-err">&#10007; ESPHome not found</span>';
+      document.getElementById('installPanel').style.display = '';
+    }
+    populatePorts(r.ports || []);
+    boards = r.boards || [];
+    presets = r.presets || {};
+    populateBoards();
+  } catch (e) {
+    document.getElementById('esphomeStatus').innerHTML = '<span class="pill-warn">Could not check: ' + escHtml(e.message) + '</span>';
+  }
+}
+
+async function installEsphome() {
+  document.getElementById('btnInstall').disabled = true;
+  document.getElementById('setupTerminal').style.display = '';
+  document.getElementById('setupTerminal').innerHTML = '';
+  setupTermLine('info', 'Starting installation…');
+  try {
+    await api('/esphome/setup', { method: 'POST', body: JSON.stringify({ client_id: esphomeClientId }) });
+  } catch (e) {
+    setupTermLine('error', 'Error: ' + e.message);
+    document.getElementById('btnInstall').disabled = false;
+  }
+}
+
+function setupTermLine(level, text) {
+  var term = document.getElementById('setupTerminal');
+  var d = document.createElement('div');
+  d.innerHTML = '<span class="tl-' + level + '">' + escHtml(text) + '</span>';
+  term.appendChild(d);
+  term.scrollTop = term.scrollHeight;
+}
+
+function populatePorts(ports) {
+  var sel = document.getElementById('portSelect');
+  var previous = sel.value;
+  sel.innerHTML = '';
+  if (!ports.length) {
+    sel.innerHTML = '<option value="">— no USB devices found —</option>';
+    updateStep1UI();
+    return;
+  }
+  sel.innerHTML = '<option value="">— select port —</option>';
+  ports.forEach(function(p) {
+    var opt = document.createElement('option');
+    opt.value = p; opt.textContent = p;
+    sel.appendChild(opt);
+  });
+  if (previous && ports.indexOf(previous) !== -1) sel.value = previous;
+  else if (ports.length === 1) sel.value = ports[0];
+  updateStep1UI();
+}
+
+async function refreshPorts() {
+  var sel = document.getElementById('portSelect');
+  if (sel) sel.innerHTML = '<option value=>— scanning… —</option>';
+  try {
+    var r = await api('/esphome/ports');
+    populatePorts(r.ports || []);
+  } catch (e) {
+    populatePorts([]);
+  }
+}
+
+// ── Step 2: board ──────────────────────────────────────────────────────────
+function populateBoards() {
+  var sel = document.getElementById('boardSelect');
+  sel.innerHTML = '<option value="">— select board —</option>';
+  boards.forEach(function(b) {
+    var opt = document.createElement('option');
+    opt.value = b.id; opt.textContent = b.label;
+    sel.appendChild(opt);
+  });
+}
+
+function onBoardChange() {
+  var sel = document.getElementById('boardSelect');
+  var v = sel.value;
+  document.getElementById('customBoardRow').style.display = v === '__custom__' ? '' : 'none';
+
+  var boardInfo = boards.find(function(b) { return b.id === v; }) || {};
+  var notesBox = document.getElementById('boardNotes');
+  if (notesBox) {
+    var notes = boardInfo.notes || [];
+    notesBox.style.display = notes.length ? '' : 'none';
+    notesBox.innerHTML = notes.map(function(n){ return '&#8226; ' + escHtml(n); }).join('<br>');
+  }
+
+  if (boardInfo.supports && boardInfo.supports.ethernet) document.getElementById('useEthernet').checked = true;
+  if (boardInfo.supports && boardInfo.supports.wifi === false) document.getElementById('useEthernet').checked = true;
+  onNetChange();
+  applyPreset(v);
+}
+
+function applyPreset(profileId) {
+  var preset = presets[profileId] || {};
+  var items = preset.entities || [];
+  document.getElementById('entityList').innerHTML = '';
+  entityCount = 0;
+  items.forEach(function(e) {
+    addEntityWithValues(e.type, e.name, e.source || e.pin || '');
+  });
+}
+
+function addEntityWithValues(type, name, pin) {
+  entityCount++;
+  var id = 'entity_' + entityCount;
+  var div = document.createElement('div');
+  div.className = 'entity-item';
+  div.id = id;
+  var num = entityCount;
+  var typeOpts = ENTITY_TYPES.map(function(t) {
+    return '<option value="' + t.v + '"' + (t.v === type ? ' selected' : '') + '>' + t.l + '</option>';
+  }).join('');
+  div.innerHTML =
+    '<select onchange="onEntityTypeChange(' + num + ')">' + typeOpts + '</select>' +
+    '<input type="text" placeholder="Name" id="ename_' + num + '" value="' + escHtml(name) + '">' +
+    '<input type="text" placeholder="OUT1 / GPIO26" id="epin_' + num + '" value="' + escHtml(pin) + '">' +
+    '<button class="entity-remove" onclick="removeEntity(\'' + id + '\')">&#215;</button>';
+  document.getElementById('entityList').appendChild(div);
+}
+
+function updateSafeName() {
+  var v = document.getElementById('deviceName').value.trim()
+    .toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  document.getElementById('safeNamePreview').textContent = v || '—';
+}
+
+// ── Step 1: flash mode ─────────────────────────────────────────────────────
+function onFlashModeChange() {
+  var ota = document.getElementById('useOTA').checked;
+  document.getElementById('usbPortRow').style.display = ota ? 'none' : '';
+  document.getElementById('otaRow').style.display    = ota ? '' : 'none';
+  updateStep1UI();
+}
+
+// ── Step 3: network ────────────────────────────────────────────────────────
+function onNetChange() {
+  var eth = document.getElementById('useEthernet').checked;
+  document.getElementById('wifiFields').style.display = eth ? 'none' : '';
+  document.getElementById('ethInfo').style.display    = eth ? '' : 'none';
+}
+
+// ── Step 4: entities ───────────────────────────────────────────────────────
+var entityCount = 0;
+var ENTITY_TYPES = [
+  { v:'relay',   l:'Relay (GPIO out)' },
+  { v:'di',      l:'Digital Input'    },
+  { v:'ds18b20', l:'DS18B20 Temp'     },
+  { v:'dht',     l:'DHT22 Temp+Hum'   },
+  { v:'analog',  l:'Analog (ADC)'     },
+];
+
+function addEntity() {
+  entityCount++;
+  var id = 'entity_' + entityCount;
+  var div = document.createElement('div');
+  div.className = 'entity-item';
+  div.id = id;
+
+  var typeOpts = ENTITY_TYPES.map(function(t) {
+    return '<option value="' + t.v + '">' + t.l + '</option>';
+  }).join('');
+
+  var num = entityCount;
+  div.innerHTML =
+    '<select onchange="onEntityTypeChange(' + num + ')">' + typeOpts + '</select>' +
+    '<input type="text" placeholder="Name" id="ename_' + num + '" value="Entity ' + num + '">' +
+    '<input type="text" placeholder="OUT1 / GPIO26" id="epin_' + num + '">' +
+    '<button class="entity-remove" onclick="removeEntity(\'' + id + '\')">&#215;</button>';
+
+  document.getElementById('entityList').appendChild(div);
+}
+
+function removeEntity(id) {
+  var el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+function onEntityTypeChange(num) {
+  // could show/hide extra options per type - kept simple for now
+}
+
+function collectEntities() {
+  var list = document.querySelectorAll('.entity-item');
+  var result = [];
+  var idx = 0;
+  list.forEach(function(item) {
+    idx++;
+    var sel  = item.querySelector('select');
+    var name = item.querySelector('input[placeholder="Name"]');
+    var pin  = item.querySelector('input[placeholder="OUT1 / GPIO26"]');
+    if (!sel || !pin) return;
+    var type  = sel.value;
+    var nval  = (name ? name.value.trim() : '') || ('Entity ' + idx);
+    var pval  = pin.value.trim();
+    var key   = nval.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || ('entity_' + idx);
+    var unit  = type === 'ds18b20' || type === 'dht' ? '°C' : type === 'analog' ? 'V' : null;
+    var dc    = type === 'ds18b20' || type === 'dht' ? 'temperature' : null;
+    result.push({ type, name: nval, key, pin: pval, source: pval, unit, device_class: dc });
+  });
+  return result;
+}
+
+// ── Step 5: flash ──────────────────────────────────────────────────────────
+function buildPayload() {
+  var boardId   = document.getElementById('boardSelect').value;
+  var boardInfo = boards.find(function(b) { return b.id === boardId; }) || {};
+  return {
+    device_name: document.getElementById('deviceName').value.trim(),
+    board_profile_id: boardId,
+    board_custom:document.getElementById('customBoard').value.trim(),
+    platform:    boardInfo.platform || 'esp32',
+    variant:     boardInfo.variant  || null,
+    wifi_ssid:   document.getElementById('wifiSsid').value.trim(),
+    wifi_pass:   document.getElementById('wifiPass').value,
+    use_ethernet:document.getElementById('useEthernet').checked,
+    mqtt_host:   document.getElementById('mqttHost').value.trim(),
+    port: document.getElementById('useOTA').checked
+      ? (document.getElementById('otaIp').value.trim() || null)
+      : (document.getElementById('portSelect').value || null),
+    entities:    collectEntities(),
+  };
+}
+
+function setFlashButtonState(mode) {
+  var btn = document.getElementById('btnFlash');
+  if (!btn) return;
+  if (mode === 'running') {
+    btn.innerHTML = '&#9203; Flashing…';
+    btn.disabled = true;
+    btn.onclick = function(){};
+  } else if (mode === 'done') {
+    btn.innerHTML = '&#10003; Open Installer';
+    btn.disabled = false;
+    btn.onclick = function(){ window.location.href = '/installer.html'; };
+  } else if (mode === 'error') {
+    btn.innerHTML = '&#8635; Flash Again';
+    btn.disabled = false;
+    btn.onclick = startFlash;
+  } else {
+    btn.innerHTML = '&#9889; Flash Device';
+    btn.disabled = false;
+    btn.onclick = startFlash;
+  }
+}
+
+async function buildYamlPreview() {
+  var payload = buildPayload();
+  document.getElementById('flashDone').style.display = 'none';
+  document.getElementById('flashTerminal').innerHTML = '<span style="color:#484f58">Validating configuration…</span>';
+  renderFlashReviewSummary('ready');
+  try {
+    var r = await api('/esphome/validate', { method: 'POST', body: JSON.stringify(payload) });
+    generatedYaml = r.yaml || '';
+    lastValidation = r.validation || null;
+    document.getElementById('yamlPreview').textContent = generatedYaml || '# No YAML generated';
+    renderValidationBox(r.validation || { ok:false, errors:['Unknown validation error'], warnings:[] });
+    document.getElementById('flashTerminal').innerHTML = '<span style="color:#484f58">Ready. Click Flash Device to start.</span>';
+    if (r.validation && r.validation.ok) setFlashButtonState('ready');
+    else {
+      setFlashButtonState('error');
+      document.getElementById('btnFlash').disabled = true;
+    }
+  } catch (e) {
+    lastValidation = null;
+    generatedYaml = '';
+    document.getElementById('yamlPreview').textContent = '# Validation failed\n# ' + e.message;
+    renderValidationBox({ ok:false, errors:[e.message], warnings:[] });
+    document.getElementById('flashTerminal').innerHTML = '<span class="tl-error">Validation failed. Fix the config before flashing.</span>';
+    setFlashButtonState('error');
+    document.getElementById('btnFlash').disabled = true;
+  }
+}
+
+function renderValidationBox(v) {
+  var box = document.getElementById('validationBox');
+  if (!box) return;
+  var errors = (v && v.errors) || [];
+  var warnings = (v && v.warnings) || [];
+  box.style.display = '';
+  var html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">';
+  html += summaryPill(v && v.ok ? 'Validation: OK' : 'Validation: BLOCKED', v && v.ok ? '#22d97a' : '#ff6b6b', v && v.ok ? 'rgba(34,217,122,.28)' : 'rgba(255,107,107,.35)');
+  html += summaryPill('Errors: ' + errors.length, errors.length ? '#ff6b6b' : 'var(--text)', errors.length ? 'rgba(255,107,107,.35)' : 'var(--line)');
+  html += summaryPill('Warnings: ' + warnings.length, warnings.length ? '#f59e0b' : 'var(--text)', warnings.length ? 'rgba(245,158,11,.35)' : 'var(--line)');
+  html += '</div>';
+  if (errors.length) html += '<div style="font-size:11px;color:var(--bad);margin-bottom:6px">' + errors.map(function(x){ return '&#8226; ' + escHtml(x); }).join('<br>') + '</div>';
+  if (warnings.length) html += '<div style="font-size:11px;color:var(--warn)">' + warnings.map(function(x){ return '&#8226; ' + escHtml(x); }).join('<br>') + '</div>';
+  if (!errors.length && !warnings.length) html += '<div style="font-size:11px;color:var(--muted2)">No validation issues.</div>';
+  box.innerHTML = html;
+}
+
+async function startFlash() {
+  if (flashing) return;
+  var useOTA = document.getElementById('useOTA').checked;
+  var port = useOTA
+    ? document.getElementById('otaIp').value.trim()
+    : document.getElementById('portSelect').value;
+  if (!port) {
+    alert(useOTA ? 'Enter the device IP address.' : 'Select a USB port first (Step 1).');
+    return;
+  }
+
+  flashing = true;
+  setFlashButtonState('running');
+  document.getElementById('btnBack5').disabled = true;
+  document.getElementById('btnCancel').style.display = '';
+  document.getElementById('flashDone').style.display = 'none';
+  document.getElementById('flashTerminal').innerHTML = '';
+
+  try {
+    if (!lastValidation || !lastValidation.ok) await buildYamlPreview();
+    if (!lastValidation || !lastValidation.ok) throw new Error('Validation failed. Fix the errors before flashing.');
+    var payload = buildPayload();
+    payload.client_id = esphomeClientId;
+    var r = await api('/esphome/flash', { method: 'POST', body: JSON.stringify(payload) });
+    if (r.yaml) {
+      document.getElementById('yamlPreview').textContent = r.yaml;
+    }
+    renderFlashReviewSummary('running');
+    termLine('info', 'Flash started — compiling firmware (first time can take 5-15 min)…');
+  } catch (e) {
+    termLine('error', 'Error: ' + e.message);
+    resetFlashUI('error');
+  }
+}
+
+async function cancelFlash() {
+  try { await api('/esphome/flash', { method: 'DELETE' }); } catch {}
+  termLine('warn', '— Cancelled —');
+  resetFlashUI('error');
+}
+
+function resetFlashUI(mode) {
+  flashing = false;
+  setFlashButtonState(mode || 'ready');
+  document.getElementById('btnBack5').disabled = false;
+  document.getElementById('btnCancel').style.display = 'none';
+}
+
+function termLine(level, text) {
+  var term = document.getElementById('flashTerminal');
+  var d = document.createElement('div');
+  var now = new Date();
+  var ts = pad2(now.getHours()) + ':' + pad2(now.getMinutes()) + ':' + pad2(now.getSeconds());
+  d.innerHTML = '<span class="tl-ts">' + ts + '</span><span class="tl-' + level + '">' + escHtml(text) + '</span>';
+  term.appendChild(d);
+  term.scrollTop = term.scrollHeight;
+}
+
+function pad2(n) { return String(n).padStart(2,'0'); }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── YAML Board Importer ────────────────────────────────────────────────────
+var _parsedYamlProfile = null;
+
+// ── Device Browser ────────────────────────────────────────────────────────
+var _browserDevices = [];
+var _browserCurrentSlug = null;
+var _browserCurrentYaml = null;
+
+function toggleDeviceBrowser() {
+  var p = document.getElementById('deviceBrowserPanel');
+  p.style.display = p.style.display === 'none' ? '' : 'none';
+}
+
+async function loadDeviceBrowser() {
+  var btn = document.getElementById('browserLoadBtn');
+  var status = document.getElementById('browserStatus');
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+  status.textContent = 'Fetching device list from GitHub...';
+  try {
+    var r = await fetch('/api/esphome/device-browser/list', { credentials: 'include' });
+    var d = await r.json();
+    if (!d.ok) throw new Error(d.error);
+    _browserDevices = d.devices || [];
+    status.textContent = _browserDevices.length + ' devices loaded' + (d.cached ? ' (cached)' : '') + '. Click a device to preview its YAML.';
+    filterBrowserList();
+  } catch(e) {
+    status.style.color = 'var(--bad)';
+    status.textContent = 'Error: ' + e.message;
+  }
+  btn.disabled = false;
+  btn.textContent = 'Reload';
+}
+
+function filterBrowserList() {
+  var q = (document.getElementById('browserSearch').value || '').toLowerCase().trim();
+  var filtered = q ? _browserDevices.filter(d => d.slug.includes(q)) : _browserDevices;
+  var list = document.getElementById('browserList');
+  if (!filtered.length) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No devices match.</div>';
+    return;
+  }
+  list.innerHTML = filtered.map(d =>
+    '<div onclick="selectBrowserDevice(\'' + d.slug + '\')" style="padding:9px 12px;cursor:pointer;font-size:12px;font-family:monospace;border-bottom:1px solid var(--line);transition:background .1s" ' +
+    'onmouseover="this.style.background=\'rgba(29,140,255,.08)\'" onmouseout="this.style.background=\'\'" ' +
+    'id="brow-' + d.slug + '">' + d.slug + '</div>'
+  ).join('');
+}
+
+async function selectBrowserDevice(slug) {
+  _browserCurrentSlug = slug;
+  _browserCurrentYaml = null;
+  document.getElementById('browserSelectedLabel').textContent = slug;
+  document.getElementById('browserImportBtn').style.display = 'none';
+  var preview = document.getElementById('browserYamlPreview');
+  preview.value = 'Fetching YAML...';
+  // Highlight selected
+  document.querySelectorAll('#browserList div').forEach(el => el.style.background = '');
+  var el = document.getElementById('brow-' + slug);
+  if (el) el.style.background = 'rgba(29,140,255,.15)';
+  try {
+    var r = await fetch('/api/esphome/device-browser/yaml?device=' + encodeURIComponent(slug), { credentials: 'include' });
+    var d = await r.json();
+    if (!d.ok) throw new Error(d.error);
+    _browserCurrentYaml = d.yaml;
+    preview.value = d.yaml;
+    document.getElementById('browserImportBtn').style.display = '';
+  } catch(e) {
+    preview.value = 'Error: ' + e.message;
+  }
+}
+
+async function importBrowserDevice() {
+  if (!_browserCurrentYaml) return;
+  var btn = document.getElementById('browserImportBtn');
+  btn.disabled = true;
+  btn.textContent = 'Parsing...';
+  try {
+    // Parse
+    var r1 = await fetch('/api/esphome/catalog/parse-yaml', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ yaml: _browserCurrentYaml })
+    });
+    var d1 = await r1.json();
+    if (!d1.ok) throw new Error(d1.error);
+    // Use slug as id if parsed id is empty
+    if (!d1.parsed.id) d1.parsed.id = _browserCurrentSlug.replace(/[^a-z0-9]+/g, '_');
+    if (!d1.parsed.label) d1.parsed.label = _browserCurrentSlug;
+    // Save
+    var r2 = await fetch('/api/esphome/catalog/save-parsed', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile: d1.parsed, source_url: 'https://devices.esphome.io/devices/' + _browserCurrentSlug + '/' })
+    });
+    var d2 = await r2.json();
+    if (!d2.ok) throw new Error(d2.error);
+    showToast('Imported: ' + d2.label, 'ok');
+    btn.textContent = '&#10003; Imported!';
+    setTimeout(() => { btn.disabled = false; btn.innerHTML = '&#8659; Import to Catalog'; }, 2000);
+  } catch(e) {
+    showToast('Import error: ' + e.message, 'err');
+    btn.disabled = false;
+    btn.innerHTML = '&#8659; Import to Catalog';
+  }
+}
+
+function toggleYamlImporter() {
+  var p = document.getElementById('yamlImportPanel');
+  p.style.display = p.style.display === 'none' ? '' : 'none';
+}
+
+async function fetchYamlFromUrl() {
+  var url = document.getElementById('yamlUrl').value.trim();
+  if (!url) return;
+  document.getElementById('yamlParseMsg').textContent = 'Fetching…';
+  try {
+    var r = await api('/esphome/catalog/parse-yaml', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    });
+    if (!r.ok) throw new Error(r.error);
+    document.getElementById('yamlText').value = '(fetched from URL — parsed directly)';
+    showYamlPreview(r.parsed, url);
+  } catch(e) {
+    document.getElementById('yamlParseMsg').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function parseYaml() {
+  var text = document.getElementById('yamlText').value.trim();
+  var url  = document.getElementById('yamlUrl').value.trim();
+  if (!text && !url) { document.getElementById('yamlParseMsg').textContent = 'Paste YAML or enter a URL.'; return; }
+  document.getElementById('yamlParseMsg').textContent = 'Parsing…';
+  try {
+    var r = await api('/esphome/catalog/parse-yaml', {
+      method: 'POST',
+      body: JSON.stringify({ yaml: text, url: url }),
+    });
+    if (!r.ok) throw new Error(r.error);
+    showYamlPreview(r.parsed, url);
+  } catch(e) {
+    document.getElementById('yamlParseMsg').textContent = 'Error: ' + e.message;
+  }
+}
+
+function showYamlPreview(parsed, sourceUrl) {
+  _parsedYamlProfile = parsed;
+  document.getElementById('yamlParseMsg').textContent =
+    (parsed.entityDefaults || []).length + ' entities found.';
+  document.getElementById('yamlProfileId').value    = parsed.id || '';
+  document.getElementById('yamlProfileLabel').value = parsed.label || '';
+
+  var counts = {};
+  (parsed.entityDefaults || []).forEach(function(e) { counts[e.type] = (counts[e.type]||0)+1; });
+  var summary = Object.entries(counts).map(function(kv){ return kv[1]+'× '+kv[0]; }).join('  |  ');
+
+  var list = document.getElementById('yamlEntityList');
+  list.innerHTML =
+    '<div style="margin-bottom:6px;color:var(--muted)">' + escHtml(summary || 'No entities') + '</div>' +
+    (parsed.entityDefaults || []).map(function(e) {
+      return '<div>' + escHtml(e.type.padEnd(10)) + ' ' +
+        escHtml((e.source||e.pin||'').padEnd(10)) + ' ' +
+        escHtml(e.name||'') + '</div>';
+    }).join('');
+
+  document.getElementById('yamlPreview').style.display = '';
+  document.getElementById('yamlSaveMsg').textContent = '';
+}
+
+async function saveYamlProfile() {
+  if (!_parsedYamlProfile) return;
+  var id    = document.getElementById('yamlProfileId').value.trim();
+  var label = document.getElementById('yamlProfileLabel').value.trim();
+  if (!id || !label) { document.getElementById('yamlSaveMsg').textContent = 'Fill in ID and Label.'; return; }
+  _parsedYamlProfile.id = id;
+  _parsedYamlProfile.label = label;
+  document.getElementById('yamlSaveMsg').textContent = 'Saving…';
+  try {
+    var r = await api('/esphome/catalog/save-parsed', {
+      method: 'POST',
+      body: JSON.stringify({ profile: _parsedYamlProfile, source_url: document.getElementById('yamlUrl').value.trim() }),
+    });
+    if (!r.ok) throw new Error(r.error);
+    document.getElementById('yamlSaveMsg').textContent = 'Saved! Refreshing boards…';
+    // Refresh boards list so it appears in dropdown immediately
+    var status = await api('/esphome/check');
+    boards = status.boards || [];
+    presets = status.presets || {};
+    populateBoards();
+    document.getElementById('yamlSaveMsg').textContent = 'Board "' + escHtml(label) + '" saved and available in board selector.';
+  } catch(e) {
+    document.getElementById('yamlSaveMsg').textContent = 'Error: ' + e.message;
+  }
+}
+
+// ── Installer devices / saved configs ─────────────────────────────────────
+var savedConfigs = [];
+var installerDevices = [];
+
+function statusChip(status, row) {
+  var s = String(status || '').toLowerCase();
+  if (s === 'online') {
+    // Auto-expire: if last_seen_at > 3 minutes ago → show as offline
+    var stale = true;
+    if (row.last_seen_at) {
+      var diff = Date.now() - new Date(row.last_seen_at).getTime();
+      stale = diff > 3 * 60 * 1000;
+    }
+    return stale
+      ? '<span class="pill" style="color:#f59e0b;border-color:rgba(245,158,11,.35)">Offline (stale)</span>'
+      : '<span class="pill pill-ok">Online</span>';
+  }
+  if (s === 'error') return '<span class="pill pill-err">Error</span>';
+  if (s === 'flashed' && !row.last_seen_at) return '<span class="pill pill-warn">Waiting for first announce</span>';
+  if (s === 'flashed') return '<span class="pill pill-info">Flashed</span>';
+  return '<span class="pill">' + escHtml(status || 'new') + '</span>';
+}
+
+async function loadInstallerDevices() {
+  try {
+    var r = await api('/esphome/devices');
+    installerDevices = r.devices || [];
+    renderSavedPanel();
+  } catch {
+    installerDevices = [];
+    renderSavedPanel();
+  }
+}
+
+async function loadSavedConfigs() {
+  try {
+    var r = await api('/esphome/configs');
+    savedConfigs = r.configs || [];
+    renderSavedPanel();
+  } catch {
+    savedConfigs = [];
+    renderSavedPanel();
+  }
+}
+
+function renderSavedPanel() {
+  var panel = document.getElementById('savedPanel');
+  var deviceList = document.getElementById('deviceList');
+  var configWrap = document.getElementById('savedConfigsWrap');
+  var list = document.getElementById('savedList');
+
+  if (!installerDevices.length && !savedConfigs.length) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+
+  if (installerDevices.length) {
+    deviceList.innerHTML = installerDevices.map(function(d) {
+      var subtitle = [];
+      if (d.board_profile_id) subtitle.push(d.board_profile_id);
+      if (d.ip_address) subtitle.push(d.ip_address);
+      else if (d.target_ip) subtitle.push(d.target_ip);
+      if (d.serial_port) subtitle.push(d.serial_port);
+      else if (d.target_port) subtitle.push(d.target_port);
+      if (d.hostname) subtitle.push(d.hostname);
+      var title = d.friendly_name || d.name || ('Device #' + d.id);
+      return '<div style="min-width:260px;display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)">' +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">' +
+          '<div style="min-width:0">' +
+            '<div style="font-weight:800;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(title) + '</div>' +
+            '<div style="color:var(--muted);font-size:10px;margin-top:2px">' + escHtml(subtitle.join(' • ') || 'No announce yet') + '</div>' +
+          '</div>' +
+          statusChip(d.status, d) +
+        '</div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+          '<div style="font-size:10px;color:var(--muted2)">' + escHtml(d.last_seen_at ? ('Last seen ' + d.last_seen_at.replace('T',' ').slice(0,19)) : 'Waiting for MQTT/config announce') + '</div>' +
+          '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="loadDeviceRecord(' + Number(d.id) + ')">Use</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } else {
+    deviceList.innerHTML = '';
+  }
+
+  if (savedConfigs.length) {
+    configWrap.style.display = '';
+    list.innerHTML = savedConfigs.map(function(c, i) {
+      return '<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-size:12px">' +
+        '<span style="font-weight:700">' + escHtml(c.device_name) + '</span>' +
+        '<span style="color:var(--muted);font-size:10px">' + escHtml(c.board_profile_id || c.board_id || '') + '</span>' +
+        '<button class="btn" style="padding:2px 8px;font-size:10px" onclick="loadConfig(' + i + ')">Load</button>' +
+        '<button class="entity-remove" onclick="deleteConfig(' + i + ')" title="Delete">&#215;</button>' +
+      '</div>';
+    }).join('');
+  } else {
+    configWrap.style.display = 'none';
+    list.innerHTML = '';
+  }
+}
+
+function loadDeviceRecord(id) {
+  var d = installerDevices.find(function(x) { return Number(x.id) === Number(id); });
+  if (!d) return;
+  if (d.name) { document.getElementById('deviceName').value = d.name; updateSafeName(); }
+  if (d.board_profile_id) {
+    var sel = document.getElementById('boardSelect');
+    for (var j = 0; j < sel.options.length; j++) {
+      if (sel.options[j].value === d.board_profile_id) { sel.selectedIndex = j; break; }
+    }
+    onBoardChange();
+  }
+  document.getElementById('useOTA').checked = !d.serial_port && !!(d.ip_address || d.target_ip);
+  onFlashModeChange();
+  if (d.ip_address || d.target_ip) document.getElementById('otaIp').value = d.ip_address || d.target_ip || '';
+  if (d.serial_port || d.target_port) document.getElementById('portSelect').value = d.serial_port || d.target_port || '';
+  if (String(d.network_mode || '').toLowerCase() === 'ethernet') {
+    document.getElementById('useEthernet').checked = true;
+    onNetChange();
+  }
+  goStep(2);
+}
+
+function loadConfig(i) {
+  var c = savedConfigs[i];
+  if (!c) return;
+  if (c.device_name) { document.getElementById('deviceName').value = c.device_name; updateSafeName(); }
+  if (c.board_profile_id || c.board_id) {
+    var sel = document.getElementById('boardSelect');
+    for (var j = 0; j < sel.options.length; j++) {
+      if (sel.options[j].value === (c.board_profile_id || c.board_id)) { sel.selectedIndex = j; break; }
+    }
+    onBoardChange();
+  }
+  if (c.wifi_ssid) document.getElementById('wifiSsid').value = c.wifi_ssid;
+  if (c.wifi_pass) document.getElementById('wifiPass').value = c.wifi_pass;
+  if (c.mqtt_host) document.getElementById('mqttHost').value = c.mqtt_host;
+  if (c.use_ethernet) { document.getElementById('useEthernet').checked = true; onNetChange(); }
+  goStep(2);
+}
+
+async function deleteConfig(i) {
+  var c = savedConfigs[i];
+  if (!c) return;
+  try { await api('/esphome/configs/' + encodeURIComponent(c.device_name), { method: 'DELETE' }); }
+  catch {}
+  savedConfigs.splice(i, 1);
+  renderSavedPanel();
+}
+
+async function saveCurrentConfig() {
+  try {
+    if (!lastValidation || !lastValidation.ok) await buildYamlPreview();
+    if (!lastValidation || !lastValidation.ok) throw new Error('Validation failed. Fix the errors before flashing.');
+    var payload = buildPayload();
+    await api('/esphome/configs', { method: 'POST', body: JSON.stringify(payload) });
+    await loadSavedConfigs();
+  } catch(e) { alert('Save failed: ' + e.message); }
+}
+
+// ── WebSocket for flash logs ───────────────────────────────────────────────
+function connectWS() {
+  var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(proto + '://' + location.host);
+
+  ws.onopen = function() {
+    try {
+      ws.send(JSON.stringify({ type: 'register_client', clientId: esphomeClientId }));
+    } catch {}
+  };
+
+  ws.onmessage = async function(e) {
+    try {
+      var msg = JSON.parse(e.data);
+
+      if (msg.type === 'esphome_log') {
+        termLine(msg.level || 'info', msg.text || '');
+      }
+
+      if (msg.type === 'esphome_done') {
+        resetFlashUI(msg.ok ? 'done' : 'error');
+        if (msg.ok) {
+          document.getElementById('flashDone').style.display = '';
+          renderFlashReviewSummary('done');
+          try { await refreshPorts(); } catch {}
+          try { await loadInstallerDevices(); } catch {}
+        } else {
+          renderFlashReviewSummary('error');
+          termLine('error', 'Flash failed. Check the output above.');
+        }
+      }
+
+      if (msg.type === 'esphome_setup_log') {
+        setupTermLine(msg.level || 'info', msg.text || '');
+      }
+
+      if (msg.type === 'esphome_setup_done') {
+        document.getElementById('btnInstall').disabled = false;
+        if (msg.ok) {
+          document.getElementById('installPanel').style.display = 'none';
+          try { await checkSetup(); } catch {}
+          try { await refreshPorts(); } catch {}
+          setupTermLine('info', 'ESPHome is ready. USB ports refreshed.');
+        }
+      }
+    } catch {}
+  };
+
+  ws.onclose = function() { setTimeout(connectWS, 3000); };
+}
+
+// ── API helper ─────────────────────────────────────────────────────────────
+async function api(path, opts) {
+  var headers = { 'Content-Type': 'application/json' };
+  var csrfEl = document.querySelector('meta[name="csrf-token"]');
+  if (csrfEl) headers['X-CSRF-Token'] = csrfEl.content;
+  var r = await fetch('/api' + path, Object.assign({ credentials: 'include', headers }, opts || {}));
+  var d = await r.json().catch(function() { return {}; });
+  if (!r.ok) throw new Error(d.error || r.status);
+  return d;
+}
+
+// ── Mobile menu ────────────────────────────────────────────────────────────
+(function() {
+  var mq = window.matchMedia('(max-width:768px)');
+  function check() { document.getElementById('menuBtn').style.display = mq.matches ? '' : 'none'; }
+  mq.addEventListener('change', check); check();
+})();
+
+// ── Peripheral Library ─────────────────────────────────────────────────────
+(function() {
+
+var PL_TEMPLATES = [
+  // ── Weather / Environment ──────────────────────────────────────────────
+  {
+    id: 'anemometer', name: 'Wind Speed (WH-SP-WS01)', category: 'Weather / Environment',
+    icon: '💨', description: 'Pulse-counter anemometer, outputs km/h',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 47 },
+      { id: 'update_interval', label: 'Update Interval', type: 'text', default: '5s' }
+    ],
+    generate: function(c, f) {
+      return c + 'sensor:\n' +
+        '  - platform: pulse_counter\n' +
+        '    pin: ' + f.gpio + '\n' +
+        '    name: "Wind Speed"\n' +
+        '    unit_of_measurement: "km/h"\n' +
+        '    update_interval: ' + f.update_interval + '\n' +
+        '    filters:\n' +
+        '      - lambda: return x * (0.666 / 60.0 * 3.6);\n';
+    }
+  },
+  {
+    id: 'rain_digital', name: 'Rain Sensor (digital)', category: 'Weather / Environment',
+    icon: '🌧️', description: 'Digital on/off rain detection',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 34 }
+    ],
+    generate: function(c, f) {
+      return c + 'binary_sensor:\n' +
+        '  - platform: gpio\n' +
+        '    pin: ' + f.gpio + '\n' +
+        '    name: "Rain Sensor"\n' +
+        '    device_class: moisture\n';
+    }
+  },
+  {
+    id: 'dht22', name: 'DHT22 Temperature + Humidity', category: 'Weather / Environment',
+    icon: '🌡️', description: 'Single-wire DHT22 sensor',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 4 }
+    ],
+    generate: function(c, f) {
+      return c + 'sensor:\n' +
+        '  - platform: dht\n' +
+        '    model: DHT22\n' +
+        '    pin: ' + f.gpio + '\n' +
+        '    temperature:\n' +
+        '      name: "Temperature"\n' +
+        '    humidity:\n' +
+        '      name: "Humidity"\n' +
+        '    update_interval: 60s\n';
+    }
+  },
+  {
+    id: 'bme280', name: 'BME280 Temp / Humidity / Pressure', category: 'Weather / Environment',
+    icon: '📡', description: 'I2C BME280 multi-sensor',
+    fields: [
+      { id: 'sda', label: 'SDA Pin', type: 'number', default: 21 },
+      { id: 'scl', label: 'SCL Pin', type: 'number', default: 22 },
+      { id: 'address', label: 'I2C Address (hex)', type: 'text', default: '0x76' }
+    ],
+    generate: function(c, f) {
+      return c + 'i2c:\n  sda: ' + f.sda + '\n  scl: ' + f.scl + '\n\n' +
+        'sensor:\n' +
+        '  - platform: bme280_i2c\n' +
+        '    address: ' + f.address + '\n' +
+        '    temperature:\n' +
+        '      name: "Temperature"\n' +
+        '    humidity:\n' +
+        '      name: "Humidity"\n' +
+        '    pressure:\n' +
+        '      name: "Pressure"\n' +
+        '    update_interval: 60s\n';
+    }
+  },
+  {
+    id: 'bh1750', name: 'BH1750 Lux Sensor', category: 'Weather / Environment',
+    icon: '☀️', description: 'I2C BH1750 light sensor',
+    fields: [
+      { id: 'sda', label: 'SDA Pin', type: 'number', default: 21 },
+      { id: 'scl', label: 'SCL Pin', type: 'number', default: 22 },
+      { id: 'address', label: 'I2C Address (hex)', type: 'text', default: '0x23' }
+    ],
+    generate: function(c, f) {
+      return c + 'i2c:\n  sda: ' + f.sda + '\n  scl: ' + f.scl + '\n\n' +
+        'sensor:\n' +
+        '  - platform: bh1750\n' +
+        '    address: ' + f.address + '\n' +
+        '    name: "Illuminance"\n' +
+        '    update_interval: 60s\n';
+    }
+  },
+  // ── Temperature ────────────────────────────────────────────────────────
+  {
+    id: 'ds18b20', name: 'DS18B20 Temperature (1-Wire)', category: 'Temperature',
+    icon: '🌡️', description: 'Dallas 1-Wire temperature probe',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 14 }
+    ],
+    generate: function(c, f) {
+      return c + 'dallas:\n' +
+        '  - pin: ' + f.gpio + '\n\n' +
+        'sensor:\n' +
+        '  - platform: dallas_temp\n' +
+        '    name: "Temperature"\n' +
+        '    update_interval: 60s\n';
+    }
+  },
+  {
+    id: 'ntc', name: 'NTC Thermistor (analog)', category: 'Temperature',
+    icon: '🔥', description: 'Analog NTC thermistor via ADC',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin (ADC)', type: 'number', default: 34 }
+    ],
+    generate: function(c, f) {
+      return c + 'sensor:\n' +
+        '  - platform: ntc\n' +
+        '    sensor: ntc_source\n' +
+        '    name: "NTC Temperature"\n' +
+        '    calibration:\n' +
+        '      b_constant: 3950\n' +
+        '      reference_resistance: 10k\n' +
+        '      reference_temperature: 25\n' +
+        '      nominal_resistance: 10k\n\n' +
+        '  - platform: adc\n' +
+        '    id: ntc_source\n' +
+        '    pin: GPIO' + f.gpio + '\n' +
+        '    update_interval: 60s\n';
+    }
+  },
+  // ── Motion / Security ──────────────────────────────────────────────────
+  {
+    id: 'pir', name: 'PIR Motion Sensor', category: 'Motion / Security',
+    icon: '🚶', description: 'Passive infrared motion detector',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 23 }
+    ],
+    generate: function(c, f) {
+      return c + 'binary_sensor:\n' +
+        '  - platform: gpio\n' +
+        '    pin: ' + f.gpio + '\n' +
+        '    name: "Motion"\n' +
+        '    device_class: motion\n';
+    }
+  },
+  {
+    id: 'door_contact', name: 'Door / Window Contact', category: 'Motion / Security',
+    icon: '🚪', description: 'Magnetic reed switch contact sensor',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 25 }
+    ],
+    generate: function(c, f) {
+      return c + 'binary_sensor:\n' +
+        '  - platform: gpio\n' +
+        '    pin:\n' +
+        '      number: ' + f.gpio + '\n' +
+        '      mode: INPUT_PULLUP\n' +
+        '    name: "Door Contact"\n' +
+        '    device_class: door\n';
+    }
+  },
+  {
+    id: 'vibration', name: 'Vibration Sensor (SW-420)', category: 'Motion / Security',
+    icon: '📳', description: 'SW-420 digital vibration switch',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 26 }
+    ],
+    generate: function(c, f) {
+      return c + 'binary_sensor:\n' +
+        '  - platform: gpio\n' +
+        '    pin: ' + f.gpio + '\n' +
+        '    name: "Vibration"\n' +
+        '    device_class: vibration\n';
+    }
+  },
+  // ── Air Quality ────────────────────────────────────────────────────────
+  {
+    id: 'mhz19', name: 'MH-Z19 CO2 Sensor (UART)', category: 'Air Quality',
+    icon: '💨', description: 'NDIR CO2 + temperature over UART',
+    fields: [
+      { id: 'tx_pin', label: 'TX Pin', type: 'number', default: 17 },
+      { id: 'rx_pin', label: 'RX Pin', type: 'number', default: 16 },
+      { id: 'update_interval', label: 'Update Interval', type: 'text', default: '60s' }
+    ],
+    generate: function(c, f) {
+      return c + 'uart:\n' +
+        '  rx_pin: ' + f.rx_pin + '\n' +
+        '  tx_pin: ' + f.tx_pin + '\n' +
+        '  baud_rate: 9600\n\n' +
+        'sensor:\n' +
+        '  - platform: mhz19\n' +
+        '    co2:\n' +
+        '      name: "CO2"\n' +
+        '    temperature:\n' +
+        '      name: "MHZ19 Temperature"\n' +
+        '    update_interval: ' + f.update_interval + '\n' +
+        '    automatic_baseline_calibration: false\n';
+    }
+  },
+  {
+    id: 'ccs811', name: 'CCS811 eCO2 + TVOC', category: 'Air Quality',
+    icon: '🧪', description: 'I2C CCS811 air quality sensor',
+    fields: [
+      { id: 'sda', label: 'SDA Pin', type: 'number', default: 21 },
+      { id: 'scl', label: 'SCL Pin', type: 'number', default: 22 },
+      { id: 'address', label: 'I2C Address (hex)', type: 'text', default: '0x5A' }
+    ],
+    generate: function(c, f) {
+      return c + 'i2c:\n  sda: ' + f.sda + '\n  scl: ' + f.scl + '\n\n' +
+        'sensor:\n' +
+        '  - platform: ccs811\n' +
+        '    address: ' + f.address + '\n' +
+        '    eco2:\n' +
+        '      name: "eCO2"\n' +
+        '    tvoc:\n' +
+        '      name: "TVOC"\n' +
+        '    update_interval: 60s\n';
+    }
+  },
+  // ── Soil / Water ───────────────────────────────────────────────────────
+  {
+    id: 'soil_moisture', name: 'Soil Moisture (capacitive)', category: 'Soil / Water',
+    icon: '🌱', description: 'Analog capacitive soil moisture sensor',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin (ADC)', type: 'number', default: 36 },
+      { id: 'min_voltage', label: 'Min Voltage (dry)', type: 'number', default: 1.2 },
+      { id: 'max_voltage', label: 'Max Voltage (wet)', type: 'number', default: 2.8 }
+    ],
+    generate: function(c, f) {
+      return c + 'sensor:\n' +
+        '  - platform: adc\n' +
+        '    pin: GPIO' + f.gpio + '\n' +
+        '    name: "Soil Moisture"\n' +
+        '    unit_of_measurement: "%"\n' +
+        '    update_interval: 60s\n' +
+        '    filters:\n' +
+        '      - calibrate_linear:\n' +
+        '          - ' + f.min_voltage + ' -> 100.0\n' +
+        '          - ' + f.max_voltage + ' -> 0.0\n' +
+        '      - clamp:\n' +
+        '          min_value: 0\n' +
+        '          max_value: 100\n';
+    }
+  },
+  {
+    id: 'water_leak', name: 'Water Leak Sensor (digital)', category: 'Soil / Water',
+    icon: '💧', description: 'Digital water leak/flood detector',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 27 }
+    ],
+    generate: function(c, f) {
+      return c + 'binary_sensor:\n' +
+        '  - platform: gpio\n' +
+        '    pin: ' + f.gpio + '\n' +
+        '    name: "Water Leak"\n' +
+        '    device_class: moisture\n';
+    }
+  },
+  // ── Power / Energy ─────────────────────────────────────────────────────
+  {
+    id: 'pzem004t', name: 'PZEM-004T AC Power Meter', category: 'Power / Energy',
+    icon: '⚡', description: 'AC voltage, current, power, energy — UART',
+    fields: [
+      { id: 'tx_pin', label: 'TX Pin', type: 'number', default: 17 },
+      { id: 'rx_pin', label: 'RX Pin', type: 'number', default: 16 },
+      { id: 'update_interval', label: 'Update Interval', type: 'text', default: '10s' }
+    ],
+    generate: function(c, f) {
+      return c + 'uart:\n' +
+        '  tx_pin: ' + f.tx_pin + '\n' +
+        '  rx_pin: ' + f.rx_pin + '\n' +
+        '  baud_rate: 9600\n' +
+        '  stop_bits: 1\n\n' +
+        'sensor:\n' +
+        '  - platform: pzemac\n' +
+        '    current:\n' +
+        '      name: "' + f._dn + ' Current"\n' +
+        '      unit_of_measurement: "A"\n' +
+        '    voltage:\n' +
+        '      name: "' + f._dn + ' Voltage"\n' +
+        '      unit_of_measurement: "V"\n' +
+        '    energy:\n' +
+        '      name: "' + f._dn + ' Energy"\n' +
+        '      unit_of_measurement: "Wh"\n' +
+        '    power:\n' +
+        '      name: "' + f._dn + ' Power"\n' +
+        '      unit_of_measurement: "W"\n' +
+        '    frequency:\n' +
+        '      name: "' + f._dn + ' Frequency"\n' +
+        '      unit_of_measurement: "Hz"\n' +
+        '    power_factor:\n' +
+        '      name: "' + f._dn + ' Power Factor"\n' +
+        '    update_interval: ' + f.update_interval + '\n';
+    }
+  },
+  {
+    id: 'ina219', name: 'INA219 DC Current/Power (I2C)', category: 'Power / Energy',
+    icon: '🔋', description: 'DC voltage, current, power — I2C',
+    fields: [
+      { id: 'sda', label: 'SDA Pin', type: 'number', default: 21 },
+      { id: 'scl', label: 'SCL Pin', type: 'number', default: 22 },
+      { id: 'address', label: 'I2C Address (hex)', type: 'text', default: '0x40' },
+      { id: 'update_interval', label: 'Update Interval', type: 'text', default: '10s' }
+    ],
+    generate: function(c, f) {
+      return c + 'i2c:\n  sda: ' + f.sda + '\n  scl: ' + f.scl + '\n\n' +
+        'sensor:\n' +
+        '  - platform: ina219\n' +
+        '    address: ' + f.address + '\n' +
+        '    shunt_resistance: 0.1 ohm\n' +
+        '    current:\n' +
+        '      name: "' + f._dn + ' Current"\n' +
+        '    power:\n' +
+        '      name: "' + f._dn + ' Power"\n' +
+        '    bus_voltage:\n' +
+        '      name: "' + f._dn + ' Bus Voltage"\n' +
+        '    shunt_voltage:\n' +
+        '      name: "' + f._dn + ' Shunt Voltage"\n' +
+        '    update_interval: ' + f.update_interval + '\n';
+    }
+  },
+  {
+    id: 'ct_clamp', name: 'CT Clamp Non-Invasive AC Current', category: 'Power / Energy',
+    icon: '〰️', description: 'Non-invasive AC current via ADC — no wire cutting',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin (ADC)', type: 'number', default: 36 },
+      { id: 'update_interval', label: 'Update Interval', type: 'text', default: '5s' }
+    ],
+    generate: function(c, f) {
+      return c + 'sensor:\n' +
+        '  - platform: ct_clamp\n' +
+        '    sensor: adc_sensor\n' +
+        '    name: "' + f._dn + ' Current"\n' +
+        '    update_interval: ' + f.update_interval + '\n' +
+        '    filters:\n' +
+        '      - calibrate_linear:\n' +
+        '        - 0 -> 0\n' +
+        '        - 0.11 -> 4.0\n\n' +
+        '  - platform: adc\n' +
+        '    pin: GPIO' + f.gpio + '\n' +
+        '    id: adc_sensor\n' +
+        '    attenuation: 11db\n';
+    }
+  },
+  // ── Level / Flow ───────────────────────────────────────────────────────
+  {
+    id: 'hcsr04', name: 'HC-SR04 Ultrasonic Tank Level', category: 'Level / Flow',
+    icon: '📡', description: 'Ultrasonic distance → tank fill percentage',
+    fields: [
+      { id: 'trigger_pin', label: 'Trigger Pin', type: 'number', default: 5 },
+      { id: 'echo_pin', label: 'Echo Pin', type: 'number', default: 18 },
+      { id: 'tank_empty_cm', label: 'Tank Empty Distance (cm)', type: 'number', default: 200 },
+      { id: 'tank_full_cm', label: 'Tank Full Distance (cm)', type: 'number', default: 20 },
+      { id: 'update_interval', label: 'Update Interval', type: 'text', default: '10s' }
+    ],
+    generate: function(c, f) {
+      var dnid = f._dn.replace(/-/g, '_');
+      return c + 'sensor:\n' +
+        '  - platform: ultrasonic\n' +
+        '    trigger_pin: GPIO' + f.trigger_pin + '\n' +
+        '    echo_pin: GPIO' + f.echo_pin + '\n' +
+        '    name: "' + f._dn + ' Distance"\n' +
+        '    id: ' + dnid + '_distance\n' +
+        '    unit_of_measurement: "cm"\n' +
+        '    update_interval: ' + f.update_interval + '\n' +
+        '    filters:\n' +
+        '      - lambda: return x * 100.0;  # m to cm\n\n' +
+        '  - platform: template\n' +
+        '    name: "' + f._dn + ' Level"\n' +
+        '    unit_of_measurement: "%"\n' +
+        '    update_interval: ' + f.update_interval + '\n' +
+        '    lambda: |-\n' +
+        '      float empty = ' + f.tank_empty_cm + ';\n' +
+        '      float full  = ' + f.tank_full_cm + ';\n' +
+        '      float dist  = id(' + dnid + '_distance).state;\n' +
+        '      if (isnan(dist)) return {};\n' +
+        '      float pct = (empty - dist) / (empty - full) * 100.0;\n' +
+        '      return std::max(0.0f, std::min(100.0f, pct));\n';
+    }
+  },
+  {
+    id: 'yfs201', name: 'YF-S201 Water Flow Meter', category: 'Level / Flow',
+    icon: '💧', description: 'Pulse counter → flow rate L/min and total litres',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 23 },
+      { id: 'update_interval', label: 'Update Interval', type: 'text', default: '5s' }
+    ],
+    generate: function(c, f) {
+      return c + 'sensor:\n' +
+        '  - platform: pulse_counter\n' +
+        '    pin:\n' +
+        '      number: GPIO' + f.gpio + '\n' +
+        '      mode: INPUT_PULLUP\n' +
+        '    name: "' + f._dn + ' Flow Rate"\n' +
+        '    unit_of_measurement: "L/min"\n' +
+        '    update_interval: ' + f.update_interval + '\n' +
+        '    filters:\n' +
+        '      - lambda: return x / 7.5;  # YF-S201: 7.5 pulses per second per L/min\n\n' +
+        '  - platform: pulse_meter\n' +
+        '    pin:\n' +
+        '      number: GPIO' + f.gpio + '\n' +
+        '      mode: INPUT_PULLUP\n' +
+        '    name: "' + f._dn + ' Total"\n' +
+        '    unit_of_measurement: "L"\n' +
+        '    filters:\n' +
+        '      - lambda: return x / 450.0;  # 450 pulses per litre\n';
+    }
+  },
+  {
+    id: 'float_switch', name: 'Float Switch (Tank Full/Empty)', category: 'Level / Flow',
+    icon: '🪣', description: 'Digital float switch — HIGH when water reaches sensor',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 27 }
+    ],
+    generate: function(c, f) {
+      return c + 'binary_sensor:\n' +
+        '  - platform: gpio\n' +
+        '    pin:\n' +
+        '      number: GPIO' + f.gpio + '\n' +
+        '      mode: INPUT_PULLUP\n' +
+        '      inverted: true\n' +
+        '    name: "' + f._dn + ' Float"\n' +
+        '    device_class: moisture\n';
+    }
+  },
+  // ── Gas / Safety ───────────────────────────────────────────────────────
+  {
+    id: 'mq2', name: 'MQ-2 Smoke / LPG / CO', category: 'Gas / Safety',
+    icon: '💨', description: 'Analog gas sensor — smoke, LPG, CO detection',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin (ADC)', type: 'number', default: 34 },
+      { id: 'update_interval', label: 'Update Interval', type: 'text', default: '10s' }
+    ],
+    generate: function(c, f) {
+      var dnid = f._dn.replace(/-/g, '_');
+      return c + 'sensor:\n' +
+        '  - platform: adc\n' +
+        '    pin: GPIO' + f.gpio + '\n' +
+        '    id: ' + dnid + '_mq2_raw\n' +
+        '    name: "' + f._dn + ' MQ2 Raw"\n' +
+        '    unit_of_measurement: "V"\n' +
+        '    attenuation: 11db\n' +
+        '    update_interval: ' + f.update_interval + '\n' +
+        '    filters:\n' +
+        '      - lambda: return x;\n\n' +
+        'binary_sensor:\n' +
+        '  - platform: template\n' +
+        '    name: "' + f._dn + ' Gas Alert"\n' +
+        '    device_class: gas\n' +
+        '    lambda: |-\n' +
+        '      return id(' + dnid + '_mq2_raw).state > 1.5;\n';
+    }
+  },
+  {
+    id: 'mq7', name: 'MQ-7 Carbon Monoxide (CO)', category: 'Gas / Safety',
+    icon: '☁️', description: 'CO gas sensor — analog',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin (ADC)', type: 'number', default: 35 },
+      { id: 'update_interval', label: 'Update Interval', type: 'text', default: '10s' }
+    ],
+    generate: function(c, f) {
+      var dnid = f._dn.replace(/-/g, '_');
+      return c + 'sensor:\n' +
+        '  - platform: adc\n' +
+        '    pin: GPIO' + f.gpio + '\n' +
+        '    id: ' + dnid + '_co_raw\n' +
+        '    name: "' + f._dn + ' CO Raw"\n' +
+        '    unit_of_measurement: "V"\n' +
+        '    attenuation: 11db\n' +
+        '    update_interval: ' + f.update_interval + '\n\n' +
+        'binary_sensor:\n' +
+        '  - platform: template\n' +
+        '    name: "' + f._dn + ' CO Alert"\n' +
+        '    device_class: carbon_monoxide\n' +
+        '    lambda: |-\n' +
+        '      return id(' + dnid + '_co_raw).state > 1.2;\n';
+    }
+  },
+  {
+    id: 'mq135', name: 'MQ-135 Air Quality', category: 'Gas / Safety',
+    icon: '🌫️', description: 'General air quality / ammonia / benzene — analog',
+    fields: [
+      { id: 'gpio', label: 'GPIO Pin (ADC)', type: 'number', default: 36 },
+      { id: 'update_interval', label: 'Update Interval', type: 'text', default: '10s' }
+    ],
+    generate: function(c, f) {
+      var dnid = f._dn.replace(/-/g, '_');
+      return c + 'sensor:\n' +
+        '  - platform: adc\n' +
+        '    pin: GPIO' + f.gpio + '\n' +
+        '    id: ' + dnid + '_air_quality_raw\n' +
+        '    name: "' + f._dn + ' Air Quality Raw"\n' +
+        '    unit_of_measurement: "V"\n' +
+        '    attenuation: 11db\n' +
+        '    update_interval: ' + f.update_interval + '\n\n' +
+        'binary_sensor:\n' +
+        '  - platform: template\n' +
+        '    name: "' + f._dn + ' Air Quality Alert"\n' +
+        '    device_class: smoke\n' +
+        '    lambda: |-\n' +
+        '      return id(' + dnid + '_air_quality_raw).state > 1.8;\n';
+    }
+  },
+  // ── Display ────────────────────────────────────────────────────────────
+  {
+    id: 'ssd1306', name: 'SSD1306 OLED Display (I2C)', category: 'Display',
+    icon: '🖥️', description: '128x64 OLED local status display',
+    fields: [
+      { id: 'sda', label: 'SDA Pin', type: 'number', default: 21 },
+      { id: 'scl', label: 'SCL Pin', type: 'number', default: 22 },
+      { id: 'address', label: 'I2C Address (hex)', type: 'text', default: '0x3C' }
+    ],
+    generate: function(c, f) {
+      return c + 'i2c:\n  sda: ' + f.sda + '\n  scl: ' + f.scl + '\n\n' +
+        'font:\n' +
+        '  - file: "gfonts://Roboto"\n' +
+        '    id: roboto\n' +
+        '    size: 14\n\n' +
+        'display:\n' +
+        '  - platform: ssd1306_i2c\n' +
+        '    model: "SSD1306 128x64"\n' +
+        '    address: ' + f.address + '\n' +
+        '    lambda: |-\n' +
+        '      it.print(0, 0, id(roboto), "' + f._dn + '");\n' +
+        '      it.print(0, 20, id(roboto), "Online");\n';
+    }
+  },
+  // ── Misc ───────────────────────────────────────────────────────────────
+  {
+    id: 'hx711', name: 'HX711 Load Cell / Weight', category: 'Misc',
+    icon: '⚖️', description: '24-bit ADC for load cells — weight measurement',
+    fields: [
+      { id: 'dout_pin', label: 'DOUT Pin', type: 'number', default: 3 },
+      { id: 'clk_pin', label: 'CLK Pin', type: 'number', default: 2 },
+      { id: 'update_interval', label: 'Update Interval', type: 'text', default: '1s' }
+    ],
+    generate: function(c, f) {
+      return c + 'sensor:\n' +
+        '  - platform: hx711\n' +
+        '    name: "' + f._dn + ' Weight"\n' +
+        '    dout_pin: GPIO' + f.dout_pin + '\n' +
+        '    clk_pin: GPIO' + f.clk_pin + '\n' +
+        '    gain: 128\n' +
+        '    update_interval: ' + f.update_interval + '\n' +
+        '    unit_of_measurement: kg\n' +
+        '    filters:\n' +
+        '      - calibrate_linear:\n' +
+        '        - 0 -> 0\n' +
+        '        - 430000 -> 1.0\n' +
+        '      - delta: 0.01\n';
+    }
+  },
+  {
+    id: 'rotary_encoder', name: 'Rotary Encoder', category: 'Misc',
+    icon: '🎛️', description: 'Rotary encoder for manual input / volume / dimmer',
+    fields: [
+      { id: 'pin_a', label: 'Pin A', type: 'number', default: 18 },
+      { id: 'pin_b', label: 'Pin B', type: 'number', default: 19 },
+      { id: 'pin_btn', label: 'Button Pin', type: 'number', default: 23 }
+    ],
+    generate: function(c, f) {
+      return c + 'sensor:\n' +
+        '  - platform: rotary_encoder\n' +
+        '    name: "' + f._dn + ' Position"\n' +
+        '    pin_a: GPIO' + f.pin_a + '\n' +
+        '    pin_b: GPIO' + f.pin_b + '\n' +
+        '    resolution: 1\n\n' +
+        'binary_sensor:\n' +
+        '  - platform: gpio\n' +
+        '    pin:\n' +
+        '      number: GPIO' + f.pin_btn + '\n' +
+        '      mode: INPUT_PULLUP\n' +
+        '      inverted: true\n' +
+        '    name: "' + f._dn + ' Button"\n';
+    }
+  }
+];
+
+var plSelectedTemplate = null;
+
+function plCommonHeader(deviceName, wifiSsid, wifiPassword, mqttBroker) {
+  return 'esphome:\n' +
+    '  name: ' + deviceName + '\n\n' +
+    'esp32:\n' +
+    '  board: esp32dev\n' +
+    '  framework:\n' +
+    '    type: arduino\n\n' +
+    'logger:\n\n' +
+    'api:\n\n' +
+    'ota:\n' +
+    '  - platform: esphome\n\n' +
+    'wifi:\n' +
+    '  ssid: "' + wifiSsid + '"\n' +
+    '  password: "' + wifiPassword + '"\n' +
+    '  ap:\n' +
+    '    ssid: "' + deviceName + '-AP"\n' +
+    '    password: "elaris1234"\n\n' +
+    'mqtt:\n' +
+    '  broker: ' + mqttBroker + '\n' +
+    '  topic_prefix: elaris/' + deviceName + '\n\n';
+}
+
+function plBuildSensorList() {
+  var el = document.getElementById('plSensorList');
+  if (!el) return;
+  var categories = {};
+  PL_TEMPLATES.forEach(function(t) {
+    if (!categories[t.category]) categories[t.category] = [];
+    categories[t.category].push(t);
+  });
+  var html = '';
+  Object.keys(categories).forEach(function(cat) {
+    html += '<div style="padding:6px 10px 2px;font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;border-top:1px solid var(--line)">' + cat + '</div>';
+    categories[cat].forEach(function(t) {
+      html += '<div class="pl-sensor-item" data-id="' + t.id + '" onclick="plSelectSensor(\'' + t.id + '\')" style="padding:8px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:6px">' +
+        '<span>' + t.icon + '</span><span>' + t.name + '</span></div>';
+    });
+  });
+  el.innerHTML = html;
+}
+
+window.plSelectSensor = function(id) {
+  plSelectedTemplate = PL_TEMPLATES.find(function(t) { return t.id === id; });
+  if (!plSelectedTemplate) return;
+
+  // Highlight selected item
+  document.querySelectorAll('.pl-sensor-item').forEach(function(el) {
+    el.style.background = el.dataset.id === id ? 'rgba(29,140,255,.15)' : '';
+    el.style.color = el.dataset.id === id ? 'var(--blue)' : '';
+  });
+
+  // Build sensor-specific fields
+  var fieldsHtml = '';
+  plSelectedTemplate.fields.forEach(function(f) {
+    fieldsHtml += '<div class="form-row"><label>' + f.label + '</label>' +
+      '<input type="' + f.type + '" id="plf_' + f.id + '" value="' + f.default + '"></div>';
+  });
+
+  document.getElementById('plSensorFields').innerHTML = fieldsHtml;
+  document.getElementById('plSensorTitle').textContent = plSelectedTemplate.icon + ' ' + plSelectedTemplate.name;
+  document.getElementById('plFormArea').style.display = '';
+  document.getElementById('plYamlArea').style.display = 'none';
+  document.getElementById('plYamlOutput').value = '';
+};
+
+window.plGenerateYaml = function() {
+  if (!plSelectedTemplate) return;
+  var deviceName = document.getElementById('plDeviceName').value.trim() || 'my-sensor';
+  var mqttBroker = document.getElementById('plMqttBroker').value.trim() || '192.168.1.x';
+  var wifiSsid = document.getElementById('plWifiSsid').value.trim();
+  var wifiPassword = document.getElementById('plWifiPassword').value.trim();
+  var fields = {};
+  plSelectedTemplate.fields.forEach(function(f) {
+    var el = document.getElementById('plf_' + f.id);
+    fields[f.id] = el ? el.value : f.default;
+  });
+  fields._dn = deviceName;
+  var header = plCommonHeader(deviceName, wifiSsid, wifiPassword, mqttBroker);
+  var yaml = plSelectedTemplate.generate(header, fields);
+  document.getElementById('plYamlOutput').value = yaml;
+  document.getElementById('plYamlArea').style.display = 'flex';
+  document.getElementById('plYamlArea').style.flexDirection = 'column';
+};
+
+window.plCopyYaml = function() {
+  var val = document.getElementById('plYamlOutput').value;
+  if (!val) return;
+  navigator.clipboard.writeText(val).then(function() {
+    alert('YAML copied to clipboard!');
+  }).catch(function() {
+    alert('Copy failed — please select and copy manually.');
+  });
+};
+
+window.plDownloadYaml = function() {
+  var val = document.getElementById('plYamlOutput').value;
+  if (!val) return;
+  var deviceName = document.getElementById('plDeviceName').value.trim() || 'my-sensor';
+  var blob = new Blob([val], { type: 'text/yaml' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = deviceName + '.yaml';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+window.togglePeripheralLibrary = function() {
+  var panel = document.getElementById('peripheralLibraryPanel');
+  var showing = panel.style.display !== 'none';
+  panel.style.display = showing ? 'none' : '';
+  if (!showing) plBuildSensorList();
+};
+
+})();
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+(async function() {
+  try {
+    var r = await fetch('/api/me', { credentials: 'include' });
+    var d = await r.json();
+    if (!d.ok || !d.user) { location.href = '/login.html'; return; }
+    // Auto-fill MQTT host from current hostname
+    document.getElementById('mqttHost').value = location.hostname;
+  } catch { location.href = '/login.html'; return; }
+
+  connectWS();
+  setFlashButtonState('ready');
+  onFlashModeChange();
+  updateStep1UI();
+  await checkSetup();
+  try { await refreshPorts(); } catch {}
+  await loadInstallerDevices();
+  await loadSavedConfigs();
+  setInterval(function() { loadInstallerDevices(); }, 8000);
+})();
+function toggleGuide() {
+  const p = document.getElementById('guidePanel');
+  const visible = p.style.display !== 'none';
+  p.style.display = visible ? 'none' : 'block';
+  if (!visible) showGuideTab(1);
+}
+function showGuideTab(n) {
+  [1,2,3].forEach(i => {
+    document.getElementById('guideTab'+i).style.display = i===n ? 'block' : 'none';
+    const btn = document.getElementById('guideTab'+i+'Btn');
+    if (btn) { btn.style.borderColor = i===n ? 'var(--blue)' : ''; btn.style.color = i===n ? 'var(--blue)' : ''; }
+  });
+}
+</script>
+</body>
+</html>

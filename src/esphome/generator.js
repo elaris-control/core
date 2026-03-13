@@ -1,0 +1,230 @@
+const { safeName } = require('./schema');
+
+function mqttDiscoveryJson({ deviceName, boardLabel, boardProfileId, entities }) {
+  const counts = entities.reduce((acc, e) => {
+    const t = String(e.type || '').toLowerCase();
+    acc[t] = (acc[t] || 0) + 1;
+    return acc;
+  }, {});
+  return JSON.stringify({
+    device: {
+      name: deviceName,
+      hostname: safeName(deviceName),
+      model: boardLabel || 'ELARIS Board',
+      board_profile_id: boardProfileId || null,
+      sw: '1.0.0',
+    },
+    capabilities: counts,
+  });
+}
+
+function pinLines(entity) {
+  if (entity._resolvedExpander) {
+    const x = entity._resolvedExpander;
+    return [
+      '    pin:',
+      `      pcf8574: ${x.pcf8574}`,
+      `      number: ${x.number}`,
+      `      mode: ${x.mode || (entity.type === 'relay' ? 'OUTPUT' : 'INPUT')}`,
+      ...(x.inverted ? ['      inverted: true'] : []),
+    ];
+  }
+  const pin = entity._resolvedPin || entity.pin || entity.source;
+  return [
+    '    pin:',
+    `      number: ${pin}`,
+    `      mode: ${entity.type === 'relay' ? 'OUTPUT' : 'INPUT'}`,
+  ];
+}
+
+function generateYAML({ profile, payload }) {
+  const sname = safeName(payload.device_name);
+  const framework = payload.framework || profile.frameworkDefault || 'esp-idf';
+  const entities = payload.entities || [];
+  const relays = entities.filter(e => e.type === 'relay');
+  const dis = entities.filter(e => e.type === 'di');
+  const ds18s = entities.filter(e => e.type === 'ds18b20');
+  const dhts = entities.filter(e => e.type === 'dht');
+  const analogs = entities.filter(e => e.type === 'analog');
+  const lines = [];
+
+  const discoveryPayload = mqttDiscoveryJson({ deviceName: payload.device_name, boardLabel: profile.label, boardProfileId: profile.id, entities }).replace(/'/g, "''");
+
+  lines.push('esphome:');
+  lines.push(`  name: ${sname}`);
+  lines.push(`  friendly_name: "${payload.device_name}"`);
+  lines.push('');
+
+  if (profile.platform === 'esp32') {
+    lines.push('esp32:');
+    lines.push(`  board: ${profile.board}`);
+    lines.push('  framework:');
+    lines.push(`    type: ${framework}`);
+    lines.push('');
+  } else {
+    lines.push('esp8266:');
+    lines.push(`  board: ${profile.board}`);
+    lines.push('');
+  }
+
+  lines.push('logger:');
+  lines.push('');
+  lines.push('ota:');
+  lines.push('  - platform: esphome');
+  lines.push('');
+
+  if (payload.use_ethernet && profile.ethernet) {
+    lines.push('ethernet:');
+    lines.push(`  type: ${profile.ethernet.type}`);
+    lines.push(`  mdc_pin: GPIO${profile.ethernet.mdc_pin}`);
+    lines.push(`  mdio_pin: GPIO${profile.ethernet.mdio_pin}`);
+    if (profile.ethernet.clk) {
+      lines.push('  clk:');
+      lines.push(`    mode: ${profile.ethernet.clk.mode}`);
+      lines.push(`    pin: ${profile.ethernet.clk.pin}`);
+    }
+    lines.push(`  phy_addr: ${profile.ethernet.phy_addr}`);
+    lines.push('');
+  } else {
+    lines.push('wifi:');
+    lines.push(`  ssid: "${payload.wifi_ssid}"`);
+    lines.push(`  password: "${payload.wifi_pass}"`);
+    lines.push('');
+  }
+
+  if (profile.i2c) {
+    lines.push('i2c:');
+    lines.push(`  sda: ${profile.i2c.sda}`);
+    lines.push(`  scl: ${profile.i2c.scl}`);
+    if (profile.i2c.scan) lines.push('  scan: true');
+    if (profile.i2c.id) lines.push(`  id: ${profile.i2c.id}`);
+    lines.push('');
+  }
+
+  if (Array.isArray(profile.pcf8574) && profile.pcf8574.length) {
+    lines.push('pcf8574:');
+    for (const hub of profile.pcf8574) {
+      lines.push(`  - id: '${hub.id}'`);
+      lines.push(`    address: ${hub.address}`);
+    }
+    lines.push('');
+  }
+
+  lines.push('mqtt:');
+  lines.push(`  broker: ${payload.mqtt_host}`);
+  lines.push('  port: 1883');
+  lines.push('  discovery: false');
+  lines.push('  on_connect:');
+  lines.push('    then:');
+  lines.push('      - mqtt.publish:');
+  lines.push(`          topic: "elaris/${sname}/config"`);
+  lines.push(`          payload: '${discoveryPayload}'`);
+  lines.push('          retain: true');
+  if (relays.length) {
+    lines.push('  on_message:');
+    for (const r of relays) {
+      lines.push(`    - topic: "elaris/${sname}/cmnd/${r.key}"`);
+      lines.push('      then:');
+      lines.push('        - lambda: |-');
+      lines.push(`            if (x == "ON") id(${r.key}).turn_on();`);
+      lines.push(`            else id(${r.key}).turn_off();`);
+    }
+  }
+  lines.push('');
+
+  if (relays.length) {
+    lines.push('switch:');
+    for (const r of relays) {
+      lines.push('  - platform: gpio');
+      lines.push(`    name: "${r.name}"`);
+      lines.push(`    id: ${r.key}`);
+      lines.push(...pinLines(r));
+      lines.push('    restore_mode: RESTORE_DEFAULT_OFF');
+      lines.push('    on_turn_on:');
+      lines.push('      - mqtt.publish:');
+      lines.push(`          topic: "elaris/${sname}/state/${r.key}"`);
+      lines.push('          payload: "ON"');
+      lines.push('          retain: true');
+      lines.push('    on_turn_off:');
+      lines.push('      - mqtt.publish:');
+      lines.push(`          topic: "elaris/${sname}/state/${r.key}"`);
+      lines.push('          payload: "OFF"');
+      lines.push('          retain: true');
+    }
+    lines.push('');
+  }
+
+  if (dis.length) {
+    lines.push('binary_sensor:');
+    for (const d of dis) {
+      lines.push('  - platform: gpio');
+      lines.push(`    name: "${d.name}"`);
+      lines.push(`    id: ${d.key}`);
+      lines.push(...pinLines(d));
+      lines.push('    on_state:');
+      lines.push('      - mqtt.publish:');
+      lines.push(`          topic: "elaris/${sname}/tele/${d.key}"`);
+      lines.push('          payload: !lambda |-');
+      lines.push('            return x ? "ON" : "OFF";');
+    }
+    lines.push('');
+  }
+
+  if (ds18s.length) {
+    const pin = ds18s[0].pin || ds18s[0].source;
+    lines.push('one_wire:');
+    lines.push('  - platform: gpio');
+    lines.push(`    pin: ${pin}`);
+    lines.push('');
+  }
+
+  if (ds18s.length || dhts.length || analogs.length) {
+    lines.push('sensor:');
+    ds18s.forEach((s, i) => {
+      lines.push('  - platform: dallas_temp');
+      lines.push(`    index: ${i}`);
+      lines.push(`    name: "${s.name}"`);
+      lines.push(`    id: ${s.key}`);
+      lines.push('    unit_of_measurement: "°C"');
+      lines.push('    update_interval: 30s');
+      lines.push('    on_value:');
+      lines.push('      - mqtt.publish:');
+      lines.push(`          topic: "elaris/${sname}/tele/${s.key}"`);
+      lines.push('          payload: !lambda |-');
+      lines.push('            return str_sprintf("%.1f", x);');
+    });
+    dhts.forEach((d) => {
+      const pin = d.pin || d.source;
+      lines.push('  - platform: dht');
+      lines.push(`    pin: ${pin}`);
+      lines.push('    model: DHT22');
+      lines.push('    update_interval: 30s');
+      lines.push('    temperature:');
+      lines.push(`      name: "${d.name}"`);
+      lines.push(`      id: ${d.key}`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${d.key}"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.1f", x);');
+    });
+    analogs.forEach((a) => {
+      const pin = a.pin || a.source;
+      lines.push('  - platform: adc');
+      lines.push(`    pin: ${pin}`);
+      lines.push(`    name: "${a.name}"`);
+      lines.push(`    id: ${a.key}`);
+      lines.push('    update_interval: 10s');
+      lines.push('    on_value:');
+      lines.push('      - mqtt.publish:');
+      lines.push(`          topic: "elaris/${sname}/tele/${a.key}"`);
+      lines.push('          payload: !lambda |-');
+      lines.push('            return str_sprintf("%.3f", x);');
+    });
+    lines.push('');
+  }
+
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n') + '\n';
+}
+
+module.exports = { generateYAML };

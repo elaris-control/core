@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem("elaris_theme")||"dark";}catch(e){document.documentElement.dataset.theme="dark";}</script>
+  <script src="/csrf.js?v=1"></script>
+  <title>ELARIS — History</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/styles.css?v=22">
+<style>
+.hpage { display:flex; flex-direction:column; flex:1; overflow:hidden; min-width:0; }
+.htopbar { display:flex; align-items:center; gap:10px; padding:12px 20px; flex-wrap:wrap; border-bottom:1px solid var(--line); flex-shrink:0; }
+.htopbar h1 { font-size:15px; font-weight:800; margin-right:auto; }
+.hbody { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:16px; }
+
+/* IO selector strip */
+.io-strip { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:4px; }
+.io-chip {
+  display:flex; align-items:center; gap:6px;
+  padding:6px 12px; border-radius:8px;
+  border:1px solid var(--line); background:var(--card);
+  font-size:11px; cursor:pointer; user-select:none; transition:.15s;
+}
+.io-chip.active { border-color:var(--blue); background:rgba(29,140,255,.12); color:var(--blue); }
+.io-chip .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.io-chip button.remove { background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px; padding:0 0 0 4px; line-height:1; }
+
+/* Chart card */
+.chart-card {
+  background:var(--card); border:1px solid var(--line);
+  border-radius:var(--radius); padding:18px;
+  position:relative; overflow:hidden;
+}
+.chart-card::before { content:""; position:absolute; top:0; left:0; right:0; height:2px; background:var(--chart-color, var(--blue)); }
+.chart-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; flex-wrap:wrap; gap:8px; }
+.chart-title { font-size:13px; font-weight:800; }
+.chart-meta { font-size:11px; color:var(--muted2); }
+.chart-stats { display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+.chart-stat { font-size:11px; color:var(--muted2); }
+.chart-stat strong { color:var(--text); font-weight:700; }
+.chart-wrap { position:relative; width:100%; overflow:hidden; }
+.chart-wrap svg { display:block; width:100%; }
+.chart-empty { text-align:center; color:var(--muted); font-size:12px; padding:40px 0; }
+
+/* Range buttons */
+.range-btns { display:flex; gap:4px; }
+.range-btn {
+  font-size:10px; padding:4px 10px; border-radius:6px;
+  border:1px solid var(--line); background:transparent;
+  color:var(--muted2); cursor:pointer; font-family:monospace; transition:.15s;
+}
+.range-btn.active { background:rgba(29,140,255,.12); border-color:var(--blue); color:var(--blue); }
+
+/* Add IO panel */
+.add-panel { background:var(--card2); border:1px solid var(--line); border-radius:var(--radius); padding:16px; }
+.add-panel h3 { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:12px; }
+.io-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:6px; }
+.io-add-btn {
+  display:flex; align-items:center; gap:8px;
+  padding:8px 10px; border-radius:8px;
+  border:1px solid var(--line); background:rgba(255,255,255,.02);
+  font-size:11px; cursor:pointer; text-align:left; color:var(--muted2);
+  transition:.15s;
+}
+.io-add-btn:hover { border-color:var(--blue); color:var(--text); background:rgba(29,140,255,.06); }
+.io-add-btn .type-badge {
+  font-size:9px; padding:1px 5px; border-radius:4px;
+  background:rgba(255,255,255,.07); color:var(--muted); flex-shrink:0;
+}
+
+/* Time axis labels */
+.time-labels { display:flex; justify-content:space-between; padding:2px 0 0; }
+.time-label { font-size:9px; color:var(--muted); font-family:monospace; }
+
+/* Loading spinner */
+.spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--line2); border-top-color:var(--blue); border-radius:50%; animation:spin .7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+.no-data-banner { text-align:center; padding:60px 20px; color:var(--muted); }
+.no-data-banner .icon { font-size:40px; margin-bottom:12px; }
+.no-data-banner p { font-size:13px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="sidebar">
+    <div class="brand">
+      <img class="brandLogo" src="/logo.png" alt="ELARIS" onerror="this.style.display='none'">
+      <div class="brandText"><div class="name">ELARIS</div><div class="tagline">Smart Control</div></div>
+    </div>
+    <div class="groupTitle">Main</div>
+    <nav class="nav">
+      <a href="/">&#127968; Dashboard</a></nav>
+    <div id="navContainer"></div>
+    <div class="groupTitle">System</div>
+    <nav class="nav">
+      <a href="/scenes.html">&#127916; Scenes</a>
+      <a href="/history.html" class="active">&#128200; History</a>
+      <a href="/settings.html">&#9881;&#65039; Settings</a>
+      <a href="/entities.html">&#128268; Entities</a>
+      <a href="/installer.html" id="installerLink">&#128295; Installer</a>
+      <a href="/modules.html" id="modulesLink">&#129513; Modules</a>
+      <a href="/logs.html">&#128203; Logs</a>
+      <a href="/esphome.html">&#128376; ESPHome</a>
+      <a href="/help.html">&#10067; Help</a>
+      <a href="/admin.html" id="adminLink" style="display:none">Admin</a>
+    </nav>
+    <div style="padding:16px 20px 8px;margin-top:auto">
+      <button class="btn" style="width:100%;font-size:11px" onclick="window.location.href='/'">&#8592; Dashboard</button>
+    </div>
+  </aside>
+  <div class="overlay" id="overlay" onclick="document.body.classList.remove('sideOpen')"></div>
+
+  <div class="hpage">
+    <div class="htopbar">
+      <button class="btn" id="menuBtn" style="display:none" onclick="document.body.classList.add('sideOpen')">&#9776;</button>
+      <h1>&#128200; History</h1>
+
+      <!-- Range selector -->
+      <div class="range-btns" id="rangeBtns">
+        <button class="range-btn" data-h="6">6h</button>
+        <button class="range-btn active" data-h="24">24h</button>
+        <button class="range-btn" data-h="48">2d</button>
+        <button class="range-btn" data-h="168">7d</button>
+      </div>
+
+      <span class="pill" id="sitePill" style="font-size:11px">—</span>
+      <button class="btn" id="themeBtn" onclick="toggleTheme()" title="Toggle theme" style="padding:6px 10px;font-size:15px;line-height:1">🌙</button>
+    </div>
+
+    <div class="hbody" id="hbody">
+      <div style="text-align:center;padding:40px;color:var(--muted)"><div class="spinner"></div><div style="margin-top:8px;font-size:12px">Loading…</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var siteId = null;
+var hours   = 24;
+var activeIOs = [];   // [{ id, key, name, type, unit, color }]
+var allIOs    = [];   // all IOs for site
+
+var COLORS = ['#3ab8ff','#ff9a3a','#22d97a','#f0c040','#a855f7','#ff6b6b','#00d4c8','#f97316'];
+var TYPE_ICONS = { sensor:'🌡️', relay:'🔌', analog:'〰️', dimmer:'💡', ao:'〰️', ai:'🌡️' };
+
+async function api(path, opts){
+  var r = await fetch('/api'+path, { credentials:'include', headers:{'Content-Type':'application/json'}, ...(opts||{}) });
+  var d = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(d.error||r.status);
+  return d;
+}
+
+function colorFor(idx){ return COLORS[idx % COLORS.length]; }
+
+async function boot(){
+  try {
+    var me = await api('/me');
+    if (!me.ok||!me.user){ location.href='/login.html'; return; }
+    try { siteId = Number(localStorage.getItem('elaris_site_id')||''); } catch{}
+    if (!siteId){
+      var sites = await api('/sites');
+      siteId = sites.sites?.[0]?.id;
+    }
+    if (!siteId){ document.getElementById('hbody').innerHTML='<div class="no-data-banner"><div class="icon">⚠️</div><p>No site configured.</p></div>'; return; }
+
+    var siteData = await api('/sites');
+    var site = (siteData.sites||[]).find(s=>s.id===siteId);
+    if (site) document.getElementById('sitePill').textContent = site.name||('Site '+siteId);
+
+    // Load all IOs
+    var iosData = await api('/history/site/'+siteId);
+    allIOs = iosData.ios||[];
+
+    // Check URL params for pre-selected IOs
+    var params = new URLSearchParams(location.search);
+    var ioIds = (params.get('io')||'').split(',').map(Number).filter(Boolean);
+    if (ioIds.length){
+      ioIds.forEach(function(id, i){
+        var io = allIOs.find(function(x){ return x.id===id; });
+        if (io && !activeIOs.find(function(a){ return a.id===id; }))
+          activeIOs.push(Object.assign({}, io, { color: colorFor(i) }));
+      });
+    }
+
+    // Range buttons
+    document.getElementById('rangeBtns').addEventListener('click', function(e){
+      var btn = e.target.closest('[data-h]');
+      if (!btn) return;
+      hours = Number(btn.dataset.h);
+      document.querySelectorAll('.range-btn').forEach(function(b){ b.classList.toggle('active', b===btn); });
+      renderAll();
+    });
+
+    renderAll();
+  } catch(e){
+    document.getElementById('hbody').innerHTML='<div class="no-data-banner"><div class="icon">❌</div><p>Error: '+e.message+'</p></div>';
+  }
+}
+
+function renderAll(){
+  var body = document.getElementById('hbody');
+  body.innerHTML = '';
+
+  // Charts for active IOs
+  activeIOs.forEach(function(io, idx){
+    var card = document.createElement('div');
+    card.className = 'chart-card';
+    card.style.setProperty('--chart-color', io.color);
+    card.id = 'chart-card-'+io.id;
+    card.innerHTML = '<div class="chart-header">' +
+      '<div class="chart-title">'+escHtml(io.name||io.key)+'<span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:6px">'+io.device_id+'.'+io.key+'</span></div>' +
+      '<div class="chart-meta"><span class="spinner"></span></div>' +
+      '</div>' +
+      '<div class="chart-stats" id="stats-'+io.id+'"></div>' +
+      '<div class="chart-wrap" id="wrap-'+io.id+'"><div class="chart-empty">Loading…</div></div>' +
+      '<div class="time-labels" id="tlabels-'+io.id+'"></div>';
+    body.appendChild(card);
+    loadChart(io);
+  });
+
+  // IO picker panel
+  var panel = document.createElement('div');
+  panel.className = 'add-panel';
+  renderPicker(panel);
+  body.appendChild(panel);
+}
+
+async function loadChart(io){
+  try {
+    var data = await api('/io/'+io.id+'/history?hours='+hours);
+    var points = data.points||[];
+    var card = document.getElementById('chart-card-'+io.id);
+    if (!card) return;
+
+    var meta = card.querySelector('.chart-meta');
+    meta.innerHTML = '<span style="font-size:11px;color:var(--muted)">'+points.length+' pts · last '+hours+'h</span>';
+
+    // Stats
+    var statsEl = document.getElementById('stats-'+io.id);
+    if (points.length){
+      var vals = points.map(function(p){ return p.v; });
+      var mn=Math.min.apply(null,vals), mx=Math.max.apply(null,vals);
+      var avg=(vals.reduce(function(a,b){return a+b;},0)/vals.length);
+      var last=vals[vals.length-1];
+      var unit = io.unit ? ' '+io.unit : '';
+      var isRelay = io.type==='relay'||io.type==='di';
+      if (isRelay){
+        statsEl.innerHTML =
+          '<span class="chart-stat">Current: <strong>'+(last?'ON':'OFF')+'</strong></span>';
+      } else {
+        statsEl.innerHTML =
+          '<span class="chart-stat">Now: <strong>'+last.toFixed(1)+unit+'</strong></span>' +
+          '<span class="chart-stat">Min: <strong>'+mn.toFixed(1)+unit+'</strong></span>' +
+          '<span class="chart-stat">Max: <strong>'+mx.toFixed(1)+unit+'</strong></span>' +
+          '<span class="chart-stat">Avg: <strong>'+avg.toFixed(1)+unit+'</strong></span>';
+      }
+    }
+
+    // Draw chart
+    var wrapEl = document.getElementById('wrap-'+io.id);
+    var labelsEl = document.getElementById('tlabels-'+io.id);
+    if (!points.length){
+      wrapEl.innerHTML = '<div class="chart-empty">No data in this period.<br><span style="font-size:11px;color:var(--muted)">Make sure events are being received via MQTT.</span></div>';
+      return;
+    }
+
+    var isRelay = io.type==='relay'||io.type==='di';
+    wrapEl.innerHTML = drawSVG(points, io.color, isRelay);
+
+    // Time labels
+    var tStart = points[0].ts, tEnd = points[points.length-1].ts;
+    var labelCount = 5;
+    var labels = '';
+    for (var i=0;i<labelCount;i++){
+      var t = tStart + (tEnd-tStart)*(i/(labelCount-1));
+      var d = new Date(t);
+      var str = d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+      if (hours > 48) str = (d.getMonth()+1)+'/'+(d.getDate())+' '+str;
+      labels += '<span class="time-label">'+str+'</span>';
+    }
+    labelsEl.innerHTML = labels;
+
+  } catch(e){
+    var wrapEl2 = document.getElementById('wrap-'+io.id);
+    if (wrapEl2) wrapEl2.innerHTML = '<div class="chart-empty">Error: '+e.message+'</div>';
+  }
+}
+
+function drawSVG(points, color, isStep){
+  var W=800, H=140, PAD_L=42, PAD_R=10, PAD_T=8, PAD_B=8;
+  var CW=W-PAD_L-PAD_R, CH=H-PAD_T-PAD_B;
+  var vals=points.map(function(p){return p.v;});
+  var mn=Math.min.apply(null,vals), mx=Math.max.apply(null,vals);
+  if (isStep){ mn=-0.1; mx=1.1; }
+  else { var pad=(mx-mn)*0.1||1; mn-=pad; mx+=pad; }
+  var range=mx-mn;
+  var tMin=points[0].ts, tMax=points[points.length-1].ts, tRange=tMax-tMin||1;
+
+  function px(p){ return PAD_L + ((p.ts-tMin)/tRange)*CW; }
+  function py(v){ return PAD_T + CH - ((v-mn)/range)*CH; }
+
+  // Build path
+  var path='';
+  var areaPath='';
+  if (isStep){
+    // Step line for relay/DI
+    path = 'M'+px(points[0]).toFixed(1)+' '+py(points[0].v).toFixed(1);
+    areaPath = 'M'+px(points[0]).toFixed(1)+' '+(PAD_T+CH);
+    areaPath += ' L'+px(points[0]).toFixed(1)+' '+py(points[0].v).toFixed(1);
+    for (var i=1;i<points.length;i++){
+      var prevV=points[i-1].v, curV=points[i].v;
+      var x=px(points[i]).toFixed(1);
+      path += ' L'+x+' '+py(prevV).toFixed(1)+' L'+x+' '+py(curV).toFixed(1);
+      areaPath += ' L'+x+' '+py(prevV).toFixed(1)+' L'+x+' '+py(curV).toFixed(1);
+    }
+    areaPath += ' L'+px(points[points.length-1]).toFixed(1)+' '+(PAD_T+CH)+' Z';
+  } else {
+    path = 'M'+px(points[0]).toFixed(1)+' '+py(points[0].v).toFixed(1);
+    areaPath = 'M'+px(points[0]).toFixed(1)+' '+(PAD_T+CH);
+    areaPath += ' L'+px(points[0]).toFixed(1)+' '+py(points[0].v).toFixed(1);
+    for (var j=1;j<points.length;j++){
+      path += ' L'+px(points[j]).toFixed(1)+' '+py(points[j].v).toFixed(1);
+      areaPath += ' L'+px(points[j]).toFixed(1)+' '+py(points[j].v).toFixed(1);
+    }
+    areaPath += ' L'+px(points[points.length-1]).toFixed(1)+' '+(PAD_T+CH)+' Z';
+  }
+
+  // Y axis ticks
+  var tickCount=4;
+  var yTicks='';
+  for (var k=0;k<=tickCount;k++){
+    var v=mn+(range*k/tickCount);
+    var y=py(v).toFixed(1);
+    var label = isStep ? (k===tickCount?'ON':'OFF') : v.toFixed(1);
+    yTicks += '<line x1="'+PAD_L+'" y1="'+y+'" x2="'+(W-PAD_R)+'" y2="'+y+'" stroke="rgba(255,255,255,.05)" stroke-width="1"/>';
+    yTicks += '<text x="'+(PAD_L-4)+'" y="'+y+'" text-anchor="end" dominant-baseline="middle" fill="rgba(255,255,255,.3)" font-size="9" font-family="monospace">'+label+'</text>';
+  }
+
+  // Gradient id (unique per color)
+  var gradId='g'+color.replace('#','');
+
+  return '<svg viewBox="0 0 '+W+' '+H+'" style="overflow:visible" preserveAspectRatio="none">' +
+    '<defs>' +
+      '<linearGradient id="'+gradId+'" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="'+color+'" stop-opacity="0.25"/>' +
+        '<stop offset="100%" stop-color="'+color+'" stop-opacity="0.01"/>' +
+      '</linearGradient>' +
+    '</defs>' +
+    yTicks +
+    '<path d="'+areaPath+'" fill="url(#'+gradId+')" />' +
+    '<path d="'+path+'" fill="none" stroke="'+color+'" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '</svg>';
+}
+
+function renderPicker(panel){
+  panel.innerHTML = '';
+  var h3 = document.createElement('h3');
+  h3.textContent = '+ Add sensor / IO to chart';
+  panel.appendChild(h3);
+
+  // Group by type
+  var groups = {};
+  allIOs.forEach(function(io){
+    var t = io.type||'other';
+    if (!groups[t]) groups[t]=[];
+    groups[t].push(io);
+  });
+
+  if (!Object.keys(groups).length){
+    panel.innerHTML += '<div style="color:var(--muted);font-size:12px">No IOs found. Make sure devices are approved in Installer.</div>';
+    return;
+  }
+
+  Object.keys(groups).sort().forEach(function(type){
+    var label = document.createElement('div');
+    label.style.cssText='font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:10px 0 6px;font-weight:700';
+    label.textContent = (TYPE_ICONS[type]||'📡')+' '+type;
+    panel.appendChild(label);
+
+    var grid = document.createElement('div');
+    grid.className = 'io-grid';
+    groups[type].forEach(function(io){
+      var alreadyActive = activeIOs.find(function(a){ return a.id===io.id; });
+      var btn = document.createElement('button');
+      btn.className = 'io-add-btn';
+      btn.disabled = !!alreadyActive;
+      btn.style.opacity = alreadyActive ? '0.4' : '1';
+      btn.innerHTML =
+        '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(io.name||io.key)+'</span>' +
+        '<span class="type-badge">'+escHtml(io.device_id)+'</span>' +
+        (alreadyActive ? '<span style="color:var(--good);font-size:10px">✓</span>' : '<span style="color:var(--blue);font-size:14px">+</span>');
+      if (!alreadyActive){
+        btn.onclick = function(){
+          var color = colorFor(activeIOs.length);
+          activeIOs.push(Object.assign({}, io, { color: color }));
+          renderAll();
+          // scroll to chart
+          setTimeout(function(){
+            var el=document.getElementById('chart-card-'+io.id);
+            if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
+          },100);
+        };
+      }
+      grid.appendChild(btn);
+    });
+    panel.appendChild(grid);
+  });
+}
+
+function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// Responsive sidebar
+try {
+  var w=window.innerWidth;
+  if(w<980){ document.getElementById('menuBtn').style.display=''; }
+  window.addEventListener('resize',function(){
+    document.getElementById('menuBtn').style.display = window.innerWidth<980?'':'none';
+  });
+} catch(e){}
+
+boot();
+</script>
+<script src="/theme.js?v=1"></script>
+<script src="/role-ui.js?v=2"></script>
+</body>
+</html>

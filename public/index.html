@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>ELARIS</title>
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem('elaris_theme')||'dark';}catch(e){document.documentElement.dataset.theme='dark';}</script>
+  <script src="/csrf.js?v=1"></script>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ELARIS">
+  <meta name="mobile-web-app-capable" content="yes">
+  <script>
+    // Service Worker registration
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+    // Wake Lock — keep screen on when app is in foreground (tablet mode)
+    let _wakeLock = null;
+    async function requestWakeLock() {
+      if (!('wakeLock' in navigator)) return;
+      try { _wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') requestWakeLock();
+    });
+    window.addEventListener('load', requestWakeLock);
+    // PWA install prompt
+    let _installPrompt = null;
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      _installPrompt = e;
+      const btn = document.getElementById('pwaInstallBtn');
+      if (btn) btn.style.display = 'inline-flex';
+    });
+    window.installPWA = async function() {
+      if (!_installPrompt) return;
+      _installPrompt.prompt();
+      const { outcome } = await _installPrompt.userChoice;
+      if (outcome === 'accepted') {
+        const btn = document.getElementById('pwaInstallBtn');
+        if (btn) btn.style.display = 'none';
+      }
+      _installPrompt = null;
+    };
+  </script>
+  <link rel="stylesheet" href="/styles.css?v=22">
+<style>
+.dash-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:20px;overflow-y:auto;flex:1;}
+.dash-full{grid-column:1/-1;}
+#wClockTime{font-size:42px;font-weight:900;font-family:monospace;text-align:center;padding:8px 0 2px;letter-spacing:2px;}
+#wClockDate{font-size:12px;color:var(--muted2);text-align:center;margin-bottom:4px;}
+.tz-row{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:8px;}
+.tz-cell{text-align:center;padding:6px 4px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:8px;}
+.tz-label{font-size:9px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
+.tz-time{font-size:13px;font-weight:700;font-family:monospace;}
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;}
+.sum-card{padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.03);cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:12px;text-decoration:none;}
+.sum-card:hover{background:rgba(255,255,255,.06);border-color:var(--line2);transform:translateY(-1px);}
+.sum-icon{font-size:24px;flex-shrink:0;}
+.sum-info{flex:1;min-width:0;}
+.sum-name{font-size:12px;font-weight:800;color:var(--text);}
+.sum-status{font-size:11px;color:var(--muted2);font-family:monospace;margin-top:2px;}
+.ev-row{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:12px;}
+.ev-time{color:var(--muted);font-family:monospace;flex-shrink:0;font-size:11px;}
+.ev-action{color:var(--text);font-weight:700;flex:1;}
+.ev-reason{color:var(--muted2);font-size:11px;}
+.ws-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;font-family:monospace;transition:all .3s;}
+.ws-badge.online{background:rgba(34,217,122,.12);border:1px solid rgba(34,217,122,.3);color:var(--good);}
+.ws-badge.offline{background:rgba(255,69,69,.12);border:1px solid rgba(255,69,69,.3);color:var(--bad);}
+.ws-badge.connecting{background:rgba(245,200,0,.10);border:1px solid rgba(245,200,0,.3);color:var(--warn);}
+#offlineBanner{display:none;padding:10px 20px;background:rgba(255,69,69,.12);border-bottom:1px solid rgba(255,69,69,.2);color:var(--bad);font-size:12px;font-weight:700;text-align:center;}
+@media(max-width:980px){.dash-grid{grid-template-columns:1fr;padding:14px;}.dash-full{grid-column:1;}}
+@media(max-width:640px){.summary-grid{grid-template-columns:repeat(2,1fr);}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="sidebar">
+    <div class="brand">
+      <img class="brandLogo" src="/logo.png" alt="ELARIS" onerror="this.style.display='none'">
+      <div class="brandText"><div class="name">ELARIS</div><div class="tagline">Smart Control</div></div>
+    </div>
+    <div class="groupTitle">Main</div>
+    <nav class="nav"><a href="/" class="active">&#127968; Dashboard</a></nav>
+    <div id="navContainer"></div>
+    <div class="groupTitle">System</div>
+    <nav class="nav">
+      <a href="/scenes.html">&#127916; Scenes</a>
+      <a href="/history.html">&#128200; History</a>
+      <a href="/settings.html">&#9881;&#65039; Settings</a>
+      <a href="/entities.html">&#128268; Entities</a>
+      <a href="/installer.html" id="installerLink">&#128295; Installer</a>
+      <a href="/modules.html" id="modulesLink">&#129513; Modules</a>
+      <a href="/logs.html">&#128203; Logs</a>
+      <a href="/esphome.html">&#128376; ESPHome</a>
+      <a href="/help.html">&#10067; Help</a>
+      <a href="/admin.html" id="adminLink" style="display:none">Admin</a>
+    </nav>
+    <div style="padding:16px 20px 8px;margin-top:auto">
+      <button class="btn" style="width:100%;font-size:11px" onclick="openPageManager()">+ Manage Pages</button>
+    </div>
+  </aside>
+  <div class="overlay" id="overlay" onclick="closeSidebar()"></div>
+  <div style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-width:0">
+    <div class="topbar" style="margin:12px 16px 0;flex-shrink:0">
+      <div class="crumbs">
+        <button class="btn" id="menuBtn" style="display:none" onclick="openSidebar()">&#9776;</button>
+        <span class="pill" id="sitePill">Site: &mdash;</span>
+        <span class="pill ws-badge connecting" id="wsPill">Connecting&hellip;</span>
+      </div>
+      <div class="actions">
+        <button class="btn" id="pwaInstallBtn" onclick="installPWA()" style="display:none;font-size:11px" title="Install as app">&#128242; Install App</button>
+        <button class="btn" onclick="toggleTheme()" id="themeBtn">&#127769;</button>
+        <div class="dropdown">
+          <button class="btn btnPrimary" id="sitesBtn">Sites &#9660;</button>
+          <div class="menu" id="sitesMenu">
+            <div class="menuMuted">Select site</div>
+            <div id="sitesList"></div>
+            <div class="menuSep"></div>
+            <div class="item" id="addSiteBtn"><span>+ Add site</span><span class="muted">engineer</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="offlineBanner">Offline &mdash; <span id="offlineCountdown"></span></div>
+    <div class="dash-grid" id="dashGrid">
+      <div class="card" id="wClock" style="--w-accent:#38bdf8">
+        <div class="cardTitle">&#128336; Clock</div>
+        <div id="wClockTime">&mdash;</div>
+        <div id="wClockDate">&mdash;</div>
+        <div class="tz-row">
+          <div class="tz-cell"><div class="tz-label">UTC</div><div class="tz-time" data-tz="UTC">&mdash;</div></div>
+          <div class="tz-cell"><div class="tz-label">NY</div><div class="tz-time" data-tz="America/New_York">&mdash;</div></div>
+          <div class="tz-cell"><div class="tz-label">Dubai</div><div class="tz-time" data-tz="Asia/Dubai">&mdash;</div></div>
+        </div>
+      </div>
+      <div class="card" style="--w-accent:#38bdf8">
+        <div class="cardTitle">&#127780;&#65039; Weather</div>
+        <div id="weatherContainer"><div style="color:var(--muted);font-size:12px">Loading&hellip;</div></div>
+      </div>
+      <div class="card" style="--w-accent:#6366f1">
+        <div class="cardTitle" style="display:flex;justify-content:space-between;align-items:center">
+          <span>&#127916; Scenes</span>
+          <a href="/scenes.html" style="font-size:11px;color:var(--blue);text-decoration:none;font-weight:700">Manage &rarr;</a>
+        </div>
+        <div id="wScenesBody"><div style="color:var(--muted);font-size:12px">Loading&hellip;</div></div>
+      </div>
+      <div class="card dash-full" style="--w-accent:#1d8cff">
+        <div class="cardTitle">&#128202; System Overview</div>
+        <div class="summary-grid" id="summaryGrid"><div style="color:var(--muted);font-size:12px">Loading&hellip;</div></div>
+      </div>
+      <div class="card dash-full" style="--w-accent:#a855f7">
+        <div class="cardTitle">&#128203; Recent Events</div>
+        <div id="eventsBody"><div style="color:var(--muted);font-size:12px">Loading&hellip;</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Page Manager -->
+<div class="modal" id="pageManagerModal" style="display:none">
+  <div class="modalCard" style="max-width:560px;max-height:85vh;display:flex;flex-direction:column">
+    <div class="modalHead"><div class="modalTitle">My Pages</div><button class="iconBtn" onclick="closePageManager()">&#10005;</button></div>
+    <div style="flex:1;overflow-y:auto;padding:12px 2px">
+      <div style="font-size:12px;color:var(--muted2);margin-bottom:12px">Create custom pages with any combination of modules. Each appears in the sidebar.</div>
+      <div id="pmPagesList"></div>
+      <button class="btn" style="margin-top:12px;width:100%" onclick="openPageEditor(null)">+ New Page</button>
+    </div>
+  </div>
+</div>
+
+<!-- Page Editor -->
+<div class="modal" id="pageEditorModal" style="display:none">
+  <div class="modalCard" style="max-width:500px;max-height:85vh;display:flex;flex-direction:column">
+    <div class="modalHead"><div class="modalTitle" id="peTitle">New Page</div><button class="iconBtn" onclick="closePageEditor()">&#10005;</button></div>
+    <div style="flex:1;overflow-y:auto">
+      <div class="modalBody">
+        <div style="display:flex;gap:8px">
+          <label class="fLabel" style="flex:0 0 64px">Icon<input class="txt" id="pe_icon" placeholder="&#128196;" maxlength="4"></label>
+          <label class="fLabel" style="flex:1">Page Name<input class="txt" id="pe_name" placeholder="My Solar"></label>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Modules to show</div>
+          <div id="pe_instances" style="display:grid;gap:6px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modalActions">
+      <button class="btn" onclick="closePageEditor()">Cancel</button>
+      <button class="btn primary" onclick="savePage()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Entity -->
+<div class="modal" id="editModal" style="display:none">
+  <div class="modalCard">
+    <div class="modalHead"><div class="modalTitle" id="editTitle">Edit</div><button class="iconBtn" id="editCloseBtn">&#10005;</button></div>
+    <div class="modalBody">
+      <label class="fLabel">Name<input class="txt" id="editName" placeholder="Friendly name"></label>
+      <label class="fLabel">Zone<select class="sel" id="editZone"></select></label>
+      <label class="chkRow"><input type="checkbox" id="editDisable"><span>Hide (Disable)</span></label>
+    </div>
+    <div class="modalActions">
+      <button class="btn" id="editCancelBtn">Cancel</button>
+      <button class="btn primary" id="editSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/theme.js?v=1"></script>
+<script src="/site-context.js?v=1"></script>
+<script src="/role-ui.js?v=2"></script>
+<script src="/app.js?v=23"></script>
+</body>
+</html>

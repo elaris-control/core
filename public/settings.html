@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ELARIS – Settings</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/styles.css?v=22">
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem('elaris_theme')||'dark';}catch(e){document.documentElement.dataset.theme='dark';}</script>
+  <script src="/csrf.js?v=1"></script>
+</head>
+
+<body>
+  <div class="app">
+
+    <aside class="side" id="sidebar">
+      <div class="brand">
+        <img class="brandLogo" src="/logo.png" alt="ELARIS" onerror="this.style.display='none'">
+        <div class="brandText"><div class="name">ELARIS</div><div class="tagline">Smart Control</div></div>
+      </div>
+      <div class="groupTitle">Main</div>
+      <nav class="nav"><a href="/">&#127968; Dashboard</a></nav>
+      <div id="navContainer"></div>
+      <div class="groupTitle">System</div>
+      <nav class="nav">
+        <a href="/scenes.html">&#127916; Scenes</a>
+        <a href="/settings.html" class="active">&#9881;&#65039; Settings</a>
+        <a href="/entities.html">&#128268; Entities</a>
+        <a href="/installer.html" id="installerLink">&#128295; Installer</a>
+        <a href="/modules.html" id="modulesLink">&#129513; Modules</a>
+      <a href="/logs.html">&#128203; Logs</a>
+      <a href="/esphome.html">&#128376; ESPHome</a>
+        <a href="/help.html">&#10067; Help</a>
+        <a href="/admin.html" id="adminLink" style="display:none">Admin</a>
+      </nav>
+      <div style="padding:16px 20px 8px;margin-top:auto">
+        <button class="btn" style="width:100%;font-size:11px" onclick="openPageManager()">+ Manage Pages</button>
+      </div>
+    </aside>
+
+    <div class="overlay" id="overlay"></div>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="crumbs">
+          <span class="pill" id="sitePill">Site: —</span>
+          <span class="pill" id="devicePill">Device: —</span>
+          <span class="pill" id="wsPill">Role: —</span>
+        </div>
+
+        <div class="actions">
+          <a class="btn" href="/help.html">Help</a>
+          <button class="btn" id="refreshBtn">Refresh</button>
+          <button class="btn" id="menuBtn" aria-label="Menu">☰</button>
+          <button class="btn" id="themeBtn" aria-label="Theme" onclick="toggleTheme()">🌙</button>
+          <a class="btn" href="/">← Dashboard</a>
+        </div>
+      </div>
+
+      <div class="grid" style="grid-template-columns: 1fr;">
+
+        <!-- Site Location Card -->
+        <section class="card" id="locationCard">
+          <div class="cardTitle">
+            <span>📍 Site Location</span>
+            <small id="locationStatus">—</small>
+          </div>
+          <div style="font-size:12px;color:var(--muted2,#94a3b8);margin-bottom:14px">
+            Used for weather data and sunrise/sunset times.
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+            <div>
+              <label style="font-size:11px;font-weight:700;color:var(--muted,#64748b);display:block;margin-bottom:4px">LATITUDE</label>
+              <input id="latInput" type="number" step="0.0001" placeholder="e.g. 37.9838"
+                style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line2,#1e2d3d);background:rgba(255,255,255,.04);color:var(--text,#f1f5f9);font-size:13px;font-family:monospace;outline:none">
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:700;color:var(--muted,#64748b);display:block;margin-bottom:4px">LONGITUDE</label>
+              <input id="lonInput" type="number" step="0.0001" placeholder="e.g. 23.7275"
+                style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line2,#1e2d3d);background:rgba(255,255,255,.04);color:var(--text,#f1f5f9);font-size:13px;font-family:monospace;outline:none">
+            </div>
+          </div>
+
+          <div style="margin-bottom:12px">
+            <label style="font-size:11px;font-weight:700;color:var(--muted,#64748b);display:block;margin-bottom:4px">ADDRESS (optional)</label>
+            <input id="addressInput" type="text" placeholder="e.g. Κηφισιά, Αττική"
+              style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line2,#1e2d3d);background:rgba(255,255,255,.04);color:var(--text,#f1f5f9);font-size:13px;outline:none">
+          </div>
+
+          <div style="margin-bottom:14px">
+            <label style="font-size:11px;font-weight:700;color:var(--muted,#64748b);display:block;margin-bottom:4px">TIMEZONE</label>
+            <select id="tzInput"
+              style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line2,#1e2d3d);background:rgba(13,18,33,.9);color:var(--text,#f1f5f9);font-size:13px;outline:none;cursor:pointer">
+              <option value="Europe/Athens">Europe/Athens (GMT+2/+3)</option>
+              <option value="Europe/London">Europe/London (GMT+0/+1)</option>
+              <option value="Europe/Paris">Europe/Paris (GMT+1/+2)</option>
+              <option value="Europe/Berlin">Europe/Berlin (GMT+1/+2)</option>
+              <option value="America/New_York">America/New_York</option>
+              <option value="America/Los_Angeles">America/Los_Angeles</option>
+              <option value="Asia/Dubai">Asia/Dubai</option>
+              <option value="Asia/Nicosia">Asia/Nicosia</option>
+            </select>
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="geoBtn" class="btn" style="font-size:12px;padding:7px 14px" title="Auto-detect from Pi's IP address">
+              📡 Use My Location
+            </button>
+            <button id="saveLocBtn" class="btn btn-primary" style="font-size:12px;padding:7px 14px">
+              💾 Save Location
+            </button>
+            <span id="locSaveMsg" style="font-size:12px;color:#22d97a;align-self:center;display:none">✓ Saved!</span>
+          </div>
+
+          <!-- Mini map preview using OpenStreetMap iframe -->
+          <div id="mapPreview" style="margin-top:14px;border-radius:8px;overflow:hidden;height:160px;display:none">
+            <iframe id="mapFrame" width="100%" height="160" frameborder="0" scrolling="no"
+              style="border-radius:8px;pointer-events:none"></iframe>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="cardTitle">
+            <span>Entities</span>
+            <small id="ioCount">—</small>
+          </div>
+          <div class="empty" style="padding-top:6px">
+            Εδώ ο χρήστης κάνει <b>Enable/Disable</b>, rename και zone. Για μόνιμο <b>Block</b> (να μην ξανα-εμφανιστεί από discovery), πήγαινε Installer.
+          </div>
+          <div class="spacer"></div>
+          <div id="ioWrap"></div>
+          <div class="empty" id="emptyIo" style="display:none;">No IO found for this device.</div>
+          <div class="toast" id="toast"></div>
+        </section>
+
+        <!-- ── Notifications ─────────────────────────────────── -->
+        <section class="card" id="notifyCard">
+          <div class="cardTitle"><span>🔔 Notifications</span><small id="notifyCount">—</small></div>
+          <div class="empty" style="padding-top:4px;margin-bottom:10px">Προσθήκη καναλιών για Email ή Webhook (ntfy.sh, Pushover, custom).</div>
+          <div id="notifyChannelsList"></div>
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" onclick="openNotifyModal('email')">+ Email</button>
+            <button class="btn" onclick="openNotifyModal('webhook')">+ Webhook</button>
+            <button class="btn" onclick="sendTestNotify()" id="notifyTestBtn">Test All</button>
+          </div>
+        </section>
+
+        <!-- ── Scenes ──────────────────────────────────────────── -->
+        <section class="card" id="scenesCard">
+          <div class="cardTitle"><span>🎬 Scenes</span><small id="scenesCount">—</small></div>
+          <div class="empty" style="padding-top:4px;margin-bottom:10px">Δημιούργησε presets που ενεργοποιούν πολλές ενέργειες με ένα κουμπί.</div>
+          <div id="scenesList"></div>
+          <div style="margin-top:10px">
+            <button class="btn" onclick="openSceneModal(null)">+ New Scene</button>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- Notify channel modal -->
+      <div class="modal" id="notifyModal" style="display:none">
+        <div class="modalCard" style="max-width:480px">
+          <div class="modalHead">
+            <div class="modalTitle" id="notifyModalTitle">Add Channel</div>
+            <button class="iconBtn" onclick="closeNotifyModal()">✕</button>
+          </div>
+          <div class="modalBody" id="notifyModalBody"></div>
+          <div class="modalActions">
+            <button class="btn" onclick="closeNotifyModal()">Cancel</button>
+            <button class="btn primary" onclick="saveNotifyChannel()">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scene modal -->
+      <div class="modal" id="sceneModal" style="display:none">
+        <div class="modalCard" style="max-width:520px;max-height:80vh;overflow-y:auto">
+          <div class="modalHead">
+            <div class="modalTitle" id="sceneModalTitle">New Scene</div>
+            <button class="iconBtn" onclick="closeSceneModal()">✕</button>
+          </div>
+          <div class="modalBody" id="sceneModalBody"></div>
+          <div class="modalActions">
+            <button class="btn" onclick="closeSceneModal()">Cancel</button>
+            <button class="btn primary" onclick="saveScene()">Save</button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="/theme.js?v=1"></script>
+  <script src="/site-context.js?v=1"></script>
+  <script src="/role-ui.js?v=2"></script>
+  <script src="/settings.js?v=11"></script>
+  <script>
+  // ── Notifications ────────────────────────────────────────────────
+  let _notifyEditId = null;
+  let _notifyType   = "email";
+
+  async function loadNotifyChannels() {
+    const d = await fetch("/api/notifications/channels").then(r=>r.json()).catch(()=>({channels:[]}));
+    const channels = d.channels || [];
+    const el = document.getElementById("notifyChannelsList");
+    const cnt= document.getElementById("notifyCount");
+    if (cnt) cnt.textContent = channels.length + " channels";
+    if (!el) return;
+    if (!channels.length) { el.innerHTML = `<div style="color:var(--muted);font-size:12px">No channels yet.</div>`; return; }
+    el.innerHTML = channels.map(ch => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)">
+        <div>
+          <span style="font-weight:700">${ch.name}</span>
+          <span style="color:var(--muted);font-size:11px;margin-left:8px">${ch.type}</span>
+          ${ch.enabled?'<span style="color:#22d97a;font-size:11px;margin-left:4px">● active</span>':'<span style="color:var(--muted);font-size:11px;margin-left:4px">○ disabled</span>'}
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn" style="padding:4px 8px;font-size:11px" onclick="testNotifyChannel(${ch.id})">Test</button>
+          <button class="btn" style="padding:4px 8px;font-size:11px" onclick="openNotifyModal('${ch.type}',${ch.id})">Edit</button>
+          <button class="btn danger" style="padding:4px 8px;font-size:11px" onclick="deleteNotifyChannel(${ch.id})">Del</button>
+        </div>
+      </div>`).join("");
+  }
+
+  function openNotifyModal(type, editId=null) {
+    _notifyEditId = editId;
+    _notifyType   = type;
+    const modal = document.getElementById("notifyModal");
+    const title = document.getElementById("notifyModalTitle");
+    const body  = document.getElementById("notifyModalBody");
+    if (!modal) return;
+    title.textContent = (editId ? "Edit" : "Add") + " " + (type==="email"?"Email":"Webhook");
+
+    if (type === "email") {
+      body.innerHTML = `
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.02)">
+          <strong style="color:var(--text)">SMTP Login Info</strong><br>
+          Use your <strong>mail provider credentials</strong>, not your ELARIS login.
+          For Gmail, use an <strong>App Password</strong>, not your normal Gmail password.
+        </div>
+        <label class="fLabel">Name<input class="txt" id="nm_name" placeholder="My Email"></label>
+        <label class="fLabel">SMTP Host<input class="txt" id="nm_host" placeholder="smtp.gmail.com"></label>
+        <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:8px">Examples: <code>smtp.gmail.com</code>, <code>smtp.office365.com</code></div>
+        <label class="fLabel">Port<input class="txt" id="nm_port" placeholder="587"></label>
+        <label class="fLabel">SMTP Username / Email<input class="txt" id="nm_user" placeholder="you@gmail.com"></label>
+        <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:8px">The email account used to log in to your SMTP provider.</div>
+        <label class="fLabel">SMTP Password / App Password<input class="txt" type="password" id="nm_pass" placeholder="App password or SMTP password"></label>
+        <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:8px">For Gmail, create an App Password. ${editId ? 'Leave blank to keep the current password.' : ''}</div>
+        <label class="fLabel">Recipient Email<input class="txt" id="nm_to" placeholder="you@gmail.com"></label>
+        <div style="font-size:11px;color:var(--muted);margin-top:-6px;margin-bottom:8px">This mailbox will receive the notifications.</div>
+        <label class="chkRow"><input type="checkbox" id="nm_enabled" checked><span>Enabled</span></label>`;
+    } else {
+      body.innerHTML = `
+        <label class="fLabel">Name<input class="txt" id="nm_name" placeholder="My Webhook"></label>
+        <label class="fLabel">URL<input class="txt" id="nm_url" placeholder="https://ntfy.sh/my-topic"></label>
+        <label class="fLabel">Method<select class="sel" id="nm_method"><option>POST</option><option>GET</option></select></label>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">For ntfy.sh: just paste your topic URL. Headers and priority are set automatically.</div>
+        <label class="chkRow" style="margin-top:8px"><input type="checkbox" id="nm_enabled" checked><span>Enabled</span></label>`;
+    }
+    modal.style.display = "flex";
+
+    if (editId) {
+      fetch("/api/notifications/channels").then(r=>r.json()).then(d=>{
+        const ch = (d.channels||[]).find(c=>c.id===editId);
+        if (!ch) return;
+        const cfg = typeof ch.config_json==="string" ? JSON.parse(ch.config_json) : ch.config_json;
+        const get = id => document.getElementById(id);
+        get("nm_name").value    = ch.name || "";
+        get("nm_enabled").checked = !!ch.enabled;
+        if (type==="email") {
+          get("nm_host").value = cfg.host||""; get("nm_port").value = cfg.port||587;
+          get("nm_user").value = cfg.user||""; get("nm_to").value   = cfg.to||"";
+        } else {
+          get("nm_url").value  = cfg.url||""; get("nm_method").value= cfg.method||"POST";
+        }
+      });
+    }
+  }
+
+  function closeNotifyModal() { document.getElementById("notifyModal").style.display="none"; }
+
+  function isReasonableEmail(v) {
+    const value = String(v || "").trim().toLowerCase();
+    return /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(value) && !value.includes('..') && !value.includes(',');
+  }
+
+  function formatNotifyResult(result) {
+    if (!result) return "Unknown result";
+    const label = `${result.channel_name || 'Channel'} (${result.channel_type || 'unknown'})`;
+    return result.ok ? `✓ ${label}` : `✗ ${label}\n${result.error || 'Unknown error'}`;
+  }
+
+  function formatNotifyResults(results) {
+    const arr = Array.isArray(results) ? results : [];
+    if (!arr.length) return "No channels were tested.";
+    return arr.map(formatNotifyResult).join("\n\n");
+  }
+
+  async function saveNotifyChannel() {
+    const name    = document.getElementById("nm_name")?.value?.trim();
+    const enabled = document.getElementById("nm_enabled")?.checked;
+    if (!name) { alert("Enter a name"); return; }
+    let config = {};
+    if (_notifyType === "email") {
+      const host = document.getElementById("nm_host").value.trim();
+      const port = document.getElementById("nm_port").value.trim();
+      const user = document.getElementById("nm_user").value.trim();
+      const pass = document.getElementById("nm_pass").value;
+      const to   = document.getElementById("nm_to").value.trim();
+      if (!host) { alert("Enter SMTP host"); return; }
+      if (!port || !/^\d+$/.test(port)) { alert("Enter a valid SMTP port"); return; }
+      if (!isReasonableEmail(user)) { alert("Enter a valid SMTP username/email"); return; }
+      if (!isReasonableEmail(to)) { alert("Enter a valid recipient email"); return; }
+      if (!_notifyEditId && !pass.trim()) { alert("Enter SMTP password or app password"); return; }
+      config = { host, port, user, pass, to };
+    } else {
+      const url = document.getElementById("nm_url").value.trim();
+      if (!url) { alert("Enter webhook URL"); return; }
+      config = { url, method: document.getElementById("nm_method").value };
+    }
+    try {
+      const url = _notifyEditId ? `/api/notifications/channels/${_notifyEditId}` : "/api/notifications/channels";
+      const method = _notifyEditId ? "PUT" : "POST";
+      const res = await fetch(url, { method, headers:{"Content-Type":"application/json"}, body: JSON.stringify({ name, type:_notifyType, config, enabled }) });
+      const data = await res.json().catch(()=>({ ok:false, error:`HTTP ${res.status}` }));
+      if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
+      closeNotifyModal();
+      loadNotifyChannels();
+      if (typeof toast === 'function') toast('Notification channel saved.');
+    } catch(e) { alert("Error: "+e.message); }
+  }
+
+  async function deleteNotifyChannel(id) {
+    if (!confirm("Delete this channel?")) return;
+    await fetch(`/api/notifications/channels/${id}`, { method:"DELETE" });
+    loadNotifyChannels();
+  }
+
+  async function testNotifyChannel(id) {
+    try {
+      const res = await fetch(`/api/notifications/test/${id}`, { method:"POST" });
+      const data = await res.json().catch(()=>({ ok:false, error:`HTTP ${res.status}` }));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      alert(formatNotifyResult(data.result));
+    } catch(e) { alert("Channel test failed: " + e.message); }
+  }
+
+  async function sendTestNotify() {
+    const btn = document.getElementById("notifyTestBtn");
+    if (btn) btn.textContent = "Sending…";
+    try {
+      const res = await fetch("/api/notifications/send", { method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ title:"ELARIS Test", body:"Notifications are working correctly.", level:"info" }) });
+      const data = await res.json().catch(()=>({ ok:false, error:`HTTP ${res.status}` }));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      alert(formatNotifyResults(data.results));
+    } catch(e) { alert("Error: "+e.message); }
+    finally { if(btn) btn.textContent = "Test All"; }
+  }
+
+  function currentSiteId() {
+    try { const v = Number(localStorage.getItem('elaris_site_id') || 0); return v || 0; } catch(e) { return 0; }
+  }
+  function scenesApiPath() {
+    const sid = currentSiteId();
+    return '/api/scenes' + (sid ? ('?site_id=' + encodeURIComponent(sid)) : '');
+  }
+
+  // ── Scenes ────────────────────────────────────────────────────────
+  let _sceneEditId = null;
+  let _sceneActions = [];
+
+  async function loadScenes() {
+    const d = await fetch(scenesApiPath()).then(r=>r.json()).catch(()=>({scenes:[]}));
+    const scenes = d.scenes || [];
+    const el = document.getElementById("scenesList");
+    const cnt= document.getElementById("scenesCount");
+    if (cnt) cnt.textContent = scenes.length + " scenes";
+    if (!el) return;
+    if (!scenes.length) { el.innerHTML = `<div style="color:var(--muted);font-size:12px">No scenes yet.</div>`; return; }
+    el.innerHTML = scenes.map(s => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:20px">${s.icon||"🎬"}</span>
+          <span style="font-weight:700">${s.name}</span>
+          <span style="font-size:11px;color:var(--muted)">${JSON.parse(s.actions_json||"[]").length} actions</span>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn" style="padding:4px 8px;font-size:11px" onclick="openSceneModal(${s.id})">Edit</button>
+          <button class="btn danger" style="padding:4px 8px;font-size:11px" onclick="deleteScene(${s.id})">Del</button>
+        </div>
+      </div>`).join("");
+  }
+
+  function openSceneModal(editId=null) {
+    _sceneEditId = editId;
+    _sceneActions = [];
+    const modal = document.getElementById("sceneModal");
+    const title = document.getElementById("sceneModalTitle");
+    if (!modal) return;
+    title.textContent = editId ? "Edit Scene" : "New Scene";
+    renderSceneModal();
+    modal.style.display = "flex";
+    if (editId) {
+      fetch(scenesApiPath()).then(r=>r.json()).then(d=>{
+        const s = (d.scenes||[]).find(x=>x.id===editId);
+        if (!s) return;
+        document.getElementById("sm_name").value  = s.name||"";
+        document.getElementById("sm_icon").value  = s.icon||"🎬";
+        document.getElementById("sm_color").value = s.color||"#6366f1";
+        _sceneActions = JSON.parse(s.actions_json||"[]");
+        renderSceneActions();
+      });
+    }
+  }
+
+  function renderSceneModal() {
+    document.getElementById("sceneModalBody").innerHTML = `
+      <label class="fLabel">Name<input class="txt" id="sm_name" placeholder="Evening Mode"></label>
+      <div style="display:flex;gap:8px">
+        <label class="fLabel" style="flex:1">Icon<input class="txt" id="sm_icon" placeholder="🎬" maxlength="4"></label>
+        <label class="fLabel" style="flex:1">Color<input class="txt" id="sm_color" type="color" value="#6366f1" style="height:38px;padding:2px"></label>
+      </div>
+      <div style="margin-top:12px;font-size:12px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em">Actions</div>
+      <div id="sm_actions" style="margin-top:6px"></div>
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <button class="btn" onclick="addSceneAction('set_setpoint')">+ Set Setpoint</button>
+        <button class="btn" onclick="addSceneAction('send_command')">+ Send Command</button>
+        <button class="btn" onclick="addSceneAction('notify')">+ Notify</button>
+      </div>`;
+    renderSceneActions();
+  }
+
+  function renderSceneActions() {
+    const el = document.getElementById("sm_actions");
+    if (!el) return;
+    if (!_sceneActions.length) { el.innerHTML = `<div style="color:var(--muted);font-size:12px">No actions yet.</div>`; return; }
+    el.innerHTML = _sceneActions.map((a,i) => `
+      <div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:rgba(255,255,255,.04);border-radius:8px;margin-bottom:4px">
+        <span style="font-size:12px;font-weight:700;color:var(--blue);min-width:100px">${a.type}</span>
+        <span style="font-size:11px;color:var(--muted2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          ${a.type==="set_setpoint"?`inst:${a.instance_id} ${a.key}=${a.value}`:
+            a.type==="send_command"?`io:${a.io_id} → ${a.value}`:
+            `"${a.title||""}"`}
+        </span>
+        <button class="btn danger" style="padding:2px 8px;font-size:11px" onclick="removeSceneAction(${i})">×</button>
+      </div>`).join("");
+  }
+
+  function addSceneAction(type) {
+    let val = null;
+    if (type === "set_setpoint") {
+      const instId = prompt("Instance ID (from Modules page):");
+      const key    = prompt("Setting key (e.g. profile, dt_on):");
+      const value  = prompt("Value:");
+      if (!instId || !key || value === null) return;
+      val = { type, instance_id: Number(instId), key, value };
+    } else if (type === "send_command") {
+      const ioId = prompt("IO ID (from Entities page):");
+      const v    = prompt("Value (ON/OFF/0-100):");
+      if (!ioId || v === null) return;
+      val = { type, io_id: Number(ioId), value: v };
+    } else if (type === "notify") {
+      const title = prompt("Notification title:");
+      const body  = prompt("Notification body:");
+      if (!title) return;
+      val = { type, title, body: body||"", level: "info" };
+    }
+    if (val) { _sceneActions.push(val); renderSceneActions(); }
+  }
+
+  function removeSceneAction(i) { _sceneActions.splice(i,1); renderSceneActions(); }
+
+  function closeSceneModal() { document.getElementById("sceneModal").style.display="none"; }
+
+  async function saveScene() {
+    const name  = document.getElementById("sm_name")?.value?.trim();
+    const icon  = document.getElementById("sm_icon")?.value?.trim() || "🎬";
+    const color = document.getElementById("sm_color")?.value || "#6366f1";
+    if (!name) { alert("Enter a name"); return; }
+    try {
+      const body = JSON.stringify({ name, icon, color, actions: _sceneActions, site_id: currentSiteId() || null });
+      const headers = { "Content-Type":"application/json" };
+      if (_sceneEditId) {
+        await fetch(`/api/scenes/${_sceneEditId}`, { method:"PUT", headers, body });
+      } else {
+        await fetch("/api/scenes", { method:"POST", headers, body });
+      }
+      closeSceneModal(); loadScenes();
+    } catch(e) { alert("Error: "+e.message); }
+  }
+
+  async function deleteScene(id) {
+    if (!confirm("Delete this scene?")) return;
+    await fetch(`/api/scenes/${id}`, { method:"DELETE" });
+    loadScenes();
+  }
+
+  // Boot
+  loadNotifyChannels();
+  loadScenes();
+  </script>
+</body>
+</html>

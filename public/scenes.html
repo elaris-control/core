@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>ELARIS - Scenes</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('elaris_theme')||'dark';}catch(e){document.documentElement.dataset.theme='dark';}</script>
+  <script src="/csrf.js?v=1"></script>
+<link rel="icon" href="/favicon.ico">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/styles.css?v=22">
+<style>
+.scenes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;padding:20px;overflow-y:auto;flex:1;align-content:start;}
+.scene-card{position:relative;border-radius:14px;border:2px solid var(--line);padding:20px 14px 14px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;transition:all .18s;}
+.scene-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3);}
+.scene-icon{font-size:36px;line-height:1;}
+.scene-name{font-size:13px;font-weight:800;color:var(--text);}
+.scene-activate{width:100%;padding:8px;border-radius:8px;border:none;cursor:pointer;font-size:12px;font-weight:800;font-family:inherit;margin-top:4px;transition:all .15s;color:#fff;}
+.scene-activate:hover{filter:brightness(1.2);}
+.scene-edit-btn{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.15);border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;color:rgba(255,255,255,.7);}
+.add-card{border:2px dashed var(--line2);background:transparent;color:var(--muted2);font-size:13px;font-weight:700;min-height:140px;justify-content:center;cursor:pointer;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:8px;transition:all .15s;}
+.add-card:hover{border-color:var(--blue);color:var(--blue);}
+.color-swatch{width:24px;height:24px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all .12s;flex-shrink:0;}
+.color-swatch:hover,.color-swatch.sel{border-color:#fff;transform:scale(1.2);}
+.action-row{display:flex;align-items:center;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:8px;margin-bottom:6px;border:1px solid var(--line);gap:8px;}
+.action-add-row{display:grid;gap:6px;margin-top:8px;padding:12px;background:rgba(255,255,255,.03);border-radius:10px;border:1px solid var(--line);}
+.aRow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+.aRow select,.aRow input{padding:5px 8px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:12px;font-family:inherit;flex:1;min-width:80px;}
+</style></head>
+<body><div class="app">
+<aside class="side" id="sidebar">
+<div class="brand"><img class="brandLogo" src="/logo.png" alt="ELARIS" onerror="this.style.display='none'"><div class="brandText"><div class="name">ELARIS</div><div class="tagline">Smart Control</div></div></div>
+<div class="groupTitle">Main</div>
+<nav class="nav"><a href="/">Dashboard</a><a href="/scenes.html" class="active">Scenes</a></nav>
+<div id="navContainer"></div>
+<div class="groupTitle">System</div>
+<nav class="nav"><a href="/settings.html">Settings</a><a href="/entities.html">Entities</a><a href="/installer.html">Installer</a><a href="/modules.html">Modules</a><a href="/logs.html">&#128203; Logs</a>
+      <a href="/esphome.html">&#128376; ESPHome</a><a href="/help.html">Help</a><a href="/admin.html" id="adminLink" style="display:none">Admin</a></nav>
+</aside>
+<div class="overlay" id="overlay" onclick="document.body.classList.remove('sideOpen')"></div>
+<div style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-width:0">
+<div class="topbar" style="margin:12px 16px 0;flex-shrink:0">
+<div class="crumbs"><button class="btn" id="menuBtn" style="display:none" onclick="document.body.classList.add('sideOpen')">☰ Scenes</button><span style="font-size:14px;font-weight:800">🎬 Scenes</span></div>
+<div class="actions"><a href="/help.html" class="btn">Help</a><button class="btn" onclick="toggleTheme()" id="themeBtn">Theme</button><a href="/" class="btn">← Dashboard</a></div>
+</div>
+<div class="scenes-grid" id="scenesGrid"><div style="color:var(--muted);font-size:13px">Loading...</div></div>
+</div></div>
+
+<!-- Scene Modal -->
+<div class="modal" id="sceneModal" style="display:none">
+<div class="modalCard" style="max-width:520px;max-height:90vh;overflow-y:auto">
+<div class="modalHead"><div class="modalTitle" id="smTitle">New Scene</div><button class="iconBtn" onclick="closeModal()">✕</button></div>
+<div class="modalBody" style="display:flex;flex-direction:column;gap:14px">
+
+  <!-- Name + Icon -->
+  <div style="display:flex;gap:8px;align-items:flex-end">
+    <div style="display:flex;flex-direction:column;gap:4px;flex:0 0 auto">
+      <span style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase">Icon</span>
+      <input class="txt" id="sm_icon" maxlength="4" style="text-align:center;font-size:22px;width:52px;padding:6px 4px">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+      <span style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase">Name</span>
+      <input class="txt" id="sm_name" placeholder="Evening, Away...">
+    </div>
+  </div>
+
+  <!-- Color -->
+  <div>
+    <div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Color</div>
+    <div id="colorPicker" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+  </div>
+
+  <!-- Actions list -->
+  <div>
+    <div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Actions</div>
+    <div id="actionsContainer"></div>
+
+    <!-- Add action -->
+    <div class="action-add-row" id="actionsEditor">
+      <div class="aRow">
+        <select id="aType" onchange="onActionTypeChange()" style="flex:0 0 auto">
+          <option value="set_setpoint">⚙️ Set setting</option>
+          <option value="send_command">📡 Send command</option>
+          <option value="notify">🔔 Notify</option>
+        </select>
+      </div>
+
+      <!-- set_setpoint -->
+      <div id="aSetpoint" style="display:flex;flex-direction:column;gap:6px">
+        <div class="aRow">
+          <select id="aInstance" onchange="populateSettingKeys()" style="flex:1"></select>
+        </div>
+        <div class="aRow">
+          <select id="aSettingKey" style="flex:1"></select>
+          <input id="aSettingVal" type="text" placeholder="value" style="flex:0 0 80px">
+        </div>
+      </div>
+
+      <!-- send_command -->
+      <div id="aCommand" style="display:none;flex-direction:column;gap:6px">
+        <div class="aRow">
+          <select id="aIO" style="flex:1"></select>
+          <input id="aIOVal" type="text" placeholder="ON / OFF / 50" style="flex:0 0 100px">
+        </div>
+      </div>
+
+      <!-- notify -->
+      <div id="aNotify" style="display:none;flex-direction:column;gap:6px">
+        <div class="aRow">
+          <input id="aNotifyTitle" type="text" placeholder="Title" style="flex:1">
+          <select id="aNotifyLevel" style="flex:0 0 80px">
+            <option value="info">info</option>
+            <option value="warn">warn</option>
+            <option value="error">error</option>
+          </select>
+        </div>
+        <div class="aRow">
+          <input id="aNotifyBody" type="text" placeholder="Body (optional)" style="flex:1">
+        </div>
+      </div>
+
+      <button class="btn primary" onclick="addAction()" style="margin-top:4px">+ Add Action</button>
+    </div>
+  </div>
+
+</div>
+<div class="modalActions">
+  <button class="btn" id="smDeleteBtn" style="color:var(--bad);display:none" onclick="deleteScene()">Delete</button>
+  <button class="btn" onclick="closeModal()">Cancel</button>
+  <button class="btn primary" onclick="saveScene()">Save</button>
+</div>
+</div></div>
+
+<div class="toast" id="toast"></div>
+<script src="/theme.js?v=1"></script>
+<script src="/site-context.js?v=1"></script>
+<script src="/role-ui.js?v=2"></script>
+<script src="/scenes.js?v=24"></script>
+</body></html>

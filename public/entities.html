@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ELARIS – Entities</title>
+
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem('elaris_theme')||'dark';}catch(e){document.documentElement.dataset.theme='dark';}</script>
+  <script src="/csrf.js?v=1"></script>
+
+  <link rel="icon" href="/favicon.ico">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/styles.css?v=22">
+</head>
+
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <img class="brandLogo" src="/logo.png" alt="ELARIS" onerror="this.style.display='none'">
+        <div class="brandText">
+          <div class="name">ELARIS</div>
+          <div class="tagline">Smart Control</div>
+        </div>
+      </div>
+
+      <div class="groupTitle">System</div>
+      <nav class="nav">
+        <a href="/"><span>Dashboard</span></a>
+        <a href="/settings.html"><span>Settings</span></a>
+        <a href="/entities.html" class="active"><span>Entities</span></a>
+        <a href="/logs.html"><span>&#128203; Logs</span></a><a href="/esphome.html"><span>&#128376; ESPHome</span></a><a href="/help.html"><span>Help</span></a>
+        <a href="/installer.html"><span>Installer</span></a>
+      </nav>
+
+      <div class="groupTitle">Info</div>
+      <div class="empty" style="padding-top:6px">
+        Global entity management: search, filters, bulk actions, blocklist, backup.
+      </div>
+    </aside>
+
+    <div class="overlay" id="overlay"></div>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="crumbs">
+          <span class="pill" id="sitePill">Site: —</span>
+          <span class="pill" id="wsPill">Role: —</span>
+        </div>
+
+        <div class="actions">
+          <a class="btn" href="/help.html">Help</a>
+          <button class="btn" id="refreshBtn">Refresh</button>
+          <button class="btn" id="menuBtn" aria-label="Menu">☰</button>
+          <button class="btn" id="themeBtn" aria-label="Theme" onclick="toggleTheme()">🌙</button>
+          <a class="btn" href="/">← Dashboard</a>
+        </div>
+      </div>
+
+      <div class="grid" style="grid-template-columns:1fr">
+        <section class="card">
+          <div class="cardTitle">
+            <span>Entities Manager</span>
+            <small id="countPill">—</small>
+          </div>
+
+          <div class="tabs" style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="tabBtn active" data-tab="entities">Entities</button>
+            <button class="tabBtn" data-tab="blocked" id="blockedTabBtn">Blocked</button>
+            <button class="tabBtn" data-tab="backup" id="backupTabBtn">Backup</button>
+          </div>
+
+          <div id="tab_entities" style="margin-top:12px">
+            <div class="toolbar">
+              <input class="txt" id="q" placeholder="Search (name, key, device, zone)..." />
+              <select class="sel" id="siteSel"></select>
+              <select class="sel" id="deviceSel"></select>
+              <select class="sel" id="zoneSel"></select>
+              <select class="sel" id="typeSel"></select>
+              <select class="sel" id="statusSel"></select>
+            </div>
+
+            <div class="bulkRow">
+              <button class="btn" id="bulkEnable">Enable</button>
+              <button class="btn" id="bulkDisable">Disable</button>
+              <button class="btn danger" id="bulkDelete">Delete</button>
+
+              <div class="bulkZoneWrap">
+                <select class="sel" id="bulkZoneSel"></select>
+                <button class="btn" id="bulkApplyZone">Apply Zone</button>
+              </div>
+
+              <span class="muted" id="selInfo">0 selected</span>
+              <span class="muted" style="margin-left:auto">Tip: bulk actions work on selected rows.</span>
+            </div>
+
+            <div class="tableWrap">
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th style="width:36px;text-align:center"><input type="checkbox" id="chkAll"></th>
+                    <th style="min-width:140px">Name</th>
+                    <th style="min-width:130px">Site</th>
+                    <th style="min-width:160px">Device / Key</th>
+                    <th style="width:80px;text-align:center">Type</th>
+                    <th style="width:110px;text-align:center">Override</th>
+                    <th style="min-width:140px">Zone</th>
+                    <th style="width:90px;text-align:center">Status</th>
+                    <th style="width:180px;text-align:center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="rows"></tbody>
+              </table>
+              <div class="empty" id="emptyMsg" style="display:none">No entities yet. Approve items in Installer first.</div>
+            </div>
+          </div>
+
+          <div id="tab_blocked" style="display:none; margin-top:12px">
+            <div class="bulkRow" style="margin-bottom:10px">
+              <button class="btn" id="blockedRefresh">Refresh</button>
+              <button class="btn danger" id="blockedUnblockSel">Unblock selected</button>
+              <span class="muted" id="blockedInfo">0 selected</span>
+            </div>
+
+            <div class="tableWrap">
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th style="width:38px"><input type="checkbox" id="blockedChkAll"></th>
+                    <th>Device</th>
+                    <th>Group</th>
+                    <th>Key</th>
+                    <th>Reason</th>
+                    <th style="width:160px">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="blockedRows"></tbody>
+              </table>
+              <div class="empty" id="blockedEmpty" style="display:none">No blocked entries.</div>
+            </div>
+          </div>
+
+          <div id="tab_backup" style="display:none; margin-top:12px">
+            <div class="bulkRow" style="margin-bottom:10px">
+              <button class="btn" id="exportBtn">Export config</button>
+              <label class="btn" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;">
+                Import config
+                <input type="file" id="importFile" accept="application/json" style="display:none">
+              </label>
+              <span class="muted" id="backupMsg"></span>
+            </div>
+
+            <div class="empty">
+              Export/Import includes: sites, zones, device-site mapping, entities (name/zone/enabled/unit/class), blocked list.
+            </div>
+          </div>
+
+        </section>
+      </div>
+
+      <div class="toast" id="toast" style="display:none"></div>
+    </main>
+  </div>
+
+  <script src="/theme.js?v=3"></script>
+  <script src="/site-context.js?v=1"></script>
+  <script src="/role-ui.js?v=2"></script>
+  <script src="/entities.js?v=13"></script>
+
+  <style>
+    .tabBtn{
+      border:1px solid var(--line);
+      background:transparent;
+      color:var(--text);
+      padding:8px 12px;
+      border-radius:999px;
+      font-weight:1000;
+      cursor:pointer;
+    }
+    .tabBtn.active{ background:rgba(11,99,206,.12); border-color:rgba(11,99,206,.35); }
+
+    .toolbar{
+      display:grid;
+      grid-template-columns: 1.3fr .9fr .9fr .8fr .8fr .8fr;
+      gap:10px;
+      margin-top:12px;
+    }
+    .txt,.sel{
+      width:100%;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.55);
+      color:var(--text);
+      outline:none;
+      box-sizing:border-box;
+    }
+    :root[data-theme="dark"] .txt,
+    :root[data-theme="dark"] .sel{ background:rgba(255,255,255,.03); }
+
+    .bulkRow{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+      margin-top:10px;
+    }
+    .bulkZoneWrap{ display:flex; gap:10px; align-items:center; }
+    .tableWrap{ margin-top:12px; }
+    .tbl{ width:100%; border-collapse:separate; border-spacing:0; overflow:hidden; border:1px solid var(--line); border-radius:14px; }
+    .tbl th,.tbl td{ padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:middle; }
+    .tbl thead th{ font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; background:rgba(255,255,255,.35); }
+    :root[data-theme="dark"] .tbl thead th{ background:rgba(255,255,255,.03); }
+    .tbl tr:last-child td{ border-bottom:0; }
+
+    .danger{ background:rgba(220,38,38,.12); border-color:rgba(220,38,38,.35); }
+    .muted{ color:var(--muted); font-weight:800; font-size:12px; }
+
+    @media (max-width: 1100px){
+      .toolbar{ grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</body>
+</html>

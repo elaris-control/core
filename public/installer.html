@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ELARIS Installer</title>
+  <script>
+    (function(){
+      try{
+        var t = localStorage.getItem('elaris_theme');
+        if(t) document.documentElement.dataset.theme = t;
+      }catch(e){}
+    })();
+  </script>
+  <script src="/csrf.js?v=1"></script>
+  <style>
+    :root{
+      --bg: var(--bg, #f5f7fb); --panel: var(--card, #fff); --line: var(--line, #e6eaf2);
+      --text: var(--text, #0f172a); --muted: var(--muted2, #64748b);
+      --blue: var(--blue, #0b63ce); --blue2: var(--blue2, #0a4aa3); --orange: var(--orange, #ff6a00);
+      --good: var(--good, #16a34a); --bad: var(--bad, #dc2626);
+      --radius:14px; --radius-sm:9px; --shadow: var(--shadow-sm, 0 10px 30px rgba(15,23,42,.08));
+    }
+    *{box-sizing:border-box}
+    body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background:var(--bg); color:var(--text); }
+    .wrap{ padding:18px; }
+    .top{
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      background:var(--panel); border:1px solid var(--line);
+      border-radius:var(--radius); box-shadow:var(--shadow);
+      padding:12px 16px;
+      flex-wrap:wrap;
+    }
+    .topActions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .topMeta{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .title{ font-weight:900; font-size:18px; display:flex; gap:10px; align-items:center; }
+    .title img{ width:28px; height:28px; border-radius:10px; }
+    .btn{
+      border:1px solid color-mix(in srgb, var(--text) 12%, transparent);
+      cursor:pointer; padding:9px 14px; min-height:40px;
+      border-radius:var(--radius-sm); font-weight:800; font-size:12px;
+      background:rgba(255,255,255,.05); color:var(--text); text-decoration:none;
+      display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    }
+    .btnPrimary{ background:linear-gradient(135deg, var(--blue2) 0%, var(--blue) 55%, var(--orange) 100%); border-color:transparent; color:#fff; box-shadow:0 4px 20px rgba(29,140,255,.22); }
+    .btnDanger{ background:linear-gradient(90deg, #ff8a00 0%, #ff4d00 100%); border-color:transparent; color:#fff; box-shadow:0 4px 20px rgba(255,106,0,.24); }
+    .btnAccent{ background:linear-gradient(135deg, #0ea5e9 0%, #2563eb 45%, #ff6a00 100%); border-color:transparent; color:#fff; box-shadow:0 4px 20px rgba(37,99,235,.24); }
+    .btn:hover{ filter:brightness(1.04); }
+
+    .card{
+      margin-top:14px;
+      background:var(--panel); border:1px solid var(--line);
+      border-radius:var(--radius); box-shadow:var(--shadow);
+      padding:14px;
+    }
+    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    input, select{
+      padding:10px 12px; border:1px solid var(--line);
+      border-radius:12px; background:#fbfcff; font-weight:800;
+    }
+    .muted{ color:var(--muted); font-weight:800; font-size:12px; }
+    table{ width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td{ text-align:left; padding:10px 8px; border-top:1px solid var(--line); vertical-align:middle; }
+    th{ color:var(--muted); font-size:12px; }
+    .pill{ display:inline-block; padding:4px 10px; border-radius:999px; background:#f2f4f8; font-weight:900; font-size:12px; color:var(--muted); }
+    .ok{ color:var(--good); font-weight:900;}
+    .err{ color:var(--bad); font-weight:900;}
+    .stateUnlocked{ color:var(--good); font-weight:900; }
+    .stateLocked{ color:var(--bad); font-weight:900; }
+    #lockState.stateUnlocked{ color:#22c55e !important; font-weight:900 !important; }
+    #lockState.stateLocked{ color:#ef4444 !important; font-weight:900 !important; }
+  
+    :root[data-theme="dark"]{
+      --bg:#0b1220; --panel:#0f1a2e; --line:rgba(148,163,184,.16);
+      --text:#e5e7eb; --muted:#93a4bd;
+      --shadow:0 18px 55px rgba(0,0,0,.45);
+    }
+    :root[data-theme="dark"] body{
+      background:
+        radial-gradient(1000px 600px at 20% 0%, rgba(11,99,206,.18), transparent 55%),
+        radial-gradient(900px 500px at 85% 10%, rgba(255,106,0,.14), transparent 55%),
+        var(--bg);
+    }
+    :root[data-theme="dark"] input,
+    :root[data-theme="dark"] select{
+      background:rgba(255,255,255,.03);
+      color:var(--text);
+    }
+    :root[data-theme="dark"] .pill{ background:rgba(255,255,255,.05); color:var(--muted); }
+
+  
+    .zonePill{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; }
+    .zoneAct{
+      width:26px; height:26px;
+      display:inline-flex; align-items:center; justify-content:center;
+      border-radius:10px; border:1px solid var(--line);
+      background:rgba(255,255,255,.06);
+      color:var(--text); cursor:pointer; font-weight:900; line-height:1;
+    }
+    .zoneAct:hover{ transform: translateY(-1px); }
+    .zoneAct.danger{ border-color: rgba(220,38,38,.35); color: rgba(220,38,38,.95); }
+
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="title">
+        <img src="/logo.png" alt="ELARIS" onerror="this.style.display='none'">
+        ELARIS Installer
+        <span class="muted">Approve MQTT keys → create dashboard IO</span>
+      </div>
+      <div class="topMeta">
+        <span class="pill" id="sitePillTop">Site: —</span>
+        <span class="pill" id="rolePillTop">Role: —</span>
+      </div>
+      <div class="topActions">
+        <a class="btn" href="/help.html">Help</a>
+        <button class="btn" id="refreshBtn">Refresh</button>
+        <button class="btn" id="themeBtn" aria-label="Theme">🌙</button>
+        <a class="btn" href="/">← Dashboard</a>
+        <button class="btn btnDanger" id="lockBtn">Lock Engineer</button>
+      </div>
+    </div>
+
+    <div class="card" id="lockCard">
+      <div style="font-weight:900; margin-bottom:6px;">Engineer access required</div>
+      <div class="muted" style="margin-bottom:10px;">Enter engineer code to unlock installer.</div>
+      <div class="row" style="gap:8px; margin-top:6px;">
+        <span class="pill" id="sitePillLock">Site: —</span>
+        <span class="pill" id="rolePillLock">Role: —</span>
+      </div>
+      <div class="row">
+        <input id="code" placeholder="Engineer code" />
+        <button class="btn btnDanger" id="unlockBtn">Unlock</button>
+        <span class="muted" id="lockState">Checking…</span>
+      </div>
+    </div>
+
+    <div class="card" id="zonesCard" style="display:none;">
+      <div style="font-weight:900; margin-bottom:6px;">Zones</div>
+      <div class="row" style="gap:8px; margin-top:6px;">
+        <span class="pill" id="sitePillZones">Site: —</span>
+        <span class="pill" id="rolePillZones">Role: —</span>
+      </div>
+      <div class="row">
+        <input id="zoneName" placeholder="New zone name (e.g. Boiler Room)" style="min-width:260px" />
+        <button class="btn btnAccent" id="createZoneBtn">Create Zone</button>
+        <span class="muted" id="zonesNote"></span>
+      </div>
+      <div id="zonesList" class="row" style="flex-wrap:wrap;gap:10px;margin-top:10px;"></div>
+    </div>
+
+    <div class="card" id="importBoardCard" style="display:none;">
+      <div style="font-weight:900; margin-bottom:4px;">Import IOs from board catalog</div>
+      <div class="muted" style="margin-bottom:10px;">Select a board and enter the device name — all its IOs will appear below as pending.</div>
+      <div class="row" style="gap:8px; flex-wrap:wrap;">
+        <select id="boardSel" style="min-width:260px;">
+          <option value="">Loading boards…</option>
+        </select>
+        <input id="importDeviceName" placeholder="Device name (e.g. kincony_a16)" style="min-width:220px;" />
+        <button class="btn btnAccent" id="importBoardBtn">Import IOs</button>
+        <span class="muted" id="importMsg"></span>
+      </div>
+      <div id="importBoardInfo" class="muted" style="margin-top:6px; font-size:12px;"></div>
+    </div>
+
+    <div class="card" id="pendingCard" style="display:none;">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div style="font-weight:900;">Pending IO detected</div>
+          <div class="muted">Keys seen on MQTT, not active until you approve them.</div>
+        </div>
+        <button class="btn" id="reloadBtn">Reload</button>
+      </div>
+
+      <div id="msg" class="muted" style="margin-top:8px;"></div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>DEVICE / KEY</th>
+            <th>TYPE</th>
+            <th>ZONE</th>
+            <th>NAME (LABEL)</th>
+            <th style="text-align:right;">ACTION</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+  const $ = (id)=>document.getElementById(id);
+
+  function applyTheme(theme){
+    const t = (theme==="dark") ? "dark" : "light";
+    document.documentElement.dataset.theme = t;
+    try{ localStorage.setItem("elaris_theme", t); }catch(e){}
+    const b = $("themeBtn");
+    if(b) b.textContent = (t==="dark") ? "☀️" : "🌙";
+    document.documentElement.style.colorScheme = (t==="dark") ? "dark" : "light";
+  }
+
+  function initTheme(){
+    let t = "dark";
+    try{ t = localStorage.getItem("elaris_theme") || "dark"; }catch(e){}
+    applyTheme(t);
+    const b = $("themeBtn");
+    if(b && !b.__elarisBound){
+      b.__elarisBound = true;
+      b.addEventListener("click", ()=>{
+        const cur = document.documentElement.dataset.theme || "dark";
+        applyTheme(cur==="dark" ? "light" : "dark");
+      });
+    }
+  }
+
+
+  let zones = [];
+  let role = "USER";
+
+  async function api(path, opts){
+    const res = await fetch("/api"+path, { headers:{ "Content-Type":"application/json" }, ...opts });
+    if(!res.ok){
+      let j=null; try{ j=await res.json(); }catch{}
+      throw new Error(j?.error || ("HTTP "+res.status));
+    }
+    return await res.json();
+  }
+
+  function setMsg(t, isErr=false){
+    $("msg").textContent = t || "";
+    $("msg").className = isErr ? "err" : "muted";
+  }
+
+  function updateContextPills(){
+    let siteLabel = "Site: —";
+    try { const sid = localStorage.getItem("elaris_site_id"); if (sid) siteLabel = `Site: ${sid}`; } catch(e){}
+    const roleLabel = `Role: ${role || "—"}`;
+    ["sitePillTop","sitePillLock","sitePillZones"].forEach(id=>{ const el=$(id); if(el) el.textContent = siteLabel; });
+    ["rolePillTop","rolePillLock","rolePillZones"].forEach(id=>{ const el=$(id); if(el) el.textContent = roleLabel; });
+  }
+
+  async function checkMe(){
+    const me = await api("/me");
+    role = me.role;
+    const engineerUnlocked = !!(me && me.engineerUnlocked);
+    const accountRole = String((me && me.accountRole) || role || "USER").toUpperCase();
+    const unlocked = engineerUnlocked || role === "ENGINEER" || accountRole === "ENGINEER";
+    const locked = !unlocked;
+    const ls = $("lockState");
+    ls.textContent = locked ? "Locked." : `Unlocked${accountRole === "ADMIN" ? " (Admin)" : ""}.`;
+    ls.classList.remove("stateUnlocked","stateLocked","muted","ok","err");
+    ls.classList.add(locked ? "stateLocked" : "stateUnlocked");
+    $("zonesCard").style.display = locked ? "none" : "block";
+    $("importBoardCard").style.display = locked ? "none" : "block";
+    $("pendingCard").style.display = locked ? "none" : "block";
+    updateContextPills();
+    return !locked;
+  }
+
+  async function loadZones(){
+    let siteId = null;
+    try { siteId = Number(localStorage.getItem('elaris_site_id')||'') || null; } catch(e){}
+    const out = await api('/zones' + (siteId ? ('?site_id=' + encodeURIComponent(siteId)) : ''));
+    zones = out.zones || [];
+    $("zonesNote").textContent = zones.length ? (zones.length + " zones") : "No zones yet";
+
+    const wrap = $("zonesList");
+    if(wrap){
+      wrap.innerHTML = "";
+      if(!zones.length){
+        wrap.innerHTML = `<span class="muted">No zones yet</span>`;
+      } else {
+        zones.forEach(z=>{
+          const pill = document.createElement("span");
+          pill.className = "pill zonePill";
+
+          const name = document.createElement("span");
+          name.textContent = z.name;
+
+          const edit = document.createElement("button");
+          edit.className = "zoneAct";
+          edit.type = "button";
+          edit.textContent = "✎";
+          edit.title = "Rename zone";
+          edit.onclick = async ()=>{
+            const nn = prompt("New zone name:", z.name);
+            if(!nn) return;
+            await api(`/zones/${z.id}`, { method:"POST", body: JSON.stringify({ name: nn }) });
+            updateContextPills();
+    await loadZones();
+            await loadPending();
+          };
+
+          const del = document.createElement("button");
+          del.className = "zoneAct danger";
+          del.type = "button";
+          del.textContent = "🗑";
+          del.title = "Delete zone (entities will become No zone)";
+          del.onclick = async ()=>{
+            if(!confirm(`Delete zone "${z.name}"? Entities in this zone will become (No zone).`)) return;
+            await api(`/zones/${z.id}`, { method:"DELETE", body: JSON.stringify({ reassign_zone_id: null }) });
+            await loadZones();
+            await loadPending();
+          };
+
+          pill.append(name, edit, del);
+          wrap.appendChild(pill);
+        });
+      }
+    }
+  }
+
+  function zoneSelectHtml(selectedId){
+    const opts = [`<option value="">(No zone)</option>`].concat(
+      zones.map(z=>`<option value="${z.id}" ${String(z.id)===String(selectedId)?"selected":""}>${z.name}</option>`)
+    ).join("");
+    return `<select class="zoneSel">${opts}</select>`;
+  }
+
+  async function loadPending(){
+    setMsg("Loading pending IO...");
+    const out = await api("/pending-io");
+    const pending = out.pending || [];
+    const tbody = $("rows");
+    tbody.innerHTML = "";
+
+    if(!pending.length){
+      setMsg("No pending IO.");
+      return;
+    }
+    setMsg("");
+
+    pending.forEach(p=>{
+      const tr = document.createElement("tr");
+
+      tr.innerHTML = `
+        <td>
+          <div style="font-weight:900">${p.device_id}</div>
+          <div class="muted">${p.group_name}.${p.key}</div>
+          <div class="muted">last: ${(new Date(p.last_seen)).toLocaleTimeString()} | val: ${p.last_value ?? "—"}</div>
+        </td>
+        <td>
+          <select class="typeSel">
+            <option value="sensor" ${p.group_name==="tele"?"selected":""}>sensor</option>
+            <option value="relay" ${p.group_name==="state"?"selected":""}>relay</option>
+          </select>
+        </td>
+        <td>${zoneSelectHtml("")}</td>
+        <td><input class="nameInp" value="${p.group_name==='tele' && p.key==='temp' ? "Temperature" : (p.group_name==='tele' && p.key==='hum' ? "Humidity" : p.key.toUpperCase())}" /></td>
+        <td style="text-align:right; white-space:nowrap;">
+          <button class="btn btnPrimary approveBtn">Approve</button>
+          <button class="btn deleteBtn">Delete</button>
+        </td>
+      `;
+
+      const typeSel = tr.querySelector(".typeSel");
+      const zoneSel = tr.querySelector(".zoneSel");
+      const nameInp = tr.querySelector(".nameInp");
+
+      tr.querySelector(".approveBtn").onclick = async ()=>{
+        try{
+          const zone_id = zoneSel.value ? Number(zoneSel.value) : null;
+          let site_id = null;
+          try {
+            // Auto-pick first site if none stored
+            if (!localStorage.getItem('elaris_site_id')) {
+              const sr = await fetch('/api/sites',{credentials:'include'}).then(r=>r.json()).catch(()=>({}));
+              const ss = (sr.sites||[]);
+              if (ss.length) localStorage.setItem('elaris_site_id', ss[0].id);
+            }
+            site_id = Number(localStorage.getItem('elaris_site_id')||'') || null;
+          } catch(e){ site_id=null; }
+          await api(`/pending-io/${p.id}/approve`, {
+            method:"POST",
+            body: JSON.stringify({ name: nameInp.value, type: typeSel.value, zone_id, site_id })
+          });
+          setMsg("Approved.");
+          await loadPending();
+        }catch(e){
+          setMsg("Approve failed: "+e.message, true);
+        }
+      };
+
+      tr.querySelector(".deleteBtn").onclick = async ()=>{
+        try{
+          await api(`/pending-io/${p.id}`, { method:"DELETE" });
+          setMsg("Deleted.");
+          await loadPending();
+        }catch(e){
+          setMsg("Delete failed: "+e.message, true);
+        }
+      };
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  $("unlockBtn").onclick = async ()=>{
+    try{
+      setMsg("");
+      await api("/engineer/unlock", { method:"POST", body: JSON.stringify({ code: $("code").value }) });
+      await boot();
+    }catch(e){
+      setMsg("Unlock failed: "+e.message, true);
+    }
+  };
+
+  $("lockBtn").onclick = async ()=>{
+    try{
+      await api("/engineer/lock", { method:"POST", body: "{}" });
+      await boot();
+    }catch(e){
+      setMsg("Lock failed: "+e.message, true);
+    }
+  };
+
+  $("createZoneBtn").onclick = async ()=>{
+    const btn = $("createZoneBtn");
+    const note = $("zonesNote");
+    try{
+      const name = $("zoneName").value.trim();
+      if(!name){
+        note.textContent = "Enter a zone name first.";
+        return;
+      }
+      let site_id = null;
+      const siteSel = document.getElementById("siteFilter") || document.getElementById("siteSel");
+      if (siteSel && siteSel.value) site_id = Number(siteSel.value) || null;
+      if (!site_id) {
+        try { site_id = Number(localStorage.getItem('elaris_site_id')||'') || null; } catch(e){ site_id = null; }
+      }
+      if (!site_id) {
+        try {
+          const sr = await fetch('/api/sites',{credentials:'include'}).then(r=>r.json()).catch(()=>({}));
+          const ss = (sr.sites||[]);
+          if (ss.length) {
+            site_id = Number(ss[0].id) || null;
+            if (site_id) localStorage.setItem('elaris_site_id', String(site_id));
+          }
+        } catch(e){}
+      }
+      if (!site_id) throw new Error('No site selected');
+
+      btn.disabled = true;
+      btn.textContent = 'Creating…';
+      note.textContent = 'Creating zone…';
+
+      await api('/zones', { method:'POST', body: JSON.stringify({ name, site_id }) });
+      try { localStorage.setItem('elaris_site_id', String(site_id)); } catch(e){}
+      $('zoneName').value = '';
+      note.textContent = 'Zone created.';
+      await loadZones();
+      await loadPending();
+    }catch(e){
+      note.textContent = 'Create zone failed: ' + e.message;
+      setMsg('Create zone failed: '+e.message, true);
+    }finally{
+      btn.disabled = false;
+      btn.textContent = 'Create Zone';
+    }
+  };
+
+  // ── Board catalog import ──────────────────────────────────────────────────
+  async function loadBoards() {
+    try {
+      const out = await api('/esphome/catalog');
+      const boards = out.boards || [];
+      const sel = $('boardSel');
+      sel.innerHTML = `<option value="">— Select board —</option>` +
+        boards.map(b => `<option value="${b.id}">${b.label}</option>`).join('');
+      sel.onchange = () => {
+        const b = boards.find(x => x.id === sel.value);
+        if (!b) { $('importBoardInfo').textContent = ''; return; }
+        const counts = (b.defaults || []).reduce((acc, e) => { acc[e.type] = (acc[e.type] || 0) + 1; return acc; }, {});
+        $('importBoardInfo').textContent = Object.entries(counts).map(([t, n]) => `${n}× ${t}`).join(' · ') || 'No IOs defined';
+      };
+    } catch(e) {
+      $('boardSel').innerHTML = `<option value="">Error loading boards</option>`;
+    }
+  }
+
+  $('importBoardBtn').onclick = async () => {
+    const btn = $('importBoardBtn');
+    const msg = $('importMsg');
+    const boardId = $('boardSel').value;
+    const deviceName = $('importDeviceName').value.trim();
+    if (!boardId) { msg.textContent = 'Select a board first.'; return; }
+    if (!deviceName) { msg.textContent = 'Enter device name.'; return; }
+    let site_id = null;
+    try { site_id = Number(localStorage.getItem('elaris_site_id') || '') || null; } catch(e) {}
+    btn.disabled = true;
+    btn.textContent = 'Importing…';
+    msg.textContent = '';
+    try {
+      const r = await api(`/esphome/catalog/${encodeURIComponent(boardId)}/inject-pending`, {
+        method: 'POST',
+        body: JSON.stringify({ device_name: deviceName, site_id }),
+      });
+      msg.textContent = `Done: ${r.injected} IOs added, ${r.skipped} skipped.`;
+      await loadPending();
+    } catch(e) {
+      msg.textContent = 'Error: ' + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Import IOs';
+    }
+  };
+
+  $("reloadBtn").onclick = ()=> loadPending();
+  $("refreshBtn").onclick = ()=> boot();
+
+  async function boot(){
+    const ok = await checkMe();
+    if(!ok) return;
+    await Promise.all([loadZones(), loadBoards()]);
+    await loadPending();
+    await loadBlocked();
+  }
+
+  initTheme();
+  boot().catch(e=>setMsg("Init error: "+e.message,true));
+
+  async function loadBlocked() {
+    try {
+      const out = await api("/blocked-io");
+      const blocked = out.blocked || [];
+      const tbody = document.getElementById("blockedRows");
+      const empty = document.getElementById("blockedEmpty");
+      tbody.innerHTML = "";
+      if (!blocked.length) {
+        empty.style.display = "";
+        return;
+      }
+      empty.style.display = "none";
+      blocked.forEach(b => {
+        const tr = document.createElement("tr");
+        tr.style.borderBottom = "1px solid rgba(255,255,255,.05)";
+        const dt = b.blocked_ts || b.created_ts ? new Date(b.blocked_ts||b.created_ts).toLocaleString() : "—";
+        tr.innerHTML = `
+          <td style="padding:8px"><strong>${b.device_id}</strong><br>
+            <span style="color:var(--muted,#888);font-size:11px">${b.group_name}.${b.key}</span></td>
+          <td style="padding:8px;color:var(--muted,#888);font-size:11px">${dt}</td>
+          <td style="padding:8px;text-align:right">
+            <button class="btn" style="font-size:11px;padding:4px 10px"
+              onclick="unblockIO('${b.device_id}','${b.group_name}','${b.key}')">Unblock</button>
+          </td>`;
+        tbody.appendChild(tr);
+      });
+    } catch(e) { console.error("loadBlocked:", e); }
+  }
+
+  async function unblockIO(device_id, group_name, key) {
+    try {
+      await api("/blocked-io", { method: "DELETE", body: JSON.stringify({ device_id, group_name, key }) });
+      await loadBlocked();
+    } catch(e) { setMsg("Unblock error: "+e.message, true); }
+  }
+</script>
+
+  <!-- Blocked IOs -->
+  <div class="card" id="blockedCard" style="margin-top:24px">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-weight:900;">Blocked IOs</div>
+        <div class="muted">Deleted pending IOs — will not reappear. Unblock to allow again.</div>
+      </div>
+      <button class="btn" onclick="loadBlocked()">Reload</button>
+    </div>
+    <table style="width:100%;margin-top:12px;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="color:var(--muted,#888);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid rgba(255,255,255,.08)">
+          <th style="text-align:left;padding:6px 8px">DEVICE / KEY</th>
+          <th style="text-align:left;padding:6px 8px">BLOCKED</th>
+          <th style="text-align:right;padding:6px 8px">ACTION</th>
+        </tr>
+      </thead>
+      <tbody id="blockedRows"></tbody>
+    </table>
+    <div id="blockedEmpty" style="display:none;color:var(--muted,#888);padding:12px 0;font-size:13px">No blocked IOs.</div>
+  </div>
+
+<script src="/role-ui.js?v=2"></script>
+</body>
+</html>

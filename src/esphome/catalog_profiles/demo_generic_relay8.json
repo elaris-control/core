@@ -1,0 +1,43 @@
+{
+  "id": "demo_generic_relay8",
+  "label": "Demo Generic ESP32 Relay 8",
+  "platform": "esp32",
+  "board": "esp32dev",
+  "framework_default": "arduino",
+  "source": "manual_seed_example",
+  "source_url": "https://devices.esphome.io/",
+  "notes": [
+    "Example profile showing how to extend the catalog with JSON instead of changing JS.",
+    "Not enabled in UI unless imported into the database."
+  ],
+  "definition": {
+    "id": "demo_generic_relay8",
+    "label": "Demo Generic ESP32 Relay 8",
+    "board": "esp32dev",
+    "platform": "esp32",
+    "frameworkDefault": "arduino",
+    "supports": { "usb": true, "ota": true, "wifi": true, "ethernet": false },
+    "notes": [
+      "Example only. Adjust pins and capabilities before production use."
+    ],
+    "pinRules": {
+      "reserved": [],
+      "inputOnly": [34, 35, 36, 39],
+      "noPullup": [34, 35, 36, 39],
+      "flashPins": [6, 7, 8, 9, 10, 11],
+      "strapping": [0, 2, 5, 12, 15]
+    },
+    "entityDefaults": [
+      { "key": "relay_1", "name": "Relay 1", "type": "relay", "source": "GPIO26", "pin": 26 },
+      { "key": "relay_2", "name": "Relay 2", "type": "relay", "source": "GPIO27", "pin": 27 },
+      { "key": "relay_3", "name": "Relay 3", "type": "relay", "source": "GPIO25", "pin": 25 },
+      { "key": "relay_4", "name": "Relay 4", "type": "relay", "source": "GPIO33", "pin": 33 },
+      { "key": "relay_5", "name": "Relay 5", "type": "relay", "source": "GPIO32", "pin": 32 },
+      { "key": "relay_6", "name": "Relay 6", "type": "relay", "source": "GPIO14", "pin": 14 },
+      { "key": "relay_7", "name": "Relay 7", "type": "relay", "source": "GPIO12", "pin": 12 },
+      { "key": "relay_8", "name": "Relay 8", "type": "relay", "source": "GPIO13", "pin": 13 },
+      { "key": "di_1", "name": "DI 1", "type": "di", "source": "GPIO34", "pin": 34 },
+      { "key": "di_2", "name": "DI 2", "type": "di", "source": "GPIO35", "pin": 35 }
+    ]
+  }
+}
