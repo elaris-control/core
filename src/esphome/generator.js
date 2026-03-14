@@ -1,5 +1,14 @@
 const { safeName } = require('./schema');
 
+// Escape a string for use inside YAML double-quoted scalars
+function yamlStr(s) {
+  return String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g,  '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r');
+}
+
 function mqttDiscoveryJson({ deviceName, boardLabel, boardProfileId, entities }) {
   const counts = entities.reduce((acc, e) => {
     const t = String(e.type || '').toLowerCase();
@@ -52,7 +61,7 @@ function generateYAML({ profile, payload }) {
 
   lines.push('esphome:');
   lines.push(`  name: ${sname}`);
-  lines.push(`  friendly_name: "${payload.device_name}"`);
+  lines.push(`  friendly_name: "${yamlStr(payload.device_name)}"`);
   lines.push('');
 
   if (profile.platform === 'esp32') {
@@ -87,8 +96,8 @@ function generateYAML({ profile, payload }) {
     lines.push('');
   } else {
     lines.push('wifi:');
-    lines.push(`  ssid: "${payload.wifi_ssid}"`);
-    lines.push(`  password: "${payload.wifi_pass}"`);
+    lines.push(`  ssid: "${yamlStr(payload.wifi_ssid)}"`);
+    lines.push(`  password: "${yamlStr(payload.wifi_pass)}"`);
     lines.push('');
   }
 

@@ -587,7 +587,7 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
     res.json({ ok: true });
   });
 
-  app.get('/api/esphome/yaml/:name', requireLogin, (req, res) => {
+  app.get('/api/esphome/yaml/:name', requireEngineerAccess, (req, res) => {
     const p = path.join(cfgDir, `${safeName(req.params.name)}.yaml`);
     if (!fs.existsSync(p)) return res.status(404).json({ error: 'not_found' });
     res.type('text/plain').send(fs.readFileSync(p, 'utf8'));
@@ -685,7 +685,7 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
     }
   });
 
-  app.get('/api/esphome/device-browser/yaml', requireLogin, async (req, res) => {
+  app.get('/api/esphome/device-browser/yaml', requireEngineerAccess, async (req, res) => {
     const slug = String(req.query.device || '').trim().replace(/[^a-z0-9_-]/gi, '');
     if (!slug) return res.status(400).json({ ok: false, error: 'device slug required' });
     try {

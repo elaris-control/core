@@ -63,7 +63,8 @@ function initAuthRoutes({ users, google, github, appSecret }) {
       if (password.length < 8)  return res.status(400).json({ ok: false, error: "password_too_short" });
 
       const isFirst = users.ensureAdminExists();
-      const role = isFirst ? "ADMIN" : "USER";
+      if (!isFirst) return res.status(403).json({ ok: false, error: "registration_closed" });
+      const role = "ADMIN";
       const rlKey = rateLimit.keyFor(req, email);
       const blocked = rateLimit.isBlocked(rlKey);
       if (blocked.blocked) return res.status(429).json({ ok: false, error: "rate_limited", retry_after: blocked.retryAfterSec });

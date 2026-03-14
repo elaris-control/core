@@ -13,7 +13,7 @@ function fetchWeather(lat, lon) {
       `latitude=${lat}&longitude=${lon}` +
       `&current=temperature_2m,relative_humidity_2m,apparent_temperature,` +
       `precipitation,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,is_day` +
-      `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max` +
+      `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,sunrise,sunset` +
       `&wind_speed_unit=kmh&timezone=auto&forecast_days=5`;
 
     https.get(url, (res) => {
@@ -100,6 +100,8 @@ async function getWeather(lat, lon) {
       desc:        interpretCode(daily.weather_code[i], true).desc,
     })),
     timezone: raw.timezone,
+    sunrise:  daily.sunrise  ? daily.sunrise[0].substring(11, 16)  : null,
+    sunset:   daily.sunset   ? daily.sunset[0].substring(11, 16)   : null,
     ts:       now,
     cached:   false,
   };
