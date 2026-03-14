@@ -62,12 +62,14 @@ function renderActions(){
       label='📡 <b>'+(io?io.name:a.io_id)+'</b> → <b>'+a.value+'</b>';
     } else if(a.type==='notify'){
       label='🔔 Notify: <b>'+a.title+'</b>';
+    } else if(a.type==='delay'){
+      label='⏱️ Wait <b>'+a.seconds+'s</b>';
     }
     return '<div class="action-row"><span style="font-size:12px">'+label+'</span><button onclick="removeAction('+i+')" style="margin-left:auto;background:none;border:none;color:var(--bad);cursor:pointer;font-size:16px;padding:0 4px">✕</button></div>';
   }).join('');
 }
 function removeAction(i){_actions.splice(i,1);renderActions();}
-function onActionTypeChange(){var t=$('aType').value;$('aSetpoint').style.display=t==='set_setpoint'?'':'none';$('aCommand').style.display=t==='send_command'?'':'none';$('aNotify').style.display=t==='notify'?'':'none';}
+function onActionTypeChange(){var t=$('aType').value;$('aSetpoint').style.display=t==='set_setpoint'?'':'none';$('aCommand').style.display=t==='send_command'?'':'none';$('aNotify').style.display=t==='notify'?'':'none';$('aDelay').style.display=t==='delay'?'':'none';}
 function populateInstanceSelect(){var s=$('aInstance');if(!s)return;s.innerHTML=_instances.map(function(i){return'<option value="'+i.id+'">'+i.name+' ('+i.module_id+')</option>';}).join('');populateSettingKeys();}
 function populateSettingKeys(){var s=$('aInstance');var ks=$('aSettingKey');if(!s||!ks)return;var inst=_instances.find(function(i){return i.id===Number(s.value);});var def=inst&&inst.definition;var keys=def&&def.setpoints?def.setpoints.map(function(sp){return sp.key;}):[];if(!keys.length)keys=['mode','setpoint','hysteresis','manual_override','manual_speed','profile','dt_on','dt_off','min_collector','max_boiler'];ks.innerHTML=keys.map(function(k){return'<option value="'+k+'">'+k+'</option>';}).join('');}
 function populateIOSelect(){var s=$('aIO');if(!s)return;s.innerHTML=_ios.map(function(io){return'<option value="'+io.id+'">'+(io.name||io.key)+' ['+io.type+']</option>';}).join('');}
@@ -90,6 +92,8 @@ function addAction(){
     a.title=($('aNotifyTitle').value||'').trim()||'Scene activated';
     a.body=($('aNotifyBody').value||'').trim();
     a.level=$('aNotifyLevel').value||'info';
+  } else if(t==='delay'){
+    a.seconds=Math.max(1,Math.min(300,Number($('aDelaySec').value)||2));
   }
   _actions.push(a);renderActions();
   var sv=$('aSettingVal');if(sv)sv.value='';
@@ -99,7 +103,7 @@ function addAction(){
 }
 function openNew(){
   if(!canManageScenes()){toast('Engineer access required');return;}
-  _editId=null;_actions=[];$('smTitle').textContent='New Scene';$('sm_icon').value='';$('sm_name').value='';$('smDeleteBtn').style.display='none';buildColorPicker(COLORS[0]);renderActions();populateInstanceSelect();populateIOSelect();onActionTypeChange();$('sceneModal').style.display='flex';setTimeout(function(){$('sm_name').focus();},50);
+  _editId=null;_actions=[];$('smTitle').textContent='New Scene';$('sm_icon').value='';$('sm_name').value='';$('smDeleteBtn').style.display='none';buildColorPicker(COLORS[0]);renderActions();populateInstanceSelect();populateIOSelect();onActionTypeChange();$('sceneModal').style.display='flex';loadSchedules(null);setTimeout(function(){$('sm_name').focus();},50);
 }
 function openEdit(id){
   if(!canManageScenes()){toast('Engineer access required');return;}
@@ -108,12 +112,46 @@ function openEdit(id){
     var s=(d.scenes||[]).find(function(x){return x.id===id;});
     if(!s)return;
     try{_actions=JSON.parse(s.actions_json||'[]');}catch(e){_actions=[];}
-    $('smTitle').textContent='Edit Scene';$('sm_icon').value=s.icon||'';$('sm_name').value=s.name||'';$('smDeleteBtn').style.display='';buildColorPicker(s.color||COLORS[0]);renderActions();populateInstanceSelect();populateIOSelect();onActionTypeChange();$('sceneModal').style.display='flex';setTimeout(function(){$('sm_name').focus();},50);
+    $('smTitle').textContent='Edit Scene';$('sm_icon').value=s.icon||'';$('sm_name').value=s.name||'';$('smDeleteBtn').style.display='';buildColorPicker(s.color||COLORS[0]);renderActions();populateInstanceSelect();populateIOSelect();onActionTypeChange();$('sceneModal').style.display='flex';loadSchedules(id);setTimeout(function(){$('sm_name').focus();},50);
   });
 }
 function closeModal(){$('sceneModal').style.display='none';}
 async function saveScene(){if(!canManageScenes()) return toast('Engineer access required');var n=$('sm_name').value.trim();if(!n){toast('Enter a name');return;}var ic=$('sm_icon').value.trim()||'🎬';var col=_color||COLORS[0];try{if(_editId)await api('/scenes/'+_editId,{method:'PUT',body:JSON.stringify({name:n,icon:ic,color:col,actions:_actions})});else await api('/scenes',{method:'POST',body:JSON.stringify({name:n,icon:ic,color:col,actions:_actions})});closeModal();await loadScenes();toast('Saved');}catch(e){toast('Error: '+e.message);}}
 async function deleteScene(){if(!canManageScenes()) return toast('Engineer access required');if(!_editId||!confirm('Delete this scene?'))return;try{await api('/scenes/'+_editId,{method:'DELETE'});closeModal();await loadScenes();toast('Deleted');}catch(e){toast('Error: '+e.message);}}
+async function loadSchedules(sceneId){
+  if(!sceneId){$('scheduleList').innerHTML='';return;}
+  try{
+    var d=await api('/scenes/'+sceneId+'/schedules');
+    var list=d.schedules||[];
+    if(!list.length){$('scheduleList').innerHTML='<div style="color:var(--muted2);font-size:12px;padding:4px 0">No schedules.</div>';return;}
+    $('scheduleList').innerHTML=list.map(function(s){
+      var days=s.days||'1,2,3,4,5,6,7';
+      var dayNames=['','Mo','Tu','We','Th','Fr','Sa','Su'];
+      var dayStr=days.split(',').map(function(d){return dayNames[Number(d)]||d;}).join(' ');
+      return '<div class="action-row"><span style="font-size:12px">🕐 <b>'+s.time+'</b> — '+dayStr+'</span>'+
+        '<button onclick="deleteSchedule('+s.id+')" style="margin-left:auto;background:none;border:none;color:var(--bad);cursor:pointer;font-size:16px;padding:0 4px">✕</button></div>';
+    }).join('');
+  }catch(e){}
+}
+async function addSchedule(){
+  if(!canManageScenes()||!_editId){toast('Save the scene first, then add schedules');return;}
+  var time=$('schTime').value;
+  if(!time){toast('Select a time');return;}
+  var days=Array.from(document.querySelectorAll('#schDays input:checked')).map(function(c){return c.value;}).join(',');
+  if(!days){toast('Select at least one day');return;}
+  try{
+    await api('/scenes/'+_editId+'/schedules',{method:'POST',body:JSON.stringify({time:time,days:days})});
+    await loadSchedules(_editId);
+    toast('Schedule added');
+  }catch(e){toast('Error: '+e.message);}
+}
+async function deleteSchedule(id){
+  try{
+    await api('/scenes/schedules/'+id,{method:'DELETE'});
+    await loadSchedules(_editId);
+    toast('Removed');
+  }catch(e){toast('Error: '+e.message);}
+}
 (async function(){
   applyTheme(localStorage.getItem('elaris_theme')||'dark');
   var mb=$('menuBtn');if(mb)mb.style.display='';

@@ -11,6 +11,7 @@ const MIN_SOLAR_TEMP  = 40; // °C — minimum collector temp to run pump
 // Per-instance runtime state for Legionella + Anti-Freeze
 const legionellaState  = new Map(); // instId → { lastAbove60: ts, lastCycleTs: ts }
 const antiFreezeTimer  = new Map(); // instId → timeout handle
+const legionellaHeaterOnTs = new Map(); // instId → ts when heater was turned ON (safety max runtime)
 
 function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
   let mqttApi = _mqttApi;
@@ -106,6 +107,12 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
   function evaluate(instance) {
     // Skip if automation is paused for this instance
     if (overrides.get(instance.id)?.paused === true) return null;
+
+    // Dry run mode: intercept all publish calls
+    const isTestMode = getSetting(instance.id, "test_mode", 0) === 1;
+    const publish = isTestMode
+      ? (deviceId, key, value) => console.log(`[SOLAR TEST MODE] would publish: ${deviceId}/${key} = ${value}`)
+      : (deviceId, key, value) => mqttApi.publish(deviceId, key, value);
     const solarIO  = getIOById.get(instance.solar_io_id);
     const boilerIO = getIOById.get(instance.boiler_io_id);
     const pumpIO   = getIOById.get(instance.pump_io_id);
@@ -159,7 +166,7 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
 
     if (targetState && targetState !== (isOn ? "ON" : "OFF")) {
       // Send MQTT command
-      mqttApi.publish(pumpIO.device_id, pumpIO.key, targetState);
+      publish(pumpIO.device_id, pumpIO.key, targetState);
 
       // Log it
       logAutomation.run({
@@ -192,8 +199,9 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
     const antiFreezeTemp   = getSetting(instance.id, "anti_freeze_temp",   4);  // °C
     const antiFreezeRunS   = getSetting(instance.id, "anti_freeze_run_s",  30); // sec
     if (antiFreezeEnable && tempSolar !== null && tempSolar < antiFreezeTemp) {
-      if (!antiFreezeTimer.has(instance.id)) {
-        mqttApi.publish(pumpIO.device_id, pumpIO.key, "ON");
+      const existingTimer = antiFreezeTimer.get(instance.id);
+      if (!existingTimer) {
+        publish(pumpIO.device_id, pumpIO.key, "ON");
         logAutomation.run({ instance_id: instance.id, action: "pump_ON", reason: `Anti-freeze: solar ${tempSolar}°C < ${antiFreezeTemp}°C — running pump briefly`, ts: Date.now() });
         console.log(`[SOLAR AUTO] Anti-freeze triggered at ${tempSolar}°C`);
         const t = setTimeout(() => {
@@ -227,15 +235,27 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
 
       const needsCycle = daysSinceCycle >= legDays || daysSinceAbove >= legMaxDays;
 
+      const LEG_HEATER_MAX_MS = 2 * 60 * 60 * 1000; // 2 hours safety max runtime
       if (needsCycle) {
         const mapping = getHeaterMapping.get(instance.id);
         const hIO = mapping ? getIOById.get(mapping.io_id) : null;
         if (hIO && tempBoiler < legTemp) {
-          mqttApi.publish(hIO.device_id, hIO.key, "ON");
-          logAutomation.run({ instance_id: instance.id, action: "heater_ON", reason: `Legionella cycle: boiler ${tempBoiler}°C < ${legTemp}°C, ${daysSinceAbove.toFixed(1)}d since last high temp`, ts: Date.now() });
-          console.log(`[SOLAR AUTO] Legionella cycle: heater ON`);
+          const heaterOnSince = legionellaHeaterOnTs.get(instance.id);
+          if (heaterOnSince && (nowTs - heaterOnSince) >= LEG_HEATER_MAX_MS) {
+            // Safety: heater stuck ON longer than 2 hours — force off
+            publish(hIO.device_id, hIO.key, "OFF");
+            legionellaHeaterOnTs.delete(instance.id);
+            logAutomation.run({ instance_id: instance.id, action: "heater_OFF", reason: `Legionella safety: heater exceeded 2h max runtime — forced OFF`, ts: Date.now() });
+            console.log(`[SOLAR AUTO] Legionella heater forced OFF: exceeded 2h max runtime`);
+          } else {
+            if (!heaterOnSince) legionellaHeaterOnTs.set(instance.id, nowTs);
+            publish(hIO.device_id, hIO.key, "ON");
+            logAutomation.run({ instance_id: instance.id, action: "heater_ON", reason: `Legionella cycle: boiler ${tempBoiler}°C < ${legTemp}°C, ${daysSinceAbove.toFixed(1)}d since last high temp`, ts: Date.now() });
+            console.log(`[SOLAR AUTO] Legionella cycle: heater ON`);
+          }
         } else if (hIO && tempBoiler >= legTemp) {
-          mqttApi.publish(hIO.device_id, hIO.key, "OFF");
+          publish(hIO.device_id, hIO.key, "OFF");
+          legionellaHeaterOnTs.delete(instance.id);
           ls.lastCycleTs = nowTs;
           ls.lastAbove60 = nowTs;
           logAutomation.run({ instance_id: instance.id, action: "heater_OFF", reason: `Legionella cycle complete: boiler reached ${tempBoiler}°C`, ts: Date.now() });
@@ -292,7 +312,7 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
 
   // Update setpoint + re-evaluate
   function setSetpoint(instance_id, key, value) {
-    if (!["dt_on", "dt_off", "max_boiler_temp", "min_solar_temp"].includes(key)) throw new Error("invalid_key");
+    if (!["dt_on", "dt_off", "max_boiler_temp", "min_solar_temp", "test_mode"].includes(key)) throw new Error("invalid_key");
     const v = parseFloat(value);
     if (isNaN(v)) throw new Error("invalid_value");
     saveSetting(instance_id, key, v);
@@ -308,6 +328,7 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
       dt_off:          getSetting(instance_id, "dt_off",          DEFAULT_DT_OFF),
       max_boiler_temp: getSetting(instance_id, "max_boiler_temp", MAX_BOILER_TEMP),
       min_solar_temp:  getSetting(instance_id, "min_solar_temp",  MIN_SOLAR_TEMP),
+      test_mode:       getSetting(instance_id, "test_mode",       0),
     };
   }
 

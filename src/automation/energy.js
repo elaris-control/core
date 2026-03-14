@@ -164,11 +164,14 @@ function energyHandler(ctx, send) {
   let exTotal_ = parseFloat(ctx.setting('_kwh_export_total',  0) || 0);
 
   // ── Daily reset ──────────────────────────────────────────────────────────
+  // Only reset once per day: fire when the calendar day has changed AND we have
+  // passed resetHour. The _day_reset key is updated to today so subsequent ticks
+  // in the same day skip this block entirely.
   if (lastDay !== today && currentH >= resetHour) {
     // Archive yesterday to history before resetting
     if (kwToday_ > 0) {
       const history = loadHistory(ctx);
-      history.push({ date: lastDay || fmtDate(now - 86400000), kwh: Math.round(kwToday_ * 1000) / 1000, cost: Math.round(kwToday_ * tariffFlat * 100) / 100 });
+      history.push({ date: lastDay || fmtDate(now - 86400000), kwh: Math.round(kwToday_ * 1000) / 1000, cost: Math.round(kwToday_ * activeTariff * 100) / 100 });
       while (history.length > 7) history.shift();
       saveHistory(ctx, history);
     }
@@ -226,8 +229,8 @@ function energyHandler(ctx, send) {
   if (watts > peakM) ctx.setSetting('_peak_w_month', String(Math.round(watts)));
 
   // ── Cost & CO₂ ──────────────────────────────────────────────────────────
-  const costToday       = Math.round(newToday  * tariffFlat  * 100) / 100;
-  const costMonth       = Math.round(newMonth  * tariffFlat  * 100) / 100;
+  const costToday       = Math.round(newToday  * activeTariff * 100) / 100;
+  const costMonth       = Math.round(newMonth  * activeTariff * 100) / 100;
   const exportRevToday  = Math.round(newExToday * exportTariff * 100) / 100;
   const exportRevMonth  = Math.round(newExMonth * exportTariff * 100) / 100;
   const co2TodayKg      = Math.round(newToday  * co2Factor) / 1000; // g → kg

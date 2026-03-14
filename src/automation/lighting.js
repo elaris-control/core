@@ -110,8 +110,16 @@ function lightingHandler(ctx, send, siteInfo) {
   const now    = Date.now();
   const nowMin = new Date().getHours()*60 + new Date().getMinutes();
 
+  const isTestMode = ctx.settingStr('test_mode', '0') === '1';
+  if (isTestMode) {
+    send = (key, value, reason) => {
+      console.log(`[LIGHTING TEST MODE] would send: ${key} = ${value}${reason ? ' // ' + reason : ''}`);
+    };
+  }
+
   const mode            = ctx.settingStr('mode',            'auto');
   const luxThreshold    = ctx.setting('lux_threshold',       50);
+  const luxThresholdOff = ctx.setting('lux_threshold_off',  luxThreshold * 1.15); // OFF threshold (brighter)
   const pirTimeout      = ctx.setting('pir_timeout',         300) * 1000;
   const motionThreshold = ctx.setting('motion_threshold',    10);
   const dimOnLevel      = ctx.setting('dim_on_level',        100);
@@ -214,7 +222,7 @@ function lightingHandler(ctx, send, siteInfo) {
   if (mode === 'lux') {
     if (!hasLux) { broadcastLightingState(ctx, { source: 'lux', schedule_active: inSched, motion_active: !!motion, dark: null, last_reason: 'Lux sensor not mapped' }); return; }
     if (!isOn && isDark)                   setOut(send, ctx, hasDimmer, true,  dimOnLevel, dimOffLevel, `Dark: lux=${lux} < ${luxThreshold}`);
-    else if (isOn && lux >= luxThreshold*1.15) setOut(send, ctx, hasDimmer, false, dimOnLevel, dimOffLevel, `Bright: lux=${lux?.toFixed(0)}`);
+    else if (isOn && lux >= luxThresholdOff) setOut(send, ctx, hasDimmer, false, dimOnLevel, dimOffLevel, `Bright: lux=${lux?.toFixed(0)}`);
     broadcastLightingState(ctx, { source: 'lux', schedule_active: inSched, motion_active: !!motion, dark: !!isDark, last_reason: isDark ? `Dark: lux=${lux}` : `Bright: lux=${lux}` });
     return;
   }
@@ -252,7 +260,7 @@ function lightingHandler(ctx, send, siteInfo) {
       return;
     }
     // Bright override → always off
-    if (hasLux && lux != null && lux >= luxThreshold * 1.15 && isOn) {
+    if (hasLux && lux != null && lux >= luxThresholdOff && isOn) {
       setOut(send, ctx, hasDimmer, false, dimOnLevel, dimOffLevel, `Auto: bright lux=${lux?.toFixed(0)}`);
       broadcastLightingState(ctx, { source: 'auto_lux', schedule_active: inSched, motion_active: !!motion, dark: false, last_reason: `Auto: bright lux=${lux?.toFixed(0)}` });
       return;
@@ -339,8 +347,11 @@ const LIGHTING_MODULE = {
       help: "Trigger level for the analog presence sensor (0–100). Motion is detected when the sensor value exceeds this threshold. Lower value = more sensitive." },
 
     { group: 'Lux',
-      key: 'lux_threshold',     label: 'Dark below',              type: 'number', unit: 'lux', step: 10, default: 50,
+      key: 'lux_threshold',     label: 'Dark below (ON)',         type: 'number', unit: 'lux', step: 10, default: 50,
       help: "The light activates when ambient lux drops below this value (it is 'dark enough'). Typical indoor threshold: 30–100 lux." },
+    { group: 'Lux',
+      key: 'lux_threshold_off', label: 'Bright above (OFF)',      type: 'number', unit: 'lux', step: 10, default: 60,
+      help: "The light turns OFF when ambient lux rises above this value. Should be higher than 'Dark below' to create a hysteresis dead band and prevent rapid toggling." },
 
     { group: 'Dimmer',
       key: 'dim_on_level',      label: 'Brightness ON',           type: 'number', unit: '%', step: 5, default: 100,

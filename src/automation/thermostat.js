@@ -52,7 +52,8 @@ function zoneConfigured(ctx, n) {
 function zoneCurrentActive(ctx, instId, n, keys) {
   if (keys.output) return ctx.isOn(keys.output);
   if (keys.pump) return ctx.isOn(keys.pump);
-  return ctx.settingStr(`_zone_${n}_state`, '0') === '1';
+  const raw = ctx.settingStr(`_zone_${n}_state`, '0');
+  return Number(raw) === 1;
 }
 
 function applyMinRunOff(currentActive, desiredActive, key, minRunMs, minOffMs) {
@@ -127,7 +128,9 @@ function getScheduledSetpoint(scheduleJson) {
         : (nowMin >= startMin || nowMin < endMin); // overnight
       if (inRange && slot.setpoint !== undefined) return parseFloat(slot.setpoint);
     }
-  } catch {}
+  } catch (e) {
+    console.warn('[THERMOSTAT] Invalid schedule JSON:', e.message, '| raw:', String(scheduleJson).slice(0, 100));
+  }
   return null;
 }
 
@@ -503,6 +506,13 @@ function legacySingleZoneHandler(ctx, send) {
 }
 
 function thermostatHandler(ctx, send) {
+  const isTestMode = ctx.settingStr('test_mode', '0') === '1';
+  if (isTestMode) {
+    const _realSend = send;
+    send = (key, value, reason) => {
+      console.log(`[THERMOSTAT TEST MODE] would send: ${key} = ${value}${reason ? ' // ' + reason : ''}`);
+    };
+  }
   const hasZones = ctx.mappings.some(m => m && m.input_key && (String(m.input_key).startsWith('zone_') || String(m.input_key) === 'central_pump'));
   if (hasZones) return zonedThermostatHandler(ctx, send);
   return legacySingleZoneHandler(ctx, send);

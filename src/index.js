@@ -164,6 +164,9 @@ async function main() {
   // Evaluate all instances on startup
   setTimeout(() => engine.evaluateAll(), 2000);
 
+  // Scene schedule tick — runs every 30s, fires scenes whose scheduled time matches
+  setInterval(() => scenesApi.tickSchedules({ engine, mqttApi, notify: notifyApi.notify }), 30_000);
+
   // ── Auth (legacy engineer cookie) ─────────────────────────────────────
   const auth = makeAuth({
     hasFeature,
@@ -705,6 +708,28 @@ async function main() {
   });
   app.get("/api/scenes/log", requireLogin, (req, res) => {
     res.json({ ok: true, log: scenesApi.listLog() });
+  });
+  app.get("/api/scenes/:id/schedules", requireLogin, (req, res) => {
+    res.json({ ok: true, schedules: scenesApi.getSchedulesByScene(Number(req.params.id)) });
+  });
+  app.post("/api/scenes/:id/schedules", requireEngineerAccess, (req, res) => {
+    try {
+      const { time, days } = req.body;
+      if (!time || !/^\d{2}:\d{2}$/.test(time)) return res.status(400).json({ ok: false, error: 'invalid_time' });
+      const id = scenesApi.createSchedule(Number(req.params.id), time, days);
+      res.json({ ok: true, id });
+    } catch(e) { res.status(400).json({ ok: false, error: e.message }); }
+  });
+  app.put("/api/scenes/schedules/:id", requireEngineerAccess, (req, res) => {
+    try {
+      const { time, days, enabled } = req.body;
+      scenesApi.updateSchedule(Number(req.params.id), time, days, enabled);
+      res.json({ ok: true });
+    } catch(e) { res.status(400).json({ ok: false, error: e.message }); }
+  });
+  app.delete("/api/scenes/schedules/:id", requireEngineerAccess, (req, res) => {
+    try { scenesApi.deleteSchedule(Number(req.params.id)); res.json({ ok: true }); }
+    catch(e) { res.status(400).json({ ok: false, error: e.message }); }
   });
 
   // ── ESPHome installer routes ───────────────────────────────────────────

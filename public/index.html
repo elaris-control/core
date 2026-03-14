@@ -76,6 +76,28 @@
 #offlineBanner{display:none;padding:10px 20px;background:rgba(255,69,69,.12);border-bottom:1px solid rgba(255,69,69,.2);color:var(--bad);font-size:12px;font-weight:700;text-align:center;}
 @media(max-width:980px){.dash-grid{grid-template-columns:1fr;padding:14px;}.dash-full{grid-column:1;}}
 @media(max-width:640px){.summary-grid{grid-template-columns:repeat(2,1fr);}}
+.clock-style-btn{font-size:11px;padding:3px 8px;border-radius:5px;border:1px solid var(--line);background:transparent;color:var(--muted2);cursor:pointer;}
+.clock-style-btn.active{border-color:var(--blue);background:rgba(29,140,255,.12);color:var(--blue);}
+/* Clock style A — Digital Pro */
+.ck-a .ck-time{font-size:46px;font-weight:900;font-family:monospace;letter-spacing:2px;text-align:center;padding:8px 0 2px;line-height:1;}
+.ck-a .ck-time .ck-sec{font-size:22px;color:var(--muted2);vertical-align:top;margin-top:8px;font-weight:700;}
+.ck-a .ck-date{font-size:11px;color:var(--muted2);text-align:center;margin-bottom:10px;}
+.ck-a .ck-prog{height:4px;background:rgba(255,255,255,.07);border-radius:2px;overflow:hidden;margin:4px 0 8px;}
+.ck-a .ck-prog-fill{height:4px;background:linear-gradient(90deg,var(--blue),#38bdf8);border-radius:2px;transition:width .5s;}
+.ck-a .ck-sun{display:flex;justify-content:space-between;font-size:10px;color:var(--muted2);}
+/* Clock style B — Arc */
+.ck-b{display:flex;flex-direction:column;align-items:center;padding:4px 0 8px;}
+.ck-b .ck-arc-wrap{position:relative;width:130px;height:130px;}
+.ck-b .ck-arc-wrap svg{position:absolute;top:0;left:0;}
+.ck-b .ck-arc-inner{position:absolute;inset:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.ck-b .ck-time{font-size:28px;font-weight:900;font-family:monospace;letter-spacing:1px;line-height:1;}
+.ck-b .ck-date{font-size:10px;color:var(--muted2);margin-top:4px;text-align:center;}
+/* Clock style C — Minimal */
+.ck-c{padding:8px 0;}
+.ck-c .ck-time{font-size:52px;font-weight:900;font-family:monospace;letter-spacing:-1px;line-height:1;}
+.ck-c .ck-secbar{height:2px;background:rgba(255,255,255,.07);border-radius:1px;margin:6px 0 8px;position:relative;}
+.ck-c .ck-secbar-fill{position:absolute;left:0;top:0;height:2px;background:var(--blue);border-radius:1px;transition:width .5s;}
+.ck-c .ck-date{font-size:10px;font-weight:800;color:var(--muted2);letter-spacing:2px;text-transform:uppercase;}
 </style>
 </head>
 <body>
@@ -130,9 +152,15 @@
     <div id="offlineBanner">Offline &mdash; <span id="offlineCountdown"></span></div>
     <div class="dash-grid" id="dashGrid">
       <div class="card" id="wClock" style="--w-accent:#38bdf8">
-        <div class="cardTitle">&#128336; Clock</div>
-        <div id="wClockTime">&mdash;</div>
-        <div id="wClockDate">&mdash;</div>
+        <div class="cardTitle" style="display:flex;justify-content:space-between;align-items:center">
+          <span>&#128336; Clock</span>
+          <div style="display:flex;gap:4px">
+            <button class="clock-style-btn active" onclick="setClockStyle(0,this)" title="Digital">▬</button>
+            <button class="clock-style-btn" onclick="setClockStyle(1,this)" title="Arc">◎</button>
+            <button class="clock-style-btn" onclick="setClockStyle(2,this)" title="Minimal">─</button>
+          </div>
+        </div>
+        <div id="clockWidget"></div>
         <div class="tz-row">
           <div class="tz-cell"><div class="tz-label">UTC</div><div class="tz-time" data-tz="UTC">&mdash;</div></div>
           <div class="tz-cell"><div class="tz-label">NY</div><div class="tz-time" data-tz="America/New_York">&mdash;</div></div>

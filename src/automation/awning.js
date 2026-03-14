@@ -90,6 +90,13 @@ function getSunTimes(lat, lon) {
 }
 
 function awningHandler(ctx, send, siteInfo) {
+  const isTestMode = ctx.settingStr('test_mode', '0') === '1';
+  if (isTestMode) {
+    send = (key, value, reason) => {
+      console.log(`[AWNING TEST MODE] would send: ${key} = ${value}${reason ? ' // ' + reason : ''}`);
+    };
+  }
+
   const windRetract  = ctx.setting("wind_retract",   40);
   const windDeploy   = ctx.setting("wind_deploy",    20);
   const rainRetract  = ctx.setting("rain_retract",    1); // 1 = yes

@@ -29,6 +29,14 @@ function initScenes(db) {
       triggered_by TEXT,
       ts         INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS scene_schedules (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      scene_id  INTEGER NOT NULL,
+      time      TEXT NOT NULL,
+      days      TEXT NOT NULL DEFAULT '1,2,3,4,5,6,7',
+      enabled   INTEGER NOT NULL DEFAULT 1
+    );
   `);
 
   const listScenes   = db.prepare(`SELECT * FROM scenes ORDER BY id ASC`);
@@ -38,6 +46,13 @@ function initScenes(db) {
   const deleteScene  = db.prepare(`DELETE FROM scenes WHERE id=?`);
   const insertLog    = db.prepare(`INSERT INTO scene_log(scene_id,scene_name,triggered_by,ts) VALUES(?,?,?,?)`);
   const listLog      = db.prepare(`SELECT * FROM scene_log ORDER BY ts DESC LIMIT 50`);
+
+  const listSchedules          = db.prepare(`SELECT * FROM scene_schedules ORDER BY id ASC`);
+  const getSchedulesByScene    = db.prepare(`SELECT * FROM scene_schedules WHERE scene_id=?`);
+  const insertSchedule         = db.prepare(`INSERT INTO scene_schedules(scene_id,time,days,enabled) VALUES(?,?,?,?)`);
+  const updateSchedule         = db.prepare(`UPDATE scene_schedules SET time=?,days=?,enabled=? WHERE id=?`);
+  const deleteSchedule         = db.prepare(`DELETE FROM scene_schedules WHERE id=?`);
+  const deleteSchedulesByScene = db.prepare(`DELETE FROM scene_schedules WHERE scene_id=?`);
 
   // ── Activate a scene ─────────────────────────────────────────────────────
   async function activate(sceneId, { engine, mqttApi, notify, triggeredBy = "manual" } = {}) {
@@ -72,6 +87,9 @@ function initScenes(db) {
               cooldown_s: 0,
             });
           }
+        } else if (action.type === 'delay') {
+          const ms = Math.min(Math.max(Number(action.seconds) || 1, 1), 300) * 1000;
+          await new Promise(resolve => setTimeout(resolve, ms));
         }
       } catch (e) {
         console.error(`[SCENES] Action failed in scene ${scene.name}:`, e.message);
@@ -81,6 +99,24 @@ function initScenes(db) {
     insertLog.run(sceneId, scene.name, triggeredBy, Date.now());
     console.log(`[SCENES] "${scene.name}" activated by ${triggeredBy}`);
     return { ok: true, scene: scene.name, actions: actions.length };
+  }
+
+  let _lastScheduleMin = '';
+  function tickSchedules({ engine, mqttApi, notify } = {}) {
+    const now = new Date();
+    const hhmm = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+    if (hhmm === _lastScheduleMin) return; // already fired this minute
+    _lastScheduleMin = hhmm;
+    const dow = now.getDay() === 0 ? 7 : now.getDay(); // 1=Mon...7=Sun
+    const schedules = listSchedules.all();
+    for (const sch of schedules) {
+      if (!sch.enabled) continue;
+      if (sch.time !== hhmm) continue;
+      const days = String(sch.days || '1,2,3,4,5,6,7').split(',').map(Number);
+      if (!days.includes(dow)) continue;
+      activate(sch.scene_id, { engine, mqttApi, notify, triggeredBy: 'schedule' })
+        .catch(e => console.error('[SCENES] Schedule trigger failed:', e.message));
+    }
   }
 
   return {
@@ -96,6 +132,13 @@ function initScenes(db) {
     deleteScene:  (id) => deleteScene.run(id),
     activate,
     listLog:      () => listLog.all(),
+    tickSchedules,
+    listSchedules:          () => listSchedules.all(),
+    getSchedulesByScene:    (id) => getSchedulesByScene.all(id),
+    createSchedule:         (scene_id, time, days) => insertSchedule.run(scene_id, time, days || '1,2,3,4,5,6,7', 1).lastInsertRowid,
+    updateSchedule:         (id, time, days, enabled) => updateSchedule.run(time, days, enabled ? 1 : 0, id),
+    deleteSchedule:         (id) => deleteSchedule.run(id),
+    deleteSchedulesByScene: (id) => deleteSchedulesByScene.run(id),
   };
 }
 

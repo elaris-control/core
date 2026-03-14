@@ -250,6 +250,13 @@ function smartLightingHandler(ctx, send, siteInfo) {
   const nowM      = localMinutes(siteInfo);
   const sun       = siteInfo ? getSun(Number(siteInfo.lat), Number(siteInfo.lon)) : null;
 
+  const isTestMode = ctx.settingStr('test_mode', '0') === '1';
+  if (isTestMode) {
+    send = (key, value, reason) => {
+      console.log(`[SMART_LIGHTING TEST MODE] would send: ${key} = ${value}${reason ? ' // ' + reason : ''}`);
+    };
+  }
+
   // Restore active scenario from DB on first run after restart
   if (!activeScenario.has(instId)) {
     const saved = ctx.settingStr('_active_scenario', '');
@@ -314,7 +321,10 @@ function smartLightingHandler(ctx, send, siteInfo) {
 
   const scenariosJson = ctx.settingStr('scenarios', '[]');
   let scenarios;
-  try { scenarios = JSON.parse(scenariosJson); } catch { return; }
+  try { scenarios = JSON.parse(scenariosJson); } catch (e) {
+    console.warn('[SMART_LIGHTING] Invalid scenarios JSON:', e.message, '| raw:', String(scenariosJson).slice(0, 100));
+    return;
+  }
   if (!Array.isArray(scenarios)) return;
 
   const enabled = scenarios.filter(s => s.enabled !== false);
@@ -357,7 +367,11 @@ function smartLightingHandler(ctx, send, siteInfo) {
       if (swScenarios.length) {
         const cur   = activeScenario.get(instId);
         const curIdx= swScenarios.findIndex(s => s.id === cur?.id);
-        const next  = swScenarios[(curIdx + 1) % (swScenarios.length + 1)]; // +1 for OFF
+        // curIdx is -1 when no scenario active, so (curIdx+1) % length starts at 0 (first scenario).
+        // When curIdx is the last index, (curIdx+1) % length == 0 which wraps back — we use
+        // length itself as the "OFF" slot: if the computed index equals length, go to OFF.
+        const nextIdx = (curIdx + 1) % (swScenarios.length + 1);
+        const next  = swScenarios[nextIdx]; // undefined when nextIdx === swScenarios.length → OFF cycle
         if (!next) {
           // Cycle to OFF
           activeScenario.delete(instId);
