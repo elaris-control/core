@@ -227,6 +227,9 @@ db.exec(`
   // so the same zone name can exist in different sites.
   // Migration: add config column to module_instances
   applyMigration("module_instances_config_v1", () => {
+    // Guard: skip on fresh install — table doesn't exist yet, CREATE TABLE below already includes config
+    const tableExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='module_instances'`).get();
+    if (!tableExists) return;
     const miCols = db.prepare(`PRAGMA table_info(module_instances)`).all().map(r => r.name);
     if (!miCols.includes("config")) {
       db.exec(`ALTER TABLE module_instances ADD COLUMN config TEXT;`);
@@ -505,8 +508,12 @@ db.exec(`
         const count = db.prepare(`SELECT COUNT(*) AS c FROM esphome_devices WHERE site_id=?`).get(id);
         if (count?.c > 0) throw new Error("cannot_delete_site_with_esphome_devices");
       }
-      // device_site rows: cascade (remove assignments for this site)
-      db.prepare(`DELETE FROM device_site WHERE site_id=?`).run(id);
+      // device_site rows: reassign to defaultSite (always exists — last-site guard above)
+      if (defaultSite) {
+        db.prepare(`UPDATE device_site SET site_id=? WHERE site_id=?`).run(defaultSite.id, id);
+      } else {
+        db.prepare(`DELETE FROM device_site WHERE site_id=?`).run(id);
+      }
       // module_instances: ON DELETE CASCADE handles these when FK is ON
       _deleteSiteRow.run(id);
     });

@@ -331,6 +331,11 @@ async function main() {
     try {
       const id = req.params.deviceId;
       _db.transaction(() => {
+        const ioIds = _db.prepare(`SELECT id FROM io WHERE device_id = ?`).all(id).map(r => r.id);
+        if (ioIds.length) {
+          const qm = ioIds.map(() => '?').join(',');
+          _db.prepare(`DELETE FROM module_mappings WHERE io_id IN (${qm})`).run(...ioIds);
+        }
         _db.prepare(`DELETE FROM io WHERE device_id = ?`).run(id);
         _db.prepare(`DELETE FROM pending_io WHERE device_id = ?`).run(id);
         _db.prepare(`DELETE FROM blocked_io WHERE device_id = ?`).run(id);
@@ -421,8 +426,11 @@ async function main() {
         _db.prepare(`DELETE FROM esphome_device_overrides`).run();
         _db.prepare(`DELETE FROM module_mappings`).run();
         _db.prepare(`DELETE FROM module_instances`).run();
+        _db.prepare(`DELETE FROM scene_schedules`).run();
+        _db.prepare(`DELETE FROM scene_log`).run();
+        _db.prepare(`DELETE FROM scenes`).run();
         _db.prepare(`DELETE FROM zones`).run();
-        // Keep users, sites, board_profiles — only wipe device/IO data
+        // Keep users, sites, board_profiles — only wipe device/IO/automation data
       })();
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }

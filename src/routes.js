@@ -470,6 +470,16 @@ function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEng
           if(sid) assign.run(device_id, sid, Date.now());
         });
 
+        // Build device → resolved site_id map for site-aware zone resolution
+        const deviceSiteMap = new Map();
+        (cfg.device_sites||[]).forEach(ds => {
+          const dId = String(ds?.device_id||"").trim();
+          const sName = String(ds?.site_name||"").trim();
+          if (!dId || !sName) return;
+          const sid = getSiteByName.get(sName)?.id ?? null;
+          if (sid) deviceSiteMap.set(dId, sid);
+        });
+
         // entities upsert
         const upsertDev = dbApi.db.prepare(`INSERT OR IGNORE INTO devices(id, name, last_seen) VALUES(?,?,?)`);
         const upsertIO = dbApi.db.prepare(`
@@ -497,8 +507,11 @@ function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEng
           let zid = null;
           const zone_name = String(e?.zone_name||"").trim();
           if(zone_name){
-            createZone.run(zone_name, null);
-            zid = getZoneBySiteKey.get(zone_name, null)?.id ?? null;
+            const deviceSid = deviceSiteMap.get(device_id) ?? null;
+            createZone.run(zone_name, deviceSid);
+            zid = getZoneBySiteKey.get(zone_name, deviceSid)?.id
+               ?? getZoneBySiteKey.get(zone_name, null)?.id
+               ?? null;
           }
           const enabled = (e?.enabled === 0 || e?.enabled === false) ? 0 : 1;
           upsertIO.run(
