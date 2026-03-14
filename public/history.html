@@ -78,6 +78,18 @@
 .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--line2); border-top-color:var(--blue); border-radius:50%; animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 
+/* Hover tooltip */
+.chart-tooltip {
+  position:absolute; pointer-events:none; z-index:20;
+  background:var(--card); border:1px solid var(--blue);
+  border-radius:9px; padding:8px 13px;
+  box-shadow:0 6px 24px rgba(0,0,0,.55);
+  white-space:nowrap; display:none;
+}
+.chart-tooltip .ct-time { font-size:10px; color:var(--muted); font-family:'Geist Mono',monospace; margin-bottom:3px; }
+.chart-tooltip .ct-val  { font-size:16px; font-weight:900; font-family:'Geist Mono',monospace; }
+.chart-wrap { cursor:crosshair; }
+
 .no-data-banner { text-align:center; padding:60px 20px; color:var(--muted); }
 .no-data-banner .icon { font-size:40px; margin-bottom:12px; }
 .no-data-banner p { font-size:13px; }
@@ -268,6 +280,7 @@ async function loadChart(io){
 
     var isRelay = io.type==='relay'||io.type==='di';
     wrapEl.innerHTML = drawSVG(points, io.color, isRelay);
+    attachChartHover(wrapEl, io, points, isRelay);
 
     // Time labels
     var tStart = points[0].ts, tEnd = points[points.length-1].ts;
@@ -285,6 +298,119 @@ async function loadChart(io){
   } catch(e){
     var wrapEl2 = document.getElementById('wrap-'+io.id);
     if (wrapEl2) wrapEl2.innerHTML = '<div class="chart-empty">Error: '+e.message+'</div>';
+  }
+}
+
+function attachChartHover(wrapEl, io, points, isStep) {
+  var svg = wrapEl.querySelector('svg');
+  if (!svg || !points.length) return;
+
+  var W=800, H=140, PAD_L=42, PAD_R=10, PAD_T=8, PAD_B=8;
+  var CW=W-PAD_L-PAD_R, CH=H-PAD_T-PAD_B;
+
+  // Scales (mirror drawSVG logic)
+  var vals = points.map(function(p){ return p.v; });
+  var mn=Math.min.apply(null,vals), mx=Math.max.apply(null,vals);
+  if (isStep){ mn=-0.1; mx=1.1; }
+  else { var pad=(mx-mn)*0.1||1; mn-=pad; mx+=pad; }
+  var range=mx-mn;
+  var tMin=points[0].ts, tMax=points[points.length-1].ts, tRange=tMax-tMin||1;
+
+  function svgPx(p){ return PAD_L + ((p.ts-tMin)/tRange)*CW; }
+  function svgPy(v){ return PAD_T + CH - ((v-mn)/range)*CH; }
+
+  // SVG overlay elements
+  var NS = 'http://www.w3.org/2000/svg';
+
+  var xline = document.createElementNS(NS, 'line');
+  xline.setAttribute('y1', PAD_T); xline.setAttribute('y2', PAD_T+CH);
+  xline.setAttribute('stroke', 'rgba(255,255,255,.25)');
+  xline.setAttribute('stroke-width', '1');
+  xline.setAttribute('stroke-dasharray', '4,3');
+  xline.setAttribute('pointer-events', 'none');
+  xline.style.display = 'none';
+  svg.appendChild(xline);
+
+  var dot = document.createElementNS(NS, 'circle');
+  dot.setAttribute('r', '4.5');
+  dot.setAttribute('fill', io.color);
+  dot.setAttribute('stroke', '#fff');
+  dot.setAttribute('stroke-width', '1.8');
+  dot.setAttribute('pointer-events', 'none');
+  dot.style.display = 'none';
+  svg.appendChild(dot);
+
+  // Tooltip DOM
+  var tip = document.createElement('div');
+  tip.className = 'chart-tooltip';
+  tip.style.borderColor = io.color;
+  tip.innerHTML = '<div class="ct-time"></div><div class="ct-val"></div>';
+  wrapEl.appendChild(tip);
+  var tipTime = tip.querySelector('.ct-time');
+  var tipVal  = tip.querySelector('.ct-val');
+
+  wrapEl.addEventListener('mousemove', function(e) {
+    var rect = wrapEl.getBoundingClientRect();
+    var relX = e.clientX - rect.left;
+    var relY = e.clientY - rect.top;
+
+    // Convert pixel X → SVG viewBox X
+    var vx = (relX / rect.width) * W;
+    if (vx < PAD_L || vx > W - PAD_R) { hide(); return; }
+
+    // Map vx → timestamp
+    var t = tMin + ((vx - PAD_L) / CW) * tRange;
+
+    // Find nearest point
+    var idx = 0;
+    if (isStep) {
+      // For step: use last point with ts <= t (current state at time t)
+      for (var i = 0; i < points.length; i++) {
+        if (points[i].ts <= t) idx = i;
+      }
+    } else {
+      var best = Infinity;
+      for (var j = 0; j < points.length; j++) {
+        var d = Math.abs(points[j].ts - t);
+        if (d < best) { best = d; idx = j; }
+      }
+    }
+
+    var p = points[idx];
+    var px = svgPx(p);
+    var py = svgPy(p.v);
+
+    // Crosshair
+    xline.setAttribute('x1', px); xline.setAttribute('x2', px);
+    xline.style.display = '';
+    dot.setAttribute('cx', px); dot.setAttribute('cy', py);
+    dot.style.display = '';
+
+    // Tooltip content
+    var dt = new Date(p.ts);
+    var hh = dt.getHours().toString().padStart(2,'0');
+    var mm = dt.getMinutes().toString().padStart(2,'0');
+    var ss = dt.getSeconds().toString().padStart(2,'0');
+    var dateStr = (dt.getMonth()+1)+'/'+dt.getDate()+' '+hh+':'+mm+':'+ss;
+    tipTime.textContent = dateStr;
+    tipVal.textContent  = isStep ? (p.v ? 'ON' : 'OFF') : (p.v.toFixed(2) + (io.unit ? ' '+io.unit : ''));
+    tipVal.style.color  = io.color;
+
+    // Tooltip position (flip if near right edge)
+    tip.style.display = 'block';
+    var tipW = tip.offsetWidth || 130;
+    var left = relX + 14;
+    if (left + tipW > rect.width - 8) left = relX - tipW - 10;
+    tip.style.left = left + 'px';
+    tip.style.top  = Math.max(4, relY - 44) + 'px';
+  });
+
+  wrapEl.addEventListener('mouseleave', hide);
+
+  function hide() {
+    xline.style.display = 'none';
+    dot.style.display   = 'none';
+    tip.style.display   = 'none';
   }
 }
 

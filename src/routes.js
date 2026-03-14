@@ -2,8 +2,15 @@
 const express = require("express");
 const { buildMePayload } = require("./session_info");
 
-function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEngineerAccess, users }) {
+function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEngineerAccess, requireAdmin, users }) {
   const router = express.Router();
+
+  // Helper: can this request see private sites?
+  function canSeePrivate(req) {
+    const userRole = req.user?.role || "USER";
+    if (userRole === "ADMIN" || userRole === "ENGINEER") return true;
+    return auth.getRole(req) === "ENGINEER";
+  }
 
   router.get("/health", (req, res) => res.json({ ok: true, ts: Date.now() }));
 
@@ -87,13 +94,16 @@ function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEng
 
   // zones (engineer for create; list is ok for all)
   router.get("/zones", (req, res) => {
-    res.json({ ok: true, zones: dbApi.listZones.all() });
+    const site_id = req.query.site_id ? Number(req.query.site_id) : null;
+    const zones = site_id ? dbApi.listZonesBySite.all(site_id) : dbApi.listZones.all();
+    res.json({ ok: true, zones });
   });
 
   router.post("/zones", requireEngineerAccess, (req, res) => {
-    const name = String(req.body?.name || "").trim();
+    const name    = String(req.body?.name || "").trim();
+    const site_id = req.body?.site_id != null ? Number(req.body.site_id) : null;
     if (!name) return res.status(400).json({ ok: false, error: "missing_name" });
-    dbApi.createZone.run(name);
+    dbApi.createZone.run(name, site_id);
     res.json({ ok: true });
   });
 
@@ -128,34 +138,64 @@ function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEng
   });
 
   // sites
-  router.get("/sites", (req, res) => {
-    res.json({ ok: true, sites: dbApi.listSites.all() });
+  router.get("/sites", requireLogin, (req, res) => {
+    const all = dbApi.listSites.all();
+    const sites = canSeePrivate(req) ? all : all.filter(s => !s.is_private);
+    res.json({ ok: true, sites });
   });
 
-  router.post("/sites", requireEngineerAccess, (req, res) => {
-    const name = String(req.body?.name || "").trim();
-    const note = req.body?.note == null ? null : String(req.body.note);
+  router.post("/sites", requireAdmin, (req, res) => {
+    const name       = String(req.body?.name || "").trim();
+    const note       = req.body?.note == null ? null : String(req.body.note);
+    const is_private = req.body?.is_private ? 1 : 0;
     if (!name) return res.status(400).json({ ok: false, error: "missing_name" });
     try {
-      dbApi.createSite.run(name, note, Date.now());
+      dbApi.createSite.run(name, note, is_private, Date.now());
       res.json({ ok: true });
     } catch (e) {
       res.status(400).json({ ok: false, error: String(e?.message || e) });
     }
   });
 
-  // DELETE sites: το θες διαθέσιμο ΠΑΝΤΟΥ, αλλά για ασφάλεια το κρατάμε engineer-only
-  router.delete("/sites/:id", requireEngineerAccess, (req, res) => {
+  router.delete("/sites/:id", requireAdmin, (req, res) => {
     const id = Number(req.params.id);
-    dbApi.deleteSite.run(id);
+    try {
+      dbApi.deleteSite(id);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // PATCH /api/sites/:id — admin renames / updates note
+  router.patch("/sites/:id", requireAdmin, (req, res) => {
+    const id   = Number(req.params.id);
+    const name = req.body?.name != null ? String(req.body.name).trim() : null;
+    const note = req.body?.note != null ? String(req.body.note) : null;
+    if (!name) return res.status(400).json({ ok: false, error: "missing_name" });
+    try {
+      dbApi.db.prepare(`UPDATE sites SET name=?, note=? WHERE id=?`).run(name, note, id);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // PATCH /api/sites/:id/visibility — admin toggles public/private
+  router.patch("/sites/:id/visibility", requireAdmin, (req, res) => {
+    const id         = Number(req.params.id);
+    const is_private = req.body?.is_private ? 1 : 0;
+    dbApi.setSitePrivacy.run(is_private, id);
     res.json({ ok: true });
   });
 
-  // GET /api/sites/:id  — full site info including lat/lon
-  router.get("/sites/:id", (req, res) => {
+  // GET /api/sites/:id — full site info (respects privacy)
+  router.get("/sites/:id", requireLogin, (req, res) => {
     const site = dbApi.db.prepare("SELECT * FROM sites WHERE id=?").get(Number(req.params.id));
-    if (!site) return res.status(404).json({ ok:false, error:"not_found" });
-    res.json({ ok:true, site });
+    if (!site) return res.status(404).json({ ok: false, error: "not_found" });
+    if (site.is_private && !canSeePrivate(req))
+      return res.status(403).json({ ok: false, error: "forbidden" });
+    res.json({ ok: true, site });
   });
 
   // PATCH /api/sites/:id/location  — save lat, lon, timezone, address
@@ -173,7 +213,7 @@ function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEng
     res.json({ ok:true });
   });
 
-  router.get("/sites/:id/devices", (req, res) => {
+  router.get("/sites/:id/devices", requireLogin, (req, res) => {
     const siteId = Number(req.params.id);
     const devices = dbApi.listDevicesForSite.all(siteId).map(r => r.device_id);
     res.json({ ok: true, siteId, devices });
@@ -237,7 +277,17 @@ function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEng
     }
   });
 
-  // update single entity fields (name, zone_id, enabled) - PATCH style (used by Settings page)
+  // Get pinned entities with latest state value
+  router.get("/io/pinned", (req, res) => {
+    try {
+      const rows = dbApi.listPinnedIOWithState.all();
+      res.json({ ok: true, io: rows });
+    } catch(e) {
+      res.status(500).json({ ok: false, error: String(e?.message||e) });
+    }
+  });
+
+  // update single entity fields (name, zone_id, enabled, pinned) - PATCH style (used by Settings page)
   router.patch("/io/:id", requireEngineerAccess, (req, res) => {
     try{
       const id = Number(req.params.id);
@@ -246,6 +296,7 @@ function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEng
       const name = (req.body?.name !== undefined) ? String(req.body.name).trim() : undefined;
       const zone_id = (req.body?.zone_id === undefined) ? undefined : (req.body.zone_id === null ? null : Number(req.body.zone_id));
       const enabled = (req.body?.enabled === undefined) ? undefined : (Number(req.body.enabled) ? 1 : 0);
+      const pinned = (req.body?.pinned === undefined) ? undefined : (req.body.pinned ? 1 : 0);
 
       const parts = [];
       const params = [];
@@ -256,6 +307,7 @@ function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEng
         else { parts.push("zone_id=?"); params.push(zone_id); }
       }
       if(enabled !== undefined){ parts.push("enabled=?"); params.push(enabled); }
+      if(pinned !== undefined){ parts.push("pinned=?"); params.push(pinned); }
 
       if(!parts.length) return res.json({ ok:true, changes:0 });
 
@@ -287,6 +339,7 @@ function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEng
         const zone_id = (req.body?.zone_id === null || req.body?.zone_id === "" || req.body?.zone_id === undefined) ? null : Number(req.body.zone_id);
         info = dbApi.db.prepare(`UPDATE io SET zone_id=? WHERE id IN (${qMarks})`).run(zone_id, ...ids);
       }else if(action === "delete"){
+        dbApi.db.prepare(`DELETE FROM module_mappings WHERE io_id IN (${qMarks})`).run(...ids);
         info = dbApi.db.prepare(`DELETE FROM io WHERE id IN (${qMarks})`).run(...ids);
       }else{
         return res.status(400).json({ ok:false, error:"bad_action" });
@@ -339,7 +392,7 @@ function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEng
   // export/import config (engineer)
   router.get("/config/export", requireEngineerAccess, (req, res) => {
     try{
-      const sites = dbApi.db.prepare(`SELECT id, name, note, created_ts FROM sites ORDER BY id`).all();
+      const sites = dbApi.db.prepare(`SELECT id, name, note, is_private, created_ts FROM sites ORDER BY id`).all();
       const zones = dbApi.db.prepare(`SELECT id, name, site_id FROM zones ORDER BY id`).all();
       const device_sites = dbApi.db.prepare(`SELECT device_id, site_id FROM device_site ORDER BY device_id`).all()
         .map(r => ({ device_id: r.device_id, site_id: r.site_id, site_name: (sites.find(s=>s.id===r.site_id)||{}).name || null }));
@@ -379,21 +432,32 @@ function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEng
 
       const tx = dbApi.db.transaction(() => {
         // sites by name
-        const upsertSite = dbApi.db.prepare(`INSERT INTO sites(name, note, created_ts) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET note=excluded.note`);
+        const upsertSite = dbApi.db.prepare(`INSERT INTO sites(name, note, is_private, created_ts) VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET note=excluded.note, is_private=excluded.is_private`);
         const getSiteByName = dbApi.db.prepare(`SELECT id FROM sites WHERE name=?`);
         (cfg.sites||[]).forEach(s=>{
           const name = String(s?.name||"").trim();
           if(!name) return;
-          upsertSite.run(name, s?.note ?? null, s?.created_ts ?? Date.now());
+          upsertSite.run(name, s?.note ?? null, s?.is_private ? 1 : 0, s?.created_ts ?? Date.now());
         });
 
-        // zones by name
-        const createZone = dbApi.db.prepare(`INSERT OR IGNORE INTO zones(name) VALUES(?)`);
-        const getZoneByName = dbApi.db.prepare(`SELECT id FROM zones WHERE name=?`);
+        // zones — preserve site_id via site name→id map
+        const createZone       = dbApi.db.prepare(`INSERT OR IGNORE INTO zones(name, site_id) VALUES(?,?)`);
+        const getZoneBySiteKey = dbApi.db.prepare(`SELECT id FROM zones WHERE name=? AND COALESCE(site_id,0)=COALESCE(?,0)`);
         (cfg.zones||[]).forEach(z=>{
           const name = String(z?.name||"").trim();
           if(!name) return;
-          createZone.run(name);
+          // resolve exported site_id → local site id via site name
+          let sid = null;
+          if(z?.site_id != null){
+            const exportedSite = (cfg.sites||[]).find(s => s.id === z.site_id);
+            if(exportedSite?.name) sid = getSiteByName.get(String(exportedSite.name).trim())?.id ?? null;
+          }
+          createZone.run(name, sid);
+          // zone already existed — update site_id only if currently unset
+          if(sid != null){
+            const existing = getZoneBySiteKey.get(name, null); // look for same name with no site
+            if(existing) dbApi.db.prepare(`UPDATE zones SET site_id=? WHERE id=? AND site_id IS NULL`).run(sid, existing.id);
+          }
         });
 
         // device_site mapping
@@ -433,8 +497,8 @@ function initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEng
           let zid = null;
           const zone_name = String(e?.zone_name||"").trim();
           if(zone_name){
-            createZone.run(zone_name);
-            zid = getZoneByName.get(zone_name)?.id ?? null;
+            createZone.run(zone_name, null);
+            zid = getZoneBySiteKey.get(zone_name, null)?.id ?? null;
           }
           const enabled = (e?.enabled === 0 || e?.enabled === false) ? 0 : 1;
           upsertIO.run(

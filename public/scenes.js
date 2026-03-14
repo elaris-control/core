@@ -11,10 +11,12 @@ async function loadMe(){try{var me=window.ELARIS_ME||await api('/me');if(!me.ok|
 async function loadNav(){try{var d=await fetch('/api/nav/pages').then(r=>r.json()).catch(()=>({pages:[]}));var custom=(d.pages||[]).filter(p=>!p.system);var c=$('navContainer');if(!c)return;c.innerHTML=custom.length?'<div class="groupTitle">My Pages</div><nav class="nav">'+custom.map(p=>'<a href="/page.html?id='+p.id+'">'+(p.icon||'📄')+' '+p.name+'</a>').join('')+'</nav>':'';}catch(e){}}
 function buildColorPicker(sel){_color=sel||COLORS[0];var cp=$('colorPicker');if(!cp)return;cp.innerHTML=COLORS.map(col=>'<div class="color-swatch'+(col===_color?' sel':'')+'" style="background:'+col+'" onclick="selectColor(\''+col+'\')"></div>').join('')+'<input type="color" value="'+_color+'" id="customColor" style="width:24px;height:24px;border-radius:50%;border:2px solid var(--line);cursor:pointer;padding:0" oninput="selectColor(this.value)">';}
 function selectColor(c){_color=c;document.querySelectorAll('#colorPicker .color-swatch').forEach(s=>s.classList.toggle('sel',s.style.background===c));var ci=$('customColor');if(ci)ci.value=c;}
-async function loadMeta(){try{var d=await api('/modules/instances');_instances=(d.instances||[]).filter(i=>i.active!==false);}catch(e){}try{var siteId=Number(localStorage.getItem('elaris_site_id')||0);if(!siteId){var sd=await api('/sites');siteId=(sd.sites||[])[0]?.id||0;}if(siteId){var id=await api('/modules/io/'+siteId);_ios=id.io||[];}}catch(e){}}
+async function loadMeta(){try{var sid=_activeSiteId();var d=await api('/modules/instances'+(sid?'?site_id='+sid:''));_instances=(d.instances||[]).filter(i=>i.active!==false);}catch(e){}try{var siteId=Number(localStorage.getItem('elaris_site_id')||0);if(!siteId){var sd=await api('/sites');siteId=(sd.sites||[])[0]?.id||0;}if(siteId){var id=await api('/modules/io/'+siteId);_ios=id.io||[];}}catch(e){}}
+function _activeSiteId(){var s=localStorage.getItem('elaris_site_id');return s?Number(s):null;}
 async function loadScenes(){
   var g=$('scenesGrid');if(!g)return;
-  var d=await api('/scenes');
+  var sid=_activeSiteId();
+  var d=await api('/scenes'+(sid?'?site_id='+sid:''));
   var scenes=d.scenes||[];
   var h='';
   var manage=canManageScenes();
@@ -108,7 +110,8 @@ function openNew(){
 function openEdit(id){
   if(!canManageScenes()){toast('Engineer access required');return;}
   _editId=id;
-  api('/scenes').then(function(d){
+  var sid=_activeSiteId();
+  api('/scenes'+(sid?'?site_id='+sid:'')).then(function(d){
     var s=(d.scenes||[]).find(function(x){return x.id===id;});
     if(!s)return;
     try{_actions=JSON.parse(s.actions_json||'[]');}catch(e){_actions=[];}
@@ -116,7 +119,7 @@ function openEdit(id){
   });
 }
 function closeModal(){$('sceneModal').style.display='none';}
-async function saveScene(){if(!canManageScenes()) return toast('Engineer access required');var n=$('sm_name').value.trim();if(!n){toast('Enter a name');return;}var ic=$('sm_icon').value.trim()||'🎬';var col=_color||COLORS[0];try{if(_editId)await api('/scenes/'+_editId,{method:'PUT',body:JSON.stringify({name:n,icon:ic,color:col,actions:_actions})});else await api('/scenes',{method:'POST',body:JSON.stringify({name:n,icon:ic,color:col,actions:_actions})});closeModal();await loadScenes();toast('Saved');}catch(e){toast('Error: '+e.message);}}
+async function saveScene(){if(!canManageScenes()) return toast('Engineer access required');var n=$('sm_name').value.trim();if(!n){toast('Enter a name');return;}var ic=$('sm_icon').value.trim()||'🎬';var col=_color||COLORS[0];var sid=_activeSiteId();try{if(_editId)await api('/scenes/'+_editId,{method:'PUT',body:JSON.stringify({name:n,icon:ic,color:col,actions:_actions,site_id:sid})});else await api('/scenes',{method:'POST',body:JSON.stringify({name:n,icon:ic,color:col,actions:_actions,site_id:sid})});closeModal();await loadScenes();toast('Saved');}catch(e){toast('Error: '+e.message);}}
 async function deleteScene(){if(!canManageScenes()) return toast('Engineer access required');if(!_editId||!confirm('Delete this scene?'))return;try{await api('/scenes/'+_editId,{method:'DELETE'});closeModal();await loadScenes();toast('Deleted');}catch(e){toast('Error: '+e.message);}}
 async function loadSchedules(sceneId){
   if(!sceneId){$('scheduleList').innerHTML='';return;}

@@ -89,16 +89,24 @@ async function main() {
   ensureDirForFile(DB_PATH);
   return initDB(DB_PATH);
 })();
-  const wsApi = initWS(server, { db: dbApi.db, getRole: (req) => auth.getRole(req) });
+  const wsApi = initWS(server, { db: dbApi.db, getRole: (req) => {
+    // Check DB-level role (ADMIN/USER) from session cookie first
+    const h   = req.headers?.cookie || "";
+    const m   = h.match(/(?:^|;\s*)elaris_session=([^;]+)/);
+    const tok = m ? decodeURIComponent(m[1]) : null;
+    const sess = tok ? users.verifySession(tok) : null;
+    if (sess?.role === "ADMIN")    return "ADMIN";
+    if (sess?.role === "ENGINEER") return "ENGINEER";
+    // Fallback: engineer unlock cookie
+    const engRole = auth.getRole(req);
+    if (engRole === "ENGINEER") return "ENGINEER";
+    return sess ? "USER" : null; // null = not logged in at all
+  }});
 
   // ── Live log broadcasting ───────────────────────────────────────────────
-  const _origLog        = console.log.bind(console);
-  const _origWarn       = console.warn.bind(console);
-  const _origError      = console.error.bind(console);
   const _origStdoutWrite = process.stdout.write.bind(process.stdout);
   const _origStderrWrite = process.stderr.write.bind(process.stderr);
 
-  function _fmtArgs(args) { return args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" "); }
   function _emitLog(level, text) {
     const lines = text.replace(/\n$/, "").split("\n");
     for (const line of lines) {
@@ -106,11 +114,9 @@ async function main() {
     }
   }
 
-  console.log   = (...a) => { _origLog(...a);   _emitLog("info",  _fmtArgs(a)); };
-  console.warn  = (...a) => { _origWarn(...a);  _emitLog("warn",  _fmtArgs(a)); };
-  console.error = (...a) => { _origError(...a); _emitLog("error", _fmtArgs(a)); };
-
-  // Capture Morgan + anything written directly to stdout/stderr
+  // Capture everything via stdout/stderr patches only — avoids double-emit
+  // that would occur if we also patched console.log/warn/error (since those
+  // internally call process.stdout/stderr.write which would fire _emitLog twice).
   process.stdout.write = (chunk, ...rest) => {
     _origStdoutWrite(chunk, ...rest);
     const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
@@ -427,7 +433,7 @@ async function main() {
   app.use("/api/nav",     initNavRoutes({ db: dbApi.db, requireLogin }));
 
   // ── 4b. API routes ────────────────────────────────────────────────────
-  app.use("/api", initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEngineerAccess, users }));
+  app.use("/api", initRoutes({ dbApi, mqttApi, auth, hasFeature, requireLogin, requireEngineerAccess, requireAdmin, users }));
 
   // ── 4b2. IP Geolocation (server-side, no HTTPS needed) ─────────────────
   app.get("/api/geolocate", requireLogin, (req, res) => {
@@ -475,6 +481,9 @@ async function main() {
     try {
       const site = dbApi.db.prepare("SELECT * FROM sites WHERE id=?").get(Number(req.params.site_id));
       if (!site) return res.status(404).json({ ok:false, error:"site_not_found" });
+      const _role = auth.getRole(req);
+      if (site.is_private && _role !== "ADMIN" && _role !== "ENGINEER")
+        return res.status(403).json({ ok:false, error:"forbidden" });
       if (!site.lat || !site.lon) return res.status(400).json({ ok:false, error:"no_location", hint:"Set site location in Settings" });
       const weather = await getWeather(site.lat, site.lon);
       res.json({ ok:true, weather });
@@ -676,20 +685,21 @@ async function main() {
 
   // ── 4f. Scenes API ────────────────────────────────────────────────────────
   app.get("/api/scenes", requireLogin, (req, res) => {
-    res.json({ ok: true, scenes: scenesApi.listScenes() });
+    const site_id = req.query.site_id ? Number(req.query.site_id) : null;
+    res.json({ ok: true, scenes: scenesApi.listScenes(site_id) });
   });
   app.post("/api/scenes", requireEngineerAccess, (req, res) => {
     try {
-      const { name, icon, color, actions } = req.body;
+      const { name, icon, color, actions, site_id } = req.body;
       if (!name) return res.status(400).json({ ok: false, error: "missing_name" });
-      const id = scenesApi.createScene(name, icon, color, actions);
+      const id = scenesApi.createScene(name, icon, color, actions, site_id ?? null);
       res.json({ ok: true, id });
     } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
   });
   app.put("/api/scenes/:id", requireEngineerAccess, (req, res) => {
     try {
-      const { name, icon, color, actions } = req.body;
-      scenesApi.updateScene(Number(req.params.id), name, icon, color, actions);
+      const { name, icon, color, actions, site_id } = req.body;
+      scenesApi.updateScene(Number(req.params.id), name, icon, color, actions, site_id ?? null);
       res.json({ ok: true });
     } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
   });

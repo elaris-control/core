@@ -365,6 +365,60 @@ option { background:#0d1221; color:var(--text); }
     </div>
   </div>
 
+  <!-- ── Sites ────────────────────────────────────────────────────────── -->
+  <div class="section" style="margin-top:36px" id="sitesSection">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--line)">
+      <div class="section-title" style="margin-bottom:0;padding-bottom:0;border-bottom:none">Sites</div>
+      <button class="btn btn-primary btn-sm" onclick="openSiteModal()">+ New Site</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Name</th>
+            <th>Note</th>
+            <th>Privacy</th>
+            <th>Created</th>
+            <th style="text-align:right">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="sitesTbody">
+          <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Site create/edit modal -->
+  <div class="modal-overlay" id="siteModal">
+    <div class="modal" style="background:var(--card);border-color:var(--line2)">
+      <div class="modal-head" style="background:rgba(29,140,255,.07)">
+        <h3 style="color:var(--blue)" id="siteModalTitle">New Site</h3>
+        <button class="btn btn-sm" onclick="closeSiteModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="siteModalId">
+        <div style="margin-bottom:14px">
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Name *</label>
+          <input id="siteModalName" class="search-input" style="width:100%" type="text" placeholder="e.g. Main House" maxlength="80">
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Note</label>
+          <input id="siteModalNote" class="search-input" style="width:100%" type="text" placeholder="Optional description" maxlength="200">
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" id="siteModalPrivate" style="width:16px;height:16px;cursor:pointer">
+          <label for="siteModalPrivate" style="font-size:13px;font-weight:600;cursor:pointer">Private — hidden from USER role</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeSiteModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveSite()">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── DB Management ─────────────────────────────────────────────────── -->
   <div class="section" style="margin-top:36px">
     <div class="section-title">Database Management</div>
@@ -949,6 +1003,113 @@ async function doEraseDb() {
   } catch(e) { toast('Error: ' + e.message, 'err'); }
 }
 // ── Boot ──────────────────────────────────────────────────────────────────
+// ── Sites Management ──────────────────────────────────────────────────────
+let adminSites = [];
+
+async function loadAdminSites() {
+  try {
+    const d = await api("/api/sites");
+    adminSites = d.sites || [];
+    renderAdminSites();
+  } catch (e) { toast("Failed to load sites: " + e.message, "err"); }
+}
+
+function renderAdminSites() {
+  const tbody = document.getElementById("sitesTbody");
+  if (!tbody) return;
+  if (!adminSites.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No sites yet. Create one with + New Site.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = adminSites.map(s => {
+    const created = s.created_ts ? new Date(s.created_ts).toLocaleDateString() : "—";
+    const privBadge = s.is_private
+      ? `<span style="font-size:11px;font-weight:700;color:#f5c842;background:rgba(245,200,66,.1);border:1px solid rgba(245,200,66,.3);border-radius:999px;padding:3px 9px">🔒 Private</span>`
+      : `<span style="font-size:11px;font-weight:700;color:var(--good);background:rgba(34,217,122,.07);border:1px solid rgba(34,217,122,.2);border-radius:999px;padding:3px 9px">Public</span>`;
+    return `<tr>
+      <td class="td-mono">${s.id}</td>
+      <td style="font-weight:700">${escHtml(s.name)}</td>
+      <td style="color:var(--muted2);font-size:12px">${s.note ? escHtml(s.note) : '<span style="opacity:.4">—</span>'}</td>
+      <td>${privBadge}</td>
+      <td class="td-mono">${created}</td>
+      <td>
+        <div class="actions-cell">
+          <button class="btn btn-sm" onclick="openSiteModal(${s.id})">Edit</button>
+          <button class="btn btn-sm" onclick="toggleSitePrivacy(${s.id},${s.is_private ? 0 : 1})">${s.is_private ? 'Make Public' : 'Make Private'}</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteSite(${s.id},'${escHtml(s.name).replace(/'/g,"\\'")}')">Delete</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function escHtml(s) {
+  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function openSiteModal(id) {
+  const s = id ? adminSites.find(x => x.id === id) : null;
+  document.getElementById("siteModalTitle").textContent = s ? "Edit Site" : "New Site";
+  document.getElementById("siteModalId").value    = s ? s.id : "";
+  document.getElementById("siteModalName").value  = s ? s.name : "";
+  document.getElementById("siteModalNote").value  = s ? (s.note || "") : "";
+  document.getElementById("siteModalPrivate").checked = s ? !!s.is_private : false;
+  document.getElementById("siteModal").classList.add("show");
+  setTimeout(() => document.getElementById("siteModalName").focus(), 60);
+}
+
+function closeSiteModal() {
+  document.getElementById("siteModal").classList.remove("show");
+}
+
+async function saveSite() {
+  const id   = document.getElementById("siteModalId").value;
+  const name = document.getElementById("siteModalName").value.trim();
+  const note = document.getElementById("siteModalNote").value.trim() || null;
+  const is_private = document.getElementById("siteModalPrivate").checked;
+  if (!name) { toast("Name is required", "err"); return; }
+  try {
+    if (id) {
+      await api(`/api/sites/${id}`, { method: "PATCH", body: JSON.stringify({ name, note }) });
+      await api(`/api/sites/${id}/visibility`, { method: "PATCH", body: JSON.stringify({ is_private }) });
+    } else {
+      await api("/api/sites", { method: "POST", body: JSON.stringify({ name, note, is_private }) });
+    }
+    closeSiteModal();
+    toast(id ? "Site updated." : "Site created.");
+    await loadAdminSites();
+  } catch (e) { toast("Error: " + e.message, "err"); }
+}
+
+async function toggleSitePrivacy(id, newVal) {
+  try {
+    await api(`/api/sites/${id}/visibility`, { method: "PATCH", body: JSON.stringify({ is_private: newVal === 1 }) });
+    toast(newVal === 1 ? "Site set to private." : "Site set to public.");
+    await loadAdminSites();
+  } catch (e) { toast("Error: " + e.message, "err"); }
+}
+
+async function deleteSite(id, name) {
+  if (!confirm(`Delete site "${name}"? Zones and device assignments for this site will be unlinked.`)) return;
+  try {
+    await api(`/api/sites/${id}`, { method: "DELETE" });
+    toast("Site deleted.");
+    await loadAdminSites();
+  } catch (e) {
+    const msg = e.message || "";
+    if (msg.includes("cannot_delete_last_site")) toast("Cannot delete the last site.", "err");
+    else if (msg.includes("cannot_delete_site_with_esphome_devices")) toast("Reassign ESPHome devices first.", "err");
+    else toast("Error: " + msg, "err");
+  }
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeSiteModal();
+});
+document.getElementById("siteModal")?.addEventListener("click", e => {
+  if (e.target === document.getElementById("siteModal")) closeSiteModal();
+});
+
 (async function init() {
   try {
     const d = await api("/api/me");
@@ -971,7 +1132,11 @@ async function doEraseDb() {
     document.getElementById("mainPage").style.display  = "block";
 
     await loadUsers();
+    await loadAdminSites();
     switchDbTab('devices');
+    if (window.location.hash === '#sites') {
+      document.getElementById('sitesSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 
   } catch (e) {
     window.location.href = "/login.html";

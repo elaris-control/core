@@ -38,7 +38,9 @@ function initWS(server, { db, getRole } = {}) {
 
   wss.on("connection", (ws, req) => {
     ws._clientId = null;
-    ws._isEngineer = typeof getRole === "function" && getRole(req) === "ENGINEER";
+    const role = typeof getRole === "function" ? getRole(req) : null;
+    ws._role      = role;                                          // null = unauthenticated
+    ws._isEngineer = role === "ENGINEER" || role === "ADMIN";
     ws.send(JSON.stringify({ type: "hello", ts: Date.now() }));
 
     ws.on("message", (data) => {
@@ -50,6 +52,10 @@ function initWS(server, { db, getRole } = {}) {
         }
 
         if (msg.type === "subscribe_logs") {
+          if (!ws._role) {
+            ws.send(JSON.stringify({ type: "error", text: "Authentication required." }));
+            return;
+          }
           logSubs.add(ws);
           for (const entry of logBuffer) {
             if (ws.readyState === WebSocket.OPEN) {

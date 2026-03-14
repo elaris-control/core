@@ -39,11 +39,18 @@ function initScenes(db) {
     );
   `);
 
-  const listScenes   = db.prepare(`SELECT * FROM scenes ORDER BY id ASC`);
-  const getScene     = db.prepare(`SELECT * FROM scenes WHERE id = ?`);
-  const insertScene  = db.prepare(`INSERT INTO scenes(name,icon,color,actions_json,created_ts) VALUES(?,?,?,?,?)`);
-  const updateScene  = db.prepare(`UPDATE scenes SET name=?,icon=?,color=?,actions_json=? WHERE id=?`);
-  const deleteScene  = db.prepare(`DELETE FROM scenes WHERE id=?`);
+  // Migration: add site_id to scenes if missing
+  const sceneCols = db.prepare(`PRAGMA table_info(scenes)`).all().map(r => r.name);
+  if (!sceneCols.includes('site_id')) {
+    db.exec(`ALTER TABLE scenes ADD COLUMN site_id INTEGER;`);
+  }
+
+  const listScenes        = db.prepare(`SELECT * FROM scenes ORDER BY id ASC`);
+  const listScenesBySite  = db.prepare(`SELECT * FROM scenes WHERE site_id=? ORDER BY id ASC`);
+  const getScene          = db.prepare(`SELECT * FROM scenes WHERE id = ?`);
+  const insertScene       = db.prepare(`INSERT INTO scenes(name,icon,color,actions_json,site_id,created_ts) VALUES(?,?,?,?,?,?)`);
+  const updateScene       = db.prepare(`UPDATE scenes SET name=?,icon=?,color=?,actions_json=?,site_id=? WHERE id=?`);
+  const deleteScene       = db.prepare(`DELETE FROM scenes WHERE id=?`);
   const insertLog    = db.prepare(`INSERT INTO scene_log(scene_id,scene_name,triggered_by,ts) VALUES(?,?,?,?)`);
   const listLog      = db.prepare(`SELECT * FROM scene_log ORDER BY ts DESC LIMIT 50`);
 
@@ -120,16 +127,19 @@ function initScenes(db) {
   }
 
   return {
-    listScenes:   () => listScenes.all(),
+    listScenes:   (site_id) => site_id != null ? listScenesBySite.all(site_id) : listScenes.all(),
     getScene:     (id) => getScene.get(id),
-    createScene:  (name, icon, color, actions) => {
-      const r = insertScene.run(name, icon || "🎬", color || "#6366f1", JSON.stringify(actions || []), Date.now());
+    createScene:  (name, icon, color, actions, site_id) => {
+      const r = insertScene.run(name, icon || "🎬", color || "#6366f1", JSON.stringify(actions || []), site_id ?? null, Date.now());
       return r.lastInsertRowid;
     },
-    updateScene:  (id, name, icon, color, actions) => {
-      updateScene.run(name, icon || "🎬", color || "#6366f1", JSON.stringify(actions || []), id);
+    updateScene:  (id, name, icon, color, actions, site_id) => {
+      updateScene.run(name, icon || "🎬", color || "#6366f1", JSON.stringify(actions || []), site_id ?? null, id);
     },
-    deleteScene:  (id) => deleteScene.run(id),
+    deleteScene:  (id) => {
+      deleteSchedulesByScene.run(id);
+      deleteScene.run(id);
+    },
     activate,
     listLog:      () => listLog.all(),
     tickSchedules,

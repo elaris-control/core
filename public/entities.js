@@ -146,7 +146,7 @@ function renderRows(){
 
 // site (engineer can change device->site)
 const tdSite = document.createElement("td");
-if(state.role === "ENGINEER"){
+if(state.role === "ENGINEER" || state.role === "ADMIN"){
   const ssel = document.createElement("select");
   ssel.className = "sel";
   opt(ssel, "", "(Unassigned)");
@@ -155,7 +155,7 @@ if(state.role === "ENGINEER"){
   ssel.addEventListener("change", async ()=>{
     try{
       if(!ssel.value) { toast("Choose a site", false); return; }
-      await api("/devices/assign_site", {method:"POST", body: JSON.stringify({ device_id: e.device_id, site_id: Number(ssel.value) })});
+      await api("/sites/" + Number(ssel.value) + "/assign-device", {method:"POST", body: JSON.stringify({ deviceId: e.device_id })});
       toast("Device assigned to site");
       await refreshEntities();
     }catch(err){ toast("Assign failed: "+err.message,false); }
@@ -263,7 +263,24 @@ tr.appendChild(tdSite);
       }catch(err){ toast("Delete failed: "+err.message,false); }
     });
 
-    actWrap.append(btnEn, btnDel);
+    const btnPin=document.createElement("button");
+    btnPin.className="btn";
+    btnPin.title = e.pinned ? "Unpin from dashboard" : "Pin to dashboard";
+    btnPin.textContent = e.pinned ? "📌" : "📍";
+    btnPin.style.cssText = "font-size:13px;padding:3px 8px;" + (e.pinned ? "color:var(--blue);" : "color:var(--muted2);");
+    btnPin.addEventListener("click", async ()=>{
+      try{
+        const newPinned = e.pinned ? 0 : 1;
+        await api("/io/"+e.id, {method:"PATCH", body: JSON.stringify({pinned: newPinned})});
+        e.pinned = newPinned;
+        btnPin.textContent = newPinned ? "📌" : "📍";
+        btnPin.style.color = newPinned ? "var(--blue)" : "var(--muted2)";
+        btnPin.title = newPinned ? "Unpin from dashboard" : "Pin to dashboard";
+        toast(newPinned ? "Pinned to dashboard" : "Unpinned");
+      }catch(err){ toast("Failed: "+err.message,false); }
+    });
+
+    actWrap.append(btnPin, btnEn, btnDel);
     tr.appendChild(td6);
 
     tbody.appendChild(tr);
@@ -634,7 +651,8 @@ async function importConfig(e){
   // load blocked if engineer
   try{
     const me=await api("/me");
-    if((me.role||"") === "ENGINEER"){
+    const meRole = me.role || "";
+    if(meRole === "ENGINEER" || meRole === "ADMIN"){
       loadBlocked();
     }else{
       // hide engineer-only tabs

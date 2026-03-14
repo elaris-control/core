@@ -64,9 +64,11 @@ function renderSites(){
   const w=$('sitesList'); if(!w) return; w.replaceChildren();
   for(const s of state.sites){
     const d=document.createElement('div'); d.className='item';
-    const l=document.createElement('span'); l.textContent=s.name??'';
+    const l=document.createElement('span');
+    l.textContent=(s.is_private?'🔒 ':'')+(s.name??'');
     const r=document.createElement('span'); r.className='muted'; r.textContent='#'+s.id;
     d.append(l,r); d.onclick=async()=>{ $('sitesMenu')?.classList.remove('show'); await selectSite(s.id); };
+    if(s.id===state.siteId) d.style.color='var(--blue)';
     w.appendChild(d);
   }
 }
@@ -74,7 +76,8 @@ async function selectSite(siteId){
   const s=state.sites.find(x=>x.id===siteId);
   state.siteId=siteId; state.siteName=s?.name||'Site '+siteId;
   try{ localStorage.setItem('elaris_site_id',String(siteId)); }catch{}
-  const p=$('sitePill'); if(p) p.textContent='Site: '+state.siteName;
+  const p=$('sitePill'); if(p) p.textContent=(s?.is_private?'🔒 ':'')+'Site: '+state.siteName;
+  renderSites();
   await loadDevicesForSite(); await loadDeviceIOAndState();
 }
 async function loadMe(){
@@ -214,6 +217,7 @@ function closeSidebar(){ document.body.classList.remove('sideOpen'); }
 
 // Clock
 var _clockStyle = parseInt(localStorage.getItem('elaris_clock_style')||'0',10);
+var _sunRise = null, _sunSet = null; // HH:MM strings from weather
 function setClockStyle(n, btn){
   _clockStyle=n;
   localStorage.setItem('elaris_clock_style',n);
@@ -224,15 +228,40 @@ function setClockStyle(n, btn){
 function renderClockFrame(){
   var el=$('clockWidget'); if(!el) return;
   if(_clockStyle===0){
-    el.innerHTML='<div class="ck-a"><div class="ck-time"><span id="wClockHM">--:--</span><span class="ck-sec" id="wClockSec">00</span></div><div class="ck-date" id="wClockDate">--</div><div class="ck-prog"><div class="ck-prog-fill" id="wDayProg" style="width:0%"></div></div><div class="ck-sun"><span id="wSunR">☀ --:--</span><span id="wSunS">☽ --:--</span></div></div>';
+    el.innerHTML='<div class="ck-a"><div class="ck-time"><span id="wClockHM">--:--</span><span class="ck-sec" id="wClockSec">00</span></div><div class="ck-date" id="wClockDate">--</div><div class="ck-prog"><div class="ck-prog-fill" id="wDayProg" style="width:0%"></div></div><div class="ck-sun"><span id="wSunR">&#9728; --:--</span><span id="wSunS">&#9790; --:--</span></div></div>';
   } else if(_clockStyle===1){
-    el.innerHTML='<div class="ck-b"><div class="ck-arc-wrap"><svg id="wArcSvg" viewBox="0 0 130 130" width="130" height="130"><circle cx="65" cy="65" r="57" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="5"/><circle id="wArcFill" cx="65" cy="65" r="57" fill="none" stroke="var(--blue)" stroke-width="5" stroke-linecap="round" stroke-dasharray="358" stroke-dashoffset="358" transform="rotate(-90 65 65)"/></svg><div class="ck-arc-inner"><div class="ck-time" id="wClockHM">--:--</div><div class="ck-date" id="wClockDate">--</div></div></div></div>';
+    // Arc: viewBox 160x160, r=70, circumference≈440
+    el.innerHTML='<div class="ck-b"><div class="ck-arc-wrap"><svg viewBox="0 0 160 160" class="ck-arc-svg"><circle cx="80" cy="80" r="70" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="6"/><circle id="wArcFill" cx="80" cy="80" r="70" fill="none" stroke="var(--blue)" stroke-width="6" stroke-linecap="round" stroke-dasharray="440" stroke-dashoffset="440" transform="rotate(-90 80 80)"/></svg><div class="ck-arc-inner"><div class="ck-time" id="wClockHM">--:--</div><div class="ck-sec-sm" id="wClockSec2">00s</div><div class="ck-date" id="wClockDate">--</div></div></div><div class="ck-sun-row"><span id="wSunR">&#9728; --:--</span><span id="wSunS">&#9790; --:--</span></div></div>';
+  } else if(_clockStyle===2){
+    el.innerHTML='<div class="ck-c"><div class="ck-time" id="wClockHM">--:--</div><div class="ck-secbar"><div class="ck-secbar-fill" id="wSecBar" style="width:0%"></div></div><div class="ck-date" id="wClockDate">--</div><div class="ck-sun-row"><span id="wSunR">&#9728; --:--</span><span id="wSunS">&#9790; --:--</span></div></div>';
+  } else if(_clockStyle===3){
+    // Box style
+    el.innerHTML='<div class="ck-d"><div class="ck-d-row"><div class="ck-d-block" id="wClockHH">--</div><div class="ck-d-sep">:</div><div class="ck-d-block" id="wClockMM">--</div></div><div class="ck-secbar"><div class="ck-secbar-fill" id="wSecBar" style="width:0%"></div></div><div class="ck-date" id="wClockDate">--</div><div class="ck-sun-row"><span id="wSunR">&#9728; --:--</span><span id="wSunS">&#9790; --:--</span></div></div>';
+  } else if(_clockStyle===4){
+    // Horizon style
+    el.innerHTML='<div class="ck-e"><div class="ck-time" id="wClockHM">--:--</div><div class="ck-e-arc"><div class="ck-e-track"><div class="ck-e-dot" id="wSunDot" style="left:50%"></div></div><div class="ck-e-labels"><span id="wSunR">&#9728; --:--</span><span id="wSunS">&#9790; --:--</span></div></div><div class="ck-date" id="wClockDate">--</div></div>';
+  } else if(_clockStyle===5){
+    // Analog clock
+    var marks5='';
+    for(var mi=0;mi<12;mi++){var a5=mi*30*Math.PI/180;var r1=mi%3===0?62:70;var r2=74;marks5+='<line x1="'+(80+r1*Math.sin(a5)).toFixed(1)+'" y1="'+(80-r1*Math.cos(a5)).toFixed(1)+'" x2="'+(80+r2*Math.sin(a5)).toFixed(1)+'" y2="'+(80-r2*Math.cos(a5)).toFixed(1)+'" stroke="rgba(255,255,255,'+(mi%3===0?.3:.12)+')" stroke-width="'+(mi%3===0?2:1)+'"/>';}
+    el.innerHTML='<div class="ck-f"><svg viewBox="0 0 160 160" width="140" height="140"><circle cx="80" cy="80" r="76" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.1)" stroke-width="2"/>'+marks5+'<line id="wAnalogH" x1="80" y1="80" x2="80" y2="44" stroke="var(--text)" stroke-width="5" stroke-linecap="round"/><line id="wAnalogM" x1="80" y1="80" x2="80" y2="28" stroke="var(--text)" stroke-width="3" stroke-linecap="round"/><line id="wAnalogS" x1="80" y1="80" x2="80" y2="24" stroke="var(--blue)" stroke-width="1.5" stroke-linecap="round"/><circle cx="80" cy="80" r="4" fill="var(--blue)"/></svg><div class="ck-date" id="wClockDate">--</div><div class="ck-sun"><span id="wSunR">&#9728; --:--</span><span id="wSunS">&#9790; --:--</span></div></div>';
   } else {
-    el.innerHTML='<div class="ck-c"><div class="ck-time" id="wClockHM">--:--</div><div class="ck-secbar"><div class="ck-secbar-fill" id="wSecBar" style="width:0%"></div></div><div class="ck-date" id="wClockDate">--</div></div>';
+    // Word clock
+    el.innerHTML='<div class="ck-g"><div class="ck-g-phrase" id="wWordBody"></div><div class="ck-date" id="wClockDate">--</div><div class="ck-sun"><span id="wSunR">&#9728; --:--</span><span id="wSunS">&#9790; --:--</span></div></div>';
   }
-  // restore active button
   document.querySelectorAll('.clock-style-btn').forEach(function(b,i){b.classList.toggle('active',i===_clockStyle);});
 }
+function getWordClockWords(now){
+  var HOURS=['','ONE','TWO','THREE','FOUR','FIVE','SIX','SEVEN','EIGHT','NINE','TEN','ELEVEN','TWELVE'];
+  var h=now.getHours()%12||12, m=now.getMinutes();
+  var seg=Math.round(m/5); if(seg===12){seg=0;h=h%12+1;}
+  var lines=['IT IS'];
+  if(seg===0){ lines.push(HOURS[h]); lines.push("O'CLOCK"); }
+  else if(seg<=6){ var mins=[null,'FIVE','TEN','QUARTER','TWENTY','TWENTY FIVE','HALF'][seg]; mins.split(' ').forEach(function(w){lines.push(w);}); lines.push('PAST'); lines.push(HOURS[h]); }
+  else{ var toH=h%12+1; var mins2=[null,'FIVE','TEN','QUARTER','TWENTY','TWENTY FIVE','HALF'][12-seg]; mins2.split(' ').forEach(function(w){lines.push(w);}); lines.push('TO'); lines.push(HOURS[toH]); }
+  return lines;
+}
+
 let _clockInt=null;
 function startClock(){
   if(_clockInt) clearInterval(_clockInt);
@@ -242,7 +271,6 @@ function startClock(){
     var hm=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     var sec=now.getSeconds();
     var dateStr=now.toLocaleDateString([],{weekday:'short',day:'numeric',month:'short',year:'numeric'});
-    // day progress
     var dayPct=((now.getHours()*3600+now.getMinutes()*60+sec)/86400*100).toFixed(1);
     var hm2=$('wClockHM'), de=$('wClockDate');
     if(hm2) hm2.textContent=hm;
@@ -252,16 +280,99 @@ function startClock(){
       var dp=$('wDayProg'); if(dp) dp.style.width=dayPct+'%';
     } else if(_clockStyle===1){
       var arc=$('wArcFill');
-      if(arc){ var offset=358-(sec/60*358); arc.setAttribute('stroke-dashoffset',offset.toFixed(1)); }
-    } else {
+      if(arc){ var offset=440-(sec/60*440); arc.setAttribute('stroke-dashoffset',offset.toFixed(1)); }
+      var sc2=$('wClockSec2'); if(sc2) sc2.textContent=(sec<10?'0':'')+sec+'s';
+    } else if(_clockStyle===2){
       var sb=$('wSecBar'); if(sb) sb.style.width=(sec/59*100)+'%';
+    } else if(_clockStyle===3){
+      var hh=$('wClockHH'); if(hh) hh.textContent=(now.getHours()<10?'0':'')+now.getHours();
+      var mm=$('wClockMM'); if(mm) mm.textContent=(now.getMinutes()<10?'0':'')+now.getMinutes();
+      var sb3=$('wSecBar'); if(sb3) sb3.style.width=(sec/59*100)+'%';
+    } else if(_clockStyle===4){
+      var nowMin=now.getHours()*60+now.getMinutes();
+      var dot=$('wSunDot');
+      if(dot) dot.style.left=(nowMin/1440*100).toFixed(1)+'%';
+    } else if(_clockStyle===5){
+      var nowH5=now.getHours()%12,nowM5=now.getMinutes(),nowS5=now.getSeconds();
+      var hAng5=(nowH5+nowM5/60+nowS5/3600)/12*360;
+      var mAng5=(nowM5+nowS5/60)/60*360;
+      var sAng5=nowS5/60*360;
+      var setHand=function(id,ang,len){var el2=document.getElementById(id);if(!el2)return;var rad=ang*Math.PI/180;el2.setAttribute('x2',(80+len*Math.sin(rad)).toFixed(1));el2.setAttribute('y2',(80-len*Math.cos(rad)).toFixed(1));};
+      setHand('wAnalogH',hAng5,38);setHand('wAnalogM',mAng5,55);setHand('wAnalogS',sAng5,60);
+    } else if(_clockStyle===6){
+      var wb=document.getElementById('wWordBody');
+      if(wb){ var words6=getWordClockWords(now); wb.innerHTML=words6.map(function(w){return '<span class="ck-g-word">'+w+'</span>';}).join(''); }
     }
+    // Generic sun update for all styles
+    var srEl=document.getElementById('wSunR'); if(srEl) srEl.textContent='\u2600 '+(_sunRise||'--:--');
+    var ssEl=document.getElementById('wSunS'); if(ssEl) ssEl.textContent='\u263D '+(_sunSet||'--:--');
     document.querySelectorAll('.tz-time').forEach(function(s){ try{ s.textContent=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',timeZone:s.dataset.tz}); }catch{} });
   }
   tick(); _clockInt=setInterval(tick,1000);
 }
 
 // Weather
+function wmoGradient(code, isDay){
+  var d=isDay!==false;
+  if(code===0) return d?'linear-gradient(135deg,#0c4a6e,#0369a1)':'linear-gradient(135deg,#0f172a,#1e1b4b)';
+  if(code<=2)  return d?'linear-gradient(135deg,#1e3a5f,#334155)':'linear-gradient(135deg,#0f172a,#1e293b)';
+  if(code<=3)  return 'linear-gradient(135deg,#1e293b,#334155)';
+  if(code<=48) return 'linear-gradient(135deg,#374151,#4b5563)';
+  if(code<=65) return 'linear-gradient(135deg,#082f49,#1e3a5f)';
+  if(code<=75) return 'linear-gradient(135deg,#1e3a5f,#3b82f6)';
+  if(code<=82) return 'linear-gradient(135deg,#0c4a6e,#1e3a5f)';
+  return 'linear-gradient(135deg,#1e1b4b,#312e81)';
+}
+function renderWeatherMinimal(w){
+  if(!w||!w.current) return '<div style="color:var(--muted);font-size:12px">No weather data</div>';
+  var c=w.current;
+  var fc=(w.forecast||[]).slice(0,5);
+  var DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var grad=wmoGradient(c.code,c.is_day);
+  var tabS='display:inline-block;padding:4px 12px;font-size:11px;font-weight:700;border-radius:6px;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--muted2);font-family:inherit;';
+  var tabA='background:rgba(29,140,255,.12);border-color:var(--blue);color:var(--blue);';
+  var h='';
+  // Tabs
+  h+='<div style="display:flex;gap:6px;margin-bottom:10px">';
+  h+='<button style="'+tabS+tabA+'" onclick="wTab(0,this)">Today</button>';
+  h+='<button style="'+tabS+'" onclick="wTab(1,this)">5 Days</button>';
+  h+='</div>';
+  // TODAY tab
+  h+='<div id="wTabToday">';
+  h+='<div style="background:'+grad+';border-radius:12px;padding:14px;display:flex;align-items:center;gap:12px;margin-bottom:8px">';
+  h+=meteoconImg(c.code,c.is_day,60);
+  h+='<div style="flex:1;min-width:0"><div style="font-size:44px;font-weight:900;line-height:1;color:#fff">'+c.temp+'<span style="font-size:18px;opacity:.65">°</span></div>';
+  h+='<div style="font-size:12px;color:rgba(255,255,255,.75);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+c.desc+'</div></div>';
+  h+='<div style="text-align:right;font-size:11px;color:rgba(255,255,255,.6);line-height:1.9;flex-shrink:0">';
+  h+='<div>&#128167; '+c.humidity+'%</div><div>&#128168; '+c.wind_speed+'km/h</div></div></div>';
+  h+='<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted2)">';
+  h+='<span>&#9728; '+(_sunRise||w.sunrise||'--:--')+'</span>';
+  h+='<span>Feels '+c.feels_like+'°</span>';
+  h+='<span>&#9790; '+(_sunSet||w.sunset||'--:--')+'</span>';
+  h+='</div></div>';
+  // WEEK tab
+  h+='<div id="wTabWeek" style="display:none">';
+  if(fc.length){
+    var allMin=Math.min.apply(null,fc.map(function(d){return d.min;}));
+    var allMax=Math.max.apply(null,fc.map(function(d){return d.max;}));
+    var rng=Math.max(allMax-allMin,1);
+    fc.forEach(function(d,i){
+      var lbl=d.date?DAYS[new Date(d.date+'T12:00:00').getDay()]:'';
+      var isToday=i===0;
+      var barW=Math.round(((d.max-allMin)/rng)*100);
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 2px;'+(i<fc.length-1?'border-bottom:1px solid var(--line)':'')+'">';
+      h+='<div style="font-size:11px;font-weight:800;color:'+(isToday?'var(--blue)':'var(--muted2)')+';width:28px;flex-shrink:0">'+(isToday?'NOW':lbl)+'</div>';
+      h+=meteoconImg(d.code,true,22);
+      h+='<div style="font-size:10px;color:var(--muted2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+d.desc+'</div>';
+      h+='<div style="font-size:10px;color:var(--muted2);flex-shrink:0;width:22px;text-align:right">'+d.min+'°</div>';
+      h+='<div style="width:36px;height:3px;background:rgba(255,255,255,.08);border-radius:2px;flex-shrink:0;position:relative"><div style="position:absolute;left:0;top:0;height:3px;background:var(--blue);border-radius:2px;width:'+barW+'%"></div></div>';
+      h+='<div style="font-size:11px;font-weight:700;width:22px;text-align:right;flex-shrink:0">'+d.max+'°</div>';
+      h+='</div>';
+    });
+  }
+  h+='</div>';
+  return h;
+}
 function wmoToMeteocon(code, isDay) {
   var d = isDay !== false;
   var map = {
@@ -340,7 +451,13 @@ async function loadWeatherWidget(){
   const el=$('weatherContainer'); if(!el||!state.siteId) return;
   try{
     const d=await api('/weather/'+state.siteId);
-    el.innerHTML=(d.ok&&d.weather)?renderWeatherWidget(d.weather):'<div style="color:var(--muted);font-size:12px">'+(d.error||'No weather data')+'</div>';
+    if(d.ok&&d.weather){
+      if(d.weather.sunrise) _sunRise=d.weather.sunrise;
+      if(d.weather.sunset)  _sunSet=d.weather.sunset;
+      el.innerHTML=renderWeatherMinimal(d.weather);
+    } else {
+      el.innerHTML='<div style="color:var(--muted);font-size:12px">'+(d.error||'No weather data')+'</div>';
+    }
   }catch{ el.innerHTML='<div style="color:var(--muted);font-size:12px">Weather unavailable</div>'; }
 }
 
@@ -348,20 +465,33 @@ async function loadWeatherWidget(){
 async function loadScenesWidget(){
   const body=$('wScenesBody'); if(!body) return;
   try{
-    const d=await api('/scenes'); const scenes=d.scenes||[];
-    if(!scenes.length){ body.innerHTML='<div style="color:var(--muted);font-size:12px;text-align:center;padding:12px 0">No scenes yet.</div>'; return; }
-    let html='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px">';
+    const sid=state.siteId;
+    const d=await api('/scenes'+(sid?'?site_id='+sid:'')); const scenes=d.scenes||[];
+    if(!scenes.length){ body.innerHTML='<div style="color:var(--muted);font-size:12px;padding:8px 0">No scenes yet. <a href="/scenes.html" style="color:var(--blue)">Create one &rarr;</a></div>'; return; }
+    let html='<div class="summary-grid">';
     scenes.forEach(s=>{
-      html+='<button onclick="activateScene('+s.id+',\''+((s.name||'').replace(/'/g,"\\'"))+'\')" style="padding:10px 6px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:'+(s.color||'#6366f1')+'18;cursor:pointer;transition:all .15s;display:flex;flex-direction:column;align-items:center;gap:5px;font-family:inherit">';
-      html+='<span style="font-size:22px">'+(s.icon||'\ud83c\udfac')+'</span>';
-      html+='<span style="font-size:11px;font-weight:800;color:var(--text)">'+s.name+'</span></button>';
+      var col=s.color||'#6366f1';
+      var sn=(s.name||'').replace(/'/g,"\\'");
+      html+='<div class="sum-card" onclick="activateScene('+s.id+',\''+sn+'\')" id="sbtn-'+s.id+'" style="border-left:3px solid '+col+'88;cursor:pointer">';
+      html+='<span class="sum-icon">'+(s.icon||'\ud83c\udfac')+'</span>';
+      html+='<span class="sum-info"><div class="sum-name">'+s.name+'</div>';
+      html+='<div class="sum-status">\u25b6 Activate</div></span></div>';
     });
     html+='</div>'; body.innerHTML=html;
   }catch{ body.innerHTML='<div style="color:var(--muted);font-size:12px">Error loading scenes</div>'; }
 }
 async function activateScene(id,name){
-  try{ await fetch('/api/scenes/'+id+'/activate',{method:'POST',headers:{'Content-Type':'application/json'}}); toast('Scene: '+name); }
-  catch(e){ toast('Error: '+e.message); }
+  const card=document.getElementById('sbtn-'+id);
+  const st=card?card.querySelector('.sum-status'):null;
+  if(st){st.textContent='\u23f3 Running\u2026';}
+  try{
+    await fetch('/api/scenes/'+id+'/activate',{method:'POST',headers:{'Content-Type':'application/json'}});
+    toast('\u2705 '+name+' activated');
+    if(st){st.textContent='\u2705 Done!';setTimeout(function(){if(st)st.textContent='\u25b6 Activate';},2000);}
+  }catch(e){
+    toast('Error: '+e.message);
+    if(st){st.textContent='\u274c Error';setTimeout(function(){if(st)st.textContent='\u25b6 Activate';},2500);}
+  }
 }
 
 // Module instances
@@ -421,6 +551,38 @@ async function loadEventsWidget(){
       return '<div class="ev-row"><span class="ev-time">'+t+'</span><span class="ev-action">'+(log.action||'\u2014')+'</span><span class="ev-reason">'+(log.reason||'')+'</span></div>';
     }).join('');
   }catch{ body.innerHTML='<div style="color:var(--muted);font-size:12px">No recent events.</div>'; }
+}
+
+// Pinned sensors widget
+async function loadPinnedSensors(){
+  const el=$('wPinnedBody'); if(!el) return;
+  try{
+    const d=await api('/io/pinned'); const ios=d.io||[];
+    if(!ios.length){
+      el.innerHTML='<div style="color:var(--muted);font-size:12px;padding:4px 0">No pinned sensors.<br><a href="/entities.html" style="color:var(--blue)">Pin some \u2192</a></div>';
+      return;
+    }
+    const TYPE_ICON={relay:'\ud83d\udca1',DI:'\ud83d\udd0c',AO:'\ud83c\udf9a\ufe0f',AI:'\ud83d\udcca'};
+    let html='';
+    ios.forEach(function(io){
+      var icon=TYPE_ICON[io.type]||'\ud83d\udcca';
+      var n=(io.name||io.key||'').toLowerCase();
+      if(n.includes('temp')||n.includes('therm')) icon='\ud83c\udf21\ufe0f';
+      else if(n.includes('humid')) icon='\ud83d\udca7';
+      else if(n.includes('solar')||n.includes('sun')) icon='\u2600\ufe0f';
+      else if(n.includes('power')||n.includes('watt')) icon='\u26a1';
+      var val=io.value!==undefined&&io.value!==null?io.value:'\u2014';
+      var unit=io.unit?' '+io.unit:'';
+      if(io.type==='relay'){val=(val==='1'||val==='ON'||val==='true'||val===1)?'ON':'OFF';unit='';}
+      html+='<div class="sum-card" style="border-left:3px solid rgba(34,217,122,.3)">';
+      html+='<span class="sum-icon">'+icon+'</span>';
+      html+='<span class="sum-info"><div class="sum-name">'+(io.name||io.key||'IO #'+io.id)+'</div>';
+      html+='<div class="sum-status" id="pv-'+io.id+'" style="font-family:monospace">'+val+unit+'</div></span></div>';
+    });
+    el.innerHTML=html;
+  }catch(e){
+    el.innerHTML='<div style="color:var(--muted);font-size:12px">Error</div>';
+  }
 }
 
 // Nav pages
@@ -508,10 +670,9 @@ async function deletePage(id){
 document.addEventListener('DOMContentLoaded',()=>{
   $('sitesBtn')?.addEventListener('click',()=>$('sitesMenu')?.classList.toggle('show'));
   document.addEventListener('click',e=>{ if(!e.target.closest('.dropdown')) $('sitesMenu')?.classList.remove('show'); });
-  $('addSiteBtn')?.addEventListener('click',async()=>{
-    $('sitesMenu')?.classList.remove('show'); const name=prompt('New site name:'); if(!name) return;
-    try{ await api('/sites',{method:'POST',body:JSON.stringify({name})}); await loadSites(); toast('Site created.'); }
-    catch(e){ toast('Failed: '+e.message); }
+  $('addSiteBtn')?.addEventListener('click',()=>{
+    $('sitesMenu')?.classList.remove('show');
+    window.location.href='/admin.html#sites';
   });
   const mb=$('menuBtn'); if(mb){ mb.style.display=''; mb.onclick=openSidebar; }
   document.querySelectorAll('.nav a').forEach(a=>a.addEventListener('click',()=>closeSidebar()));
@@ -530,7 +691,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     connectWS();
     await loadModuleInstances();
     startClock();
-    await Promise.all([loadWeatherWidget(),loadScenesWidget(),loadSummaryCards(),loadEventsWidget(),loadNavPages()]);
+    await Promise.all([loadWeatherWidget(),loadScenesWidget(),loadSummaryCards(),loadEventsWidget(),loadNavPages(),loadPinnedSensors()]);
     const _qs=new URLSearchParams(location.search);
     if(_qs.get('newPage')==='1'){ history.replaceState(null,'','/'); openPageEditor(); }
     else if(_qs.get('editPages')==='1'){ history.replaceState(null,'','/'); openPageManager(); }
@@ -538,6 +699,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     setInterval(loadEventsWidget,60*1000);
     setInterval(loadScenesWidget,30*1000);
     setInterval(loadSummaryCards,60*1000);
+    setInterval(loadPinnedSensors,15*1000);
   }catch(e){
     console.error('[ELARIS] Boot error:',e);
     const t=$('toast'); if(t) t.textContent='Init error: '+e.message;

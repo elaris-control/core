@@ -8,6 +8,7 @@ function initDB(dbPath) {
   if (!dbPath) dbPath = getDBPath();
   ensureDirForFile(dbPath);
   const db = new Database(dbPath);
+  db.pragma("foreign_keys = ON");
 db.exec(`
     PRAGMA journal_mode = WAL;
 
@@ -96,6 +97,7 @@ db.exec(`
   ensureIoCol("kind", `ALTER TABLE io ADD COLUMN kind TEXT;`);
   ensureIoCol("unit", `ALTER TABLE io ADD COLUMN unit TEXT;`);
   ensureIoCol("device_class", `ALTER TABLE io ADD COLUMN device_class TEXT;`);
+  ensureIoCol("pinned", `ALTER TABLE io ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;`);
   try{
     const zCols = db.prepare(`PRAGMA table_info(zones);`).all().map(r=>r.name);
     if(!zCols.includes("site_id")) db.exec(`ALTER TABLE zones ADD COLUMN site_id INTEGER;`);
@@ -106,11 +108,10 @@ db.exec(`
   }catch(_){}
 
 
-  // ensure column note exists (safe)
+  // ensure optional sites columns exist (safe for older DBs)
   const cols = db.prepare(`PRAGMA table_info(sites);`).all().map(r => r.name);
-  if (!cols.includes("note")) {
-    try { db.exec(`ALTER TABLE sites ADD COLUMN note TEXT;`); } catch (_) {}
-  }
+  if (!cols.includes("note"))       { try { db.exec(`ALTER TABLE sites ADD COLUMN note TEXT;`); } catch (_) {} }
+  if (!cols.includes("is_private")) { try { db.exec(`ALTER TABLE sites ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0;`); } catch (_) {} }
 
 
   // ── ESPHome board profile catalog (DB-backed, seeded from bundled profiles) ──
@@ -219,6 +220,35 @@ db.exec(`
       CREATE INDEX IF NOT EXISTS idx_io_zone_id ON io(zone_id);
       CREATE INDEX IF NOT EXISTS idx_device_site_site_id ON device_site(site_id);
       CREATE INDEX IF NOT EXISTS idx_zones_site_id ON zones(site_id);
+    `);
+  });
+
+  // Migration: change zones UNIQUE(name) → UNIQUE(name, COALESCE(site_id,0))
+  // so the same zone name can exist in different sites.
+  // Migration: add config column to module_instances
+  applyMigration("module_instances_config_v1", () => {
+    const miCols = db.prepare(`PRAGMA table_info(module_instances)`).all().map(r => r.name);
+    if (!miCols.includes("config")) {
+      db.exec(`ALTER TABLE module_instances ADD COLUMN config TEXT;`);
+    }
+  });
+
+  // Migration: change zones UNIQUE(name) → UNIQUE(name, COALESCE(site_id,0))
+  // so the same zone name can exist in different sites.
+  applyMigration("zones_unique_per_site_v1", () => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS zones_new (
+        id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        name    TEXT NOT NULL,
+        site_id INTEGER
+      );
+      INSERT OR IGNORE INTO zones_new(id, name, site_id)
+        SELECT id, name, site_id FROM zones;
+      DROP TABLE zones;
+      ALTER TABLE zones_new RENAME TO zones;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_zones_name_site
+        ON zones(name, COALESCE(site_id, 0));
+      CREATE INDEX IF NOT EXISTS idx_zones_site_id2 ON zones(site_id);
     `);
   });
 
@@ -358,15 +388,18 @@ db.exec(`
   `);
 
   const upsertPendingIO = db.prepare(`
-    INSERT INTO pending_io(device_id, group_name, key, first_seen, last_seen, last_value)
-    VALUES(@device_id, @group_name, @key, @ts, @ts, @last_value)
+    INSERT INTO pending_io(device_id, group_name, key, site_id, first_seen, last_seen, last_value)
+    VALUES(@device_id, @group_name, @key,
+      (SELECT site_id FROM device_site WHERE device_id=@device_id),
+      @ts, @ts, @last_value)
     ON CONFLICT(device_id, group_name, key) DO UPDATE SET
       last_seen=excluded.last_seen,
-      last_value=excluded.last_value
+      last_value=excluded.last_value,
+      site_id=COALESCE(excluded.site_id, pending_io.site_id)
   `);
 
   const listPendingIO = db.prepare(`
-    SELECT id, device_id, group_name, key, first_seen, last_seen, last_value
+    SELECT id, device_id, group_name, key, site_id, first_seen, last_seen, last_value
     FROM pending_io ORDER BY last_seen DESC
   `);
 
@@ -416,26 +449,69 @@ db.exec(`
   const listIOByDevice = db.prepare(`
   SELECT io.id, io.device_id, io.group_name, io.key, io.type, io.name,
          io.zone_id, z.name AS zone_name,
-         io.hw_type, io.kind, io.unit
+         io.hw_type, io.kind, io.unit, io.pinned
   FROM io
   LEFT JOIN zones z ON z.id = io.zone_id
   WHERE io.device_id = ?
   ORDER BY io.group_name, io.key
 `);
 
-  const createZone = db.prepare(`INSERT OR IGNORE INTO zones(name) VALUES(?)`);
-  const listZones = db.prepare(`SELECT id, name FROM zones ORDER BY name ASC`);
-  const renameZone = db.prepare(`UPDATE zones SET name=? WHERE id=?`);
-  const deleteZoneStmt = db.prepare(`DELETE FROM zones WHERE id=?`);
+  const listPinnedIOWithState = db.prepare(`
+  SELECT io.id, io.device_id, io.group_name, io.key, io.type, io.name,
+         io.zone_id, z.name AS zone_name, io.unit, io.pinned,
+         ds.value, ds.ts AS state_ts
+  FROM io
+  LEFT JOIN zones z ON z.id = io.zone_id
+  LEFT JOIN device_state ds ON ds.device_id = io.device_id
+    AND ds.key = (io.group_name || '.' || io.key)
+  WHERE io.pinned = 1
+  ORDER BY io.name, io.key
+`);
+
+  const createZone        = db.prepare(`INSERT OR IGNORE INTO zones(name, site_id) VALUES(?,?)`);
+  const listZones         = db.prepare(`SELECT id, name, site_id FROM zones ORDER BY name ASC`);
+  const listZonesBySite   = db.prepare(`SELECT id, name, site_id FROM zones WHERE site_id=? ORDER BY name ASC`);
+  const renameZone        = db.prepare(`UPDATE zones SET name=? WHERE id=?`);
+  const deleteZoneStmt    = db.prepare(`DELETE FROM zones WHERE id=?`);
   const clearIOZone = db.prepare(`UPDATE io SET zone_id=NULL WHERE zone_id=?`);
   const moveIOZone = db.prepare(`UPDATE io SET zone_id=? WHERE zone_id=?`);
   const countIOByZone = db.prepare(`SELECT COUNT(*) AS c FROM io WHERE zone_id=?`);
 
 
   // Sites
-  const listSites = db.prepare(`SELECT id, name, note, created_ts FROM sites ORDER BY id ASC`);
-  const createSite = db.prepare(`INSERT INTO sites(name, note, created_ts) VALUES(?, ?, ?)`);
-  const deleteSite = db.prepare(`DELETE FROM sites WHERE id = ?`);
+  const listSites      = db.prepare(`SELECT id, name, note, is_private, lat, lon, timezone, address, created_ts FROM sites ORDER BY id ASC`);
+  const createSite     = db.prepare(`INSERT INTO sites(name, note, is_private, created_ts) VALUES(?, ?, ?, ?)`);
+  const _deleteSiteRow  = db.prepare(`DELETE FROM sites WHERE id = ?`);
+  const setSitePrivacy  = db.prepare(`UPDATE sites SET is_private=? WHERE id=?`);
+
+  function deleteSite(id) {
+    const tx = db.transaction(() => {
+      // Block deleting the last site — many flows require at least one site to exist
+      const total = db.prepare(`SELECT COUNT(*) AS c FROM sites`).get();
+      if (total.c <= 1) throw new Error("cannot_delete_last_site");
+      // Unlink zones — keep the zones, just remove site association
+      db.prepare(`UPDATE zones SET site_id=NULL WHERE site_id=?`).run(id);
+      // Unlink scenes — keep scenes, remove site association
+      db.prepare(`UPDATE scenes SET site_id=NULL WHERE site_id=?`).run(id);
+      // Unlink pending_io
+      db.prepare(`UPDATE pending_io SET site_id=NULL WHERE site_id=?`).run(id);
+      // Reassign ESPHome devices to default site (or null if no default)
+      const defaultSite = db.prepare(`SELECT id FROM sites WHERE id != ? ORDER BY id ASC LIMIT 1`).get(id);
+      if (defaultSite) {
+        db.prepare(`UPDATE esphome_devices SET site_id=? WHERE site_id=?`).run(defaultSite.id, id);
+      } else {
+        // no other site: just remove association (site_id is NOT NULL on esphome_devices,
+        // so we block delete if ESPHome devices exist on this site)
+        const count = db.prepare(`SELECT COUNT(*) AS c FROM esphome_devices WHERE site_id=?`).get(id);
+        if (count?.c > 0) throw new Error("cannot_delete_site_with_esphome_devices");
+      }
+      // device_site rows: cascade (remove assignments for this site)
+      db.prepare(`DELETE FROM device_site WHERE site_id=?`).run(id);
+      // module_instances: ON DELETE CASCADE handles these when FK is ON
+      _deleteSiteRow.run(id);
+    });
+    tx();
+  }
 
   const assignDeviceToSiteStmt = db.prepare(`
     INSERT INTO device_site(device_id, site_id, assigned_ts)
@@ -571,6 +647,7 @@ db.exec(`
       module_id   TEXT NOT NULL,
       name        TEXT,
       active      INTEGER NOT NULL DEFAULT 1,
+      config      TEXT,
       created_ts  INTEGER NOT NULL
     );
 
@@ -601,12 +678,14 @@ db.exec(`
     listPendingIO,
     approvePending,
     listIOByDevice,
+    listPinnedIOWithState,
     deletePendingIO,
     deletePendingIOAndBlock,
     unblockPendingIO,
 
     createZone,
     listZones,
+    listZonesBySite,
 
     renameZone: (id, name) => renameZone.run(name, id),
     deleteZone: (id, reassign_zone_id=null) => {
@@ -627,6 +706,7 @@ db.exec(`
     listSites,
     createSite,
     deleteSite,
+    setSitePrivacy,
 
     ensureDeviceAssigned,
     assignDeviceToSite,
