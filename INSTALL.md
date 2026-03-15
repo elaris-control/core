@@ -45,12 +45,13 @@ sudo systemctl status mosquitto
 
 ## 4. Install Elaris
 
-Copy the project to the Pi (via WinSCP, scp, or git clone) and install dependencies:
+Clone the repository and install dependencies:
 
 ```bash
-cd ~/elaris/elaris-core    # adjust to your folder name
+mkdir -p ~/elaris
+git clone https://github.com/elaris-control/core.git ~/elaris/elaris-core
+cd ~/elaris/elaris-core
 npm install
-npm rebuild                # required if node_modules were copied from a Windows machine
 ```
 
 > **WinSCP users:** Copy only these folders/files to the Pi:
