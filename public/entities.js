@@ -7,34 +7,7 @@
   } catch { window.location.href = "/login.html"; }
 })();
 
-// public/entities.js
-const $ = (id)=>document.getElementById(id);
-
-async function api(path, opts={}){
-  const res = await fetch("/api"+path, {
-    credentials: "same-origin",
-    headers: { "Content-Type":"application/json", ...(opts.headers||{}) },
-    ...opts
-  });
-  let data = null;
-  try{ data = await res.json(); }catch(e){}
-  if(!res.ok){
-    const msg = (data && (data.error || data.message)) ? (data.error || data.message) : (res.status+" "+res.statusText);
-    throw new Error(msg);
-  }
-  return data;
-}
-
-function toast(msg, ok=true){
-  const t = $("toast");
-  if(!t) return;
-  t.textContent = msg;
-  t.style.display = "block";
-  t.style.borderColor = ok ? "rgba(22,163,74,.35)" : "rgba(220,38,38,.35)";
-  t.style.background = ok ? "rgba(22,163,74,.10)" : "rgba(220,38,38,.10)";
-  clearTimeout(toast._tm);
-  toast._tm = setTimeout(()=>{ t.style.display="none"; }, 2600);
-}
+// public/entities.js — shared utilities ($, escapeHTML, api, toast) are in /js/core.js
 
 function getActiveOverrideLocal(ioId){
   const ov = state.ioOverrides?.[ioId];
@@ -205,7 +178,7 @@ tr.appendChild(tdSite);
     const zsel=document.createElement("select");
     zsel.className="sel";
     opt(zsel, "", "(No zone)");
-    for(const z of state.zones) opt(zsel, String(z.id), z.name);
+    for(const z of state.zones) opt(zsel, String(z.id), z.site_id ? z.name : '🌐 '+z.name);
     zsel.value = e.zone_id ? String(e.zone_id) : "";
     zsel.addEventListener("change", async ()=>{
       try{
@@ -291,10 +264,6 @@ tr.appendChild(tdSite);
   setCounts();
 }
 
-function escapeHTML(s){
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
 function applyFilterAndRender(){
   const f = getFilter();
   let list = state.entities.slice();
@@ -351,7 +320,7 @@ function rebuildFilters(){
   const prevZone=zoneSel.value;
   zoneSel.replaceChildren();
   opt(zoneSel, "", "All Zones");
-  for(const z of state.zones) opt(zoneSel, String(z.id), z.name);
+  for(const z of state.zones) opt(zoneSel, String(z.id), z.site_id ? z.name : '🌐 '+z.name);
   zoneSel.value = prevZone && [...zoneSel.options].some(o=>o.value===prevZone) ? prevZone : "";
 
   // TYPE
@@ -376,7 +345,7 @@ function rebuildFilters(){
   bz.replaceChildren();
   opt(bz, "", "(Select zone)");
   opt(bz, "__none__", "(No zone)");
-  for(const z of state.zones) opt(bz, String(z.id), z.name);
+  for(const z of state.zones) opt(bz, String(z.id), z.site_id ? z.name : '🌐 '+z.name);
 }
 
 async function loadAll(){

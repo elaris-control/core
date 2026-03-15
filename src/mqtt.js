@@ -4,8 +4,21 @@ const mqtt = require("mqtt");
 function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto = null }) {
   const client = mqtt.connect(url);
 
+  function withSiteScope(payload = {}) {
+    const deviceId = payload?.deviceId ? String(payload.deviceId) : "";
+    if (!deviceId) return payload;
+    try {
+      const ref = typeof dbApi.getDeviceSite?.get === "function"
+        ? dbApi.getDeviceSite.get(deviceId)
+        : (typeof dbApi.getDeviceSite === "function" ? dbApi.getDeviceSite(deviceId) : null);
+      const siteId = ref?.site_id != null ? Number(ref.site_id) : null;
+      if (siteId) return { ...payload, siteId, site_id: siteId };
+    } catch (_) {}
+    return payload;
+  }
+
   function emit(type, payload) {
-    try { broadcast({ type, ts: Date.now(), ...payload }); } catch (_) {}
+    try { broadcast({ type, ts: Date.now(), ...withSiteScope(payload) }); } catch (_) {}
   }
 
   client.on("connect", () => {

@@ -1,7 +1,5 @@
 // ELARIS app.js v22 — clean dashboard, no drag/drop
-
-
-const $ = id => document.getElementById(id);
+// Shared utilities ($, escapeHTML, api, toast) are in /js/core.js
 
 const state = {
   role:'USER', user:null, sites:[], siteId:null, siteName:null,
@@ -11,12 +9,6 @@ const state = {
 };
 
 function canEngineerUI(){ return state.role==='ENGINEER' || state.role==='ADMIN'; }
-
-function toast(msg,ms=3000){
-  const el=$('toast'); if(!el) return;
-  el.textContent=msg||'';
-  if(ms>0) setTimeout(()=>{ if(el.textContent===msg) el.textContent=''; },ms);
-}
 
 async function ensureZonesLoaded(){
   if(state.zonesLoaded) return;
@@ -32,7 +24,7 @@ function openEdit(item){
   ensureZonesLoaded().then(()=>{
     const sel=$('editZone'); if(!sel) return; sel.innerHTML='';
     const o0=document.createElement('option'); o0.value=''; o0.textContent='(No zone)'; sel.appendChild(o0);
-    (state.zones||[]).forEach(z=>{ const o=document.createElement('option'); o.value=String(z.id); o.textContent=z.name; sel.appendChild(o); });
+    (state.zones||[]).forEach(z=>{ const o=document.createElement('option'); o.value=String(z.id); o.textContent=z.site_id?z.name:'🌐 '+z.name; sel.appendChild(o); });
     sel.value=item.zone_id?String(item.zone_id):'';
   }); m.style.display='flex';
 }
@@ -50,13 +42,6 @@ function bindEditModal(){
   $('editCancelBtn')?.addEventListener('click',closeEdit);
   $('editSaveBtn')?.addEventListener('click',saveEdit);
   $('editModal')?.addEventListener('click',e=>{ if(e.target?.id==='editModal') closeEdit(); });
-}
-
-// API
-async function api(path,opts){
-  const res=await fetch('/api'+path,{headers:{'Content-Type':'application/json'},...opts});
-  if(!res.ok){ let j=null; try{j=await res.json();}catch{} throw new Error(j?.error||'HTTP '+res.status); }
-  return res.json();
 }
 
 // Sites
@@ -99,6 +84,7 @@ async function loadDevicesForSite(){
   const raw=o.devices||[];
   state.devices=raw.map(d=>typeof d==='string'?d:d.id).filter(Boolean);
   state.deviceId=state.devices[0]??null;
+  sendWsScope();
 }
 
 // Device IO
@@ -179,12 +165,19 @@ function startRetryCountdown(sec){
   _wsRetryTimer=setInterval(()=>{ _wsRetryIn--; if(el) el.textContent='Reconnecting in '+Math.max(0,_wsRetryIn)+'s...'; if(_wsRetryIn<=0) clearInterval(_wsRetryTimer); },1000);
   if(el) el.textContent='Reconnecting in '+sec+'s...';
 }
+function sendWsScope(){
+  try{
+    const ws=state.ws;
+    if(!ws||ws.readyState!==WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type:'register_client', siteId:state.siteId||null, deviceId:state.deviceId||null }));
+  }catch{}
+}
 function connectWS(){
   updateWsBadge('connecting');
   try{
     const proto=location.protocol==='https:'?'wss':'ws';
     const ws=new WebSocket(proto+'://'+location.host+'/ws'); state.ws=ws;
-    ws.onopen=()=>{ state.wsOk=true; setOffline(false); clearInterval(_wsRetryTimer); };
+    ws.onopen=()=>{ state.wsOk=true; setOffline(false); clearInterval(_wsRetryTimer); sendWsScope(); };
     ws.onclose=()=>{ state.wsOk=false; setOffline(true); startRetryCountdown(5); setTimeout(connectWS,5000); };
     ws.onmessage=ev=>{
       let msg; try{ msg=JSON.parse(ev.data); }catch{ return; }
@@ -473,8 +466,8 @@ async function loadScenesWidget(){
       var col=s.color||'#6366f1';
       var sn=(s.name||'').replace(/'/g,"\\'");
       html+='<div class="sum-card" onclick="activateScene('+s.id+',\''+sn+'\')" id="sbtn-'+s.id+'" style="border-left:3px solid '+col+'88;cursor:pointer">';
-      html+='<span class="sum-icon">'+(s.icon||'\ud83c\udfac')+'</span>';
-      html+='<span class="sum-info"><div class="sum-name">'+s.name+'</div>';
+      html+='<span class="sum-icon">'+escapeHTML(s.icon||'\ud83c\udfac')+'</span>';
+      html+='<span class="sum-info"><div class="sum-name">'+escapeHTML(s.name)+'</div>';
       html+='<div class="sum-status">\u25b6 Activate</div></span></div>';
     });
     html+='</div>'; body.innerHTML=html;
@@ -533,7 +526,7 @@ async function loadSummaryCards(){
     for(const page of pages){
       const ids=JSON.parse(page.instances_json||'[]');
       cards+='<a class="sum-card" href="/page.html?id='+page.id+'" style="border-left:3px solid rgba(99,102,241,.3)">';
-      cards+='<span class="sum-icon">'+(page.icon||'\ud83d\udcc4')+'</span><span class="sum-info"><div class="sum-name">'+page.name+'</div>';
+      cards+='<span class="sum-icon">'+escapeHTML(page.icon||'\ud83d\udcc4')+'</span><span class="sum-info"><div class="sum-name">'+escapeHTML(page.name)+'</div>';
       cards+='<div class="sum-status">'+ids.length+' module'+(ids.length!==1?'s':'')+'</div></span><span style="color:var(--muted);">&rsaquo;</span></a>';
     }
     grid.innerHTML=cards||(canEngineerUI() ? '<div style="color:var(--muted);font-size:12px;grid-column:1/-1">No modules. <a href="/modules.html" style="color:var(--blue)">Add modules &rarr;</a></div>' : '<div style="color:var(--muted);font-size:12px;grid-column:1/-1">No modules yet.</div>');
@@ -548,7 +541,7 @@ async function loadEventsWidget(){
     if(!logs.length){ body.innerHTML='<div style="color:var(--muted);font-size:12px">No recent events.</div>'; return; }
     body.innerHTML=logs.map(log=>{
       const t=new Date(log.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-      return '<div class="ev-row"><span class="ev-time">'+t+'</span><span class="ev-action">'+(log.action||'\u2014')+'</span><span class="ev-reason">'+(log.reason||'')+'</span></div>';
+      return '<div class="ev-row"><span class="ev-time">'+t+'</span><span class="ev-action">'+escapeHTML(log.action||'\u2014')+'</span><span class="ev-reason">'+escapeHTML(log.reason||'')+'</span></div>';
     }).join('');
   }catch{ body.innerHTML='<div style="color:var(--muted);font-size:12px">No recent events.</div>'; }
 }
@@ -576,8 +569,8 @@ async function loadPinnedSensors(){
       if(io.type==='relay'){val=(val==='1'||val==='ON'||val==='true'||val===1)?'ON':'OFF';unit='';}
       html+='<div class="sum-card" style="border-left:3px solid rgba(34,217,122,.3)">';
       html+='<span class="sum-icon">'+icon+'</span>';
-      html+='<span class="sum-info"><div class="sum-name">'+(io.name||io.key||'IO #'+io.id)+'</div>';
-      html+='<div class="sum-status" id="pv-'+io.id+'" style="font-family:monospace">'+val+unit+'</div></span></div>';
+      html+='<span class="sum-info"><div class="sum-name">'+escapeHTML(io.name||io.key||'IO #'+io.id)+'</div>';
+      html+='<div class="sum-status" id="pv-'+io.id+'" style="font-family:monospace">'+escapeHTML(val)+escapeHTML(unit)+'</div></span></div>';
     });
     el.innerHTML=html;
   }catch(e){
@@ -609,7 +602,7 @@ async function loadPmPages(){
     const cnt=JSON.parse(p.instances_json||'[]').length;
     return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)">'+
       '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:18px">'+(p.icon||'\ud83d\udcc4')+'</span>'+
-      '<div><div style="font-weight:800;font-size:13px">'+p.name+'</div><div style="font-size:11px;color:var(--muted)">'+cnt+' modules</div></div></div>'+
+      '<div><div style="font-weight:800;font-size:13px">'+escapeHTML(p.name)+'</div><div style="font-size:11px;color:var(--muted)">'+escapeHTML(String(cnt))+' modules</div></div></div>'+
       '<div style="display:flex;gap:6px">'+
       '<a href="/page.html?id='+p.id+'" class="btn" style="padding:4px 10px;font-size:11px;text-decoration:none">Open</a>'+
       '<button class="btn" style="padding:4px 10px;font-size:11px" onclick="openPageEditor('+p.id+')">Edit</button>'+
@@ -640,8 +633,8 @@ async function openPageEditor(editId){
       return '<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);cursor:pointer">'+
         '<input type="checkbox" value="'+inst.id+'" '+chk+' style="width:16px;height:16px">'+
         '<span style="font-size:16px">'+icon+'</span><span>'+
-        '<div style="font-weight:800;font-size:13px">'+(inst.name||'Instance #'+inst.id)+'</div>'+
-        '<div style="font-size:11px;color:var(--muted)">'+inst.module_id+'</div></span></label>';
+        '<div style="font-weight:800;font-size:13px">'+escapeHTML(inst.name||'Instance #'+inst.id)+'</div>'+
+        '<div style="font-size:11px;color:var(--muted)">'+escapeHTML(inst.module_id)+'</div></span></label>';
     }).join('');
   }
   $('pageEditorModal').style.display='flex';

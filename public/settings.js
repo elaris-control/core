@@ -7,7 +7,7 @@
   } catch { window.location.href = "/login.html"; }
 })();
 
-const $ = (id) => document.getElementById(id);
+// Shared utilities ($, api, toast) are in /js/core.js
 
 const state = {
   role: "USER",
@@ -19,24 +19,6 @@ const state = {
   zones: [],
   io: [],
 };
-
-function toast(msg){
-  const el = $("toast");
-  if(el) el.textContent = msg || "";
-}
-
-async function api(path, opts){
-  const res = await fetch("/api"+path, {
-    credentials: "same-origin",
-    headers: { "Content-Type":"application/json" },
-    ...opts
-  });
-  if(!res.ok){
-    let j=null; try{ j=await res.json(); }catch{}
-    throw new Error(j?.error || ("HTTP "+res.status));
-  }
-  return await res.json();
-}
 
 async function loadMe(){
   const me = await api("/me");
@@ -90,7 +72,7 @@ function zoneSelect(current){
   for(const z of state.zones){
     const o = document.createElement("option");
     o.value = String(z.id);
-    o.textContent = z.name;
+    o.textContent = z.site_id ? z.name : '🌐 '+z.name;
     if(String(current||"") === String(z.id)) o.selected = true;
     sel.appendChild(o);
   }

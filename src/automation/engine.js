@@ -211,7 +211,7 @@ class AutomationEngine {
         try {
           const merged = Object.assign({}, engine.runtimeState.get(instance.id) || {}, payload || {}, { ts: Date.now() });
           engine.runtimeState.set(instance.id, merged);
-          engine.broadcast && engine.broadcast({ type: "automation", instance: instance.id, module: instance.module_id, ...merged });
+          engine.broadcast && engine.broadcast({ type: "automation", instance: instance.id, module: instance.module_id, site_id: instance.site_id ?? null, siteId: instance.site_id ?? null, ...merged });
         } catch {}
       },
 
@@ -340,6 +340,8 @@ class AutomationEngine {
             dry_run: true,
             io_key: io.key,
             requested_value: normalized,
+            site_id: meta.siteId ?? null,
+            siteId: meta.siteId ?? null,
             ts: Date.now(),
           });
         } catch {}
@@ -360,6 +362,8 @@ class AutomationEngine {
           io_id: io.id,
           forced_value: forced.value,
           requested_value: normalized,
+          site_id: meta.siteId ?? null,
+          siteId: meta.siteId ?? null,
           ts: Date.now(),
         });
       } catch {}
@@ -391,6 +395,7 @@ class AutomationEngine {
       instanceId: instance.id,
       inputKey,
       reason,
+      siteId: instance.site_id,
       fromSendCommand: true,
     });
 
@@ -428,6 +433,8 @@ class AutomationEngine {
       dry_run:    isDryRun,
       io_key:     io.key,
       requested_value: result.value,
+      site_id:    instance.site_id ?? null,
+      siteId:     instance.site_id ?? null,
       ts:         Date.now(),
     });
     return result;

@@ -78,7 +78,7 @@ async function lock() {
 
 function rowHTML(p, zones) {
   const zopts = [`<option value="">(No zone)</option>`]
-    .concat((zones || []).map(z => `<option value="${z.id}">${escHTML(z.name)}</option>`))
+    .concat((zones || []).map(z => `<option value="${z.id}">${z.site_id ? escHTML(z.name) : '🌐 '+escHTML(z.name)}</option>`))
     .join("");
 
   return `

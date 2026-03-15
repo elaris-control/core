@@ -255,6 +255,104 @@ db.exec(`
     `);
   });
 
+  // One-time dedupe: remove duplicate rows created by old import logic.
+  // Repoints all references before deleting, so no FK or JSON refs are left dangling.
+  applyMigration("dedupe_import_duplicates_v1", () => {
+    const miExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='module_instances'`).get();
+    const scExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='scenes'`).get();
+    const ssExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='scene_schedules'`).get();
+
+    // ── 1. module_instances ──────────────────────────────────────────────
+    if (miExists) {
+      const miDupGroups = db.prepare(`
+        SELECT MIN(id) AS keeper_id, site_id, module_id, COALESCE(name,'') AS grp_name
+        FROM module_instances
+        GROUP BY site_id, module_id, COALESCE(name,'')
+        HAVING COUNT(*) > 1
+      `).all();
+
+      const getDupInstances    = db.prepare(`SELECT id FROM module_instances WHERE site_id=? AND module_id=? AND COALESCE(name,'')=? AND id != ?`);
+      const deleteConflictMap  = db.prepare(`DELETE FROM module_mappings WHERE instance_id=? AND input_key IN (SELECT input_key FROM module_mappings WHERE instance_id=?)`);
+      const repointMappings    = db.prepare(`UPDATE module_mappings SET instance_id=? WHERE instance_id=?`);
+      const deleteInstance     = db.prepare(`DELETE FROM module_instances WHERE id=?`);
+      const getScenes          = scExists ? db.prepare(`SELECT id, actions_json FROM scenes`) : null;
+      const updateSceneJSON    = scExists ? db.prepare(`UPDATE scenes SET actions_json=? WHERE id=?`) : null;
+
+      for (const g of miDupGroups) {
+        const dups = getDupInstances.all(g.site_id, g.module_id, g.grp_name, g.keeper_id);
+        for (const dup of dups) {
+          // 1. Dedupe dup's own mappings (same input_key twice on same instance — keep MIN id)
+          db.prepare(`DELETE FROM module_mappings WHERE instance_id=? AND id NOT IN (SELECT MIN(id) FROM module_mappings WHERE instance_id=? GROUP BY input_key)`).run(dup.id, dup.id);
+          // 2. Drop dup's mappings that still conflict with keeper's existing input_keys
+          deleteConflictMap.run(dup.id, g.keeper_id);
+          // 3. Repoint remaining dup mappings to keeper — now guaranteed conflict-free
+          repointMappings.run(g.keeper_id, dup.id);
+          // Repoint set_setpoint instance_id inside scenes.actions_json
+          if (getScenes) {
+            for (const scene of getScenes.all()) {
+              let actions; try { actions = JSON.parse(scene.actions_json || '[]'); } catch(_) { continue; }
+              let changed = false;
+              actions = actions.map(a => {
+                if (a.type === 'set_setpoint' && a.instance_id === dup.id) { changed = true; return Object.assign({}, a, { instance_id: g.keeper_id }); }
+                return a;
+              });
+              if (changed) updateSceneJSON.run(JSON.stringify(actions), scene.id);
+            }
+          }
+          deleteInstance.run(dup.id);
+        }
+      }
+    }
+
+    // ── 2. scenes ────────────────────────────────────────────────────────
+    if (scExists) {
+      const scDupGroups = db.prepare(`
+        SELECT MIN(id) AS keeper_id, COALESCE(site_id,0) AS site_key, name
+        FROM scenes
+        GROUP BY COALESCE(site_id,0), name
+        HAVING COUNT(*) > 1
+      `).all();
+
+      const getDupScenes    = db.prepare(`SELECT id FROM scenes WHERE COALESCE(site_id,0)=? AND name=? AND id != ?`);
+      const repointSchedules= ssExists ? db.prepare(`UPDATE scene_schedules SET scene_id=? WHERE scene_id=?`) : null;
+      const repointLog      = db.prepare(`UPDATE scene_log SET scene_id=? WHERE scene_id=?`);
+      const deleteScene     = db.prepare(`DELETE FROM scenes WHERE id=?`);
+
+      for (const g of scDupGroups) {
+        const dups = getDupScenes.all(g.site_key, g.name, g.keeper_id);
+        for (const dup of dups) {
+          if (repointSchedules) repointSchedules.run(g.keeper_id, dup.id);
+          repointLog.run(g.keeper_id, dup.id);
+          deleteScene.run(dup.id);
+        }
+      }
+
+      // ── 3. scene_schedules (after scene repoint, keeper may now have dups) ──
+      if (ssExists) {
+        const ssDupGroups = db.prepare(`
+          SELECT MIN(id) AS keeper_id, scene_id, time, days
+          FROM scene_schedules
+          GROUP BY scene_id, time, days
+          HAVING COUNT(*) > 1
+        `).all();
+        const deleteSched = db.prepare(`DELETE FROM scene_schedules WHERE scene_id=? AND time=? AND days=? AND id != ?`);
+        for (const g of ssDupGroups) {
+          deleteSched.run(g.scene_id, g.time, g.days, g.keeper_id);
+        }
+      }
+    }
+  });
+
+  // Add unique indexes to prevent logical duplicates at DB level (runs after dedupe above)
+  applyMigration("unique_indexes_v1", () => {
+    const miExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='module_instances'`).get();
+    const scExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='scenes'`).get();
+    const ssExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='scene_schedules'`).get();
+    if (miExists) db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_module_instances_unique ON module_instances(site_id, module_id, COALESCE(name,''))`);
+    if (scExists) db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_scenes_unique ON scenes(COALESCE(site_id,0), name)`);
+    if (ssExists) db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_scene_schedules_unique ON scene_schedules(scene_id, time, days)`);
+  });
+
   applyMigration("sites_created_ts_alignment_v1", () => {
     const siteCols = db.prepare(`PRAGMA table_info(sites)`).all().map(r => r.name);
     if (siteCols.includes("created_at") && !siteCols.includes("created_ts")) {
@@ -513,6 +611,21 @@ db.exec(`
         db.prepare(`UPDATE device_site SET site_id=? WHERE site_id=?`).run(defaultSite.id, id);
       } else {
         db.prepare(`DELETE FROM device_site WHERE site_id=?`).run(id);
+      }
+      // Null out scene actions pointing to this site's module instances (CASCADE will delete them next)
+      const siteInstIds = db.prepare(`SELECT id FROM module_instances WHERE site_id=?`).all(id).map(r => r.id);
+      if (siteInstIds.length) {
+        const allScenes = db.prepare(`SELECT id, actions_json FROM scenes`).all();
+        const patchScene = db.prepare(`UPDATE scenes SET actions_json=? WHERE id=?`);
+        for (const scene of allScenes) {
+          let actions; try { actions = JSON.parse(scene.actions_json || '[]'); } catch(_) { continue; }
+          let changed = false;
+          actions = actions.map(a => {
+            if (a.type === 'set_setpoint' && siteInstIds.includes(a.instance_id)) { changed = true; return Object.assign({}, a, { instance_id: null }); }
+            return a;
+          });
+          if (changed) patchScene.run(JSON.stringify(actions), scene.id);
+        }
       }
       // module_instances: ON DELETE CASCADE handles these when FK is ON
       _deleteSiteRow.run(id);

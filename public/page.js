@@ -1,9 +1,6 @@
 // page.js v32 - generic module page renderer
-var $ = function(id){ return document.getElementById(id); };
+// Shared utilities ($, escapeHTML, api, toast) are in /js/core.js
 var pstate = { siteId:null, deviceId:null, deviceState:new Map(), ws:null, _instances:[], uiRole:'USER' };
-
-function toast(msg,ms){ var el=$('toast'); if(!el)return; el.textContent=msg||''; setTimeout(function(){ if(el.textContent===msg)el.textContent=''; },ms||3000); }
-async function api(path,opts){ var res=await fetch('/api'+path,Object.assign({headers:{'Content-Type':'application/json'}},opts||{})); if(!res.ok){var j=null;try{j=await res.json();}catch(e){}throw new Error((j&&j.error)||'HTTP '+res.status);} return res.json(); }
 function applyTheme(t){ document.documentElement.dataset.theme=t; var b=$('themeBtn'); if(b)b.textContent=t==='dark'?'\u2600\ufe0f':'\ud83c\udf19'; }
 function toggleTheme(){ var c=document.documentElement.dataset.theme||'dark'; var n=c==='dark'?'light':'dark'; document.documentElement.dataset.theme=n; localStorage.setItem('elaris_theme',n); applyTheme(n); }
 
@@ -22,16 +19,18 @@ async function loadSites(){
   var raw=o2.devices||[];
   var devs=raw.map(function(d){return typeof d==='string'?d:d.id;}).filter(Boolean);
   pstate.deviceId=devs[0]||null;
+  sendWsScope();
 }
 
 function updateWsBadge(s){ var el=$('wsPill'); if(!el)return; el.className='pill ws-badge'; if(s==='online'){el.className+=' online';el.textContent='Online';}else if(s==='offline'){el.className+=' offline';el.textContent='Offline';}else{el.className+=' connecting';el.textContent='Connecting...';} }
-function connectWS(){ updateWsBadge('connecting'); try{ var proto=location.protocol==='https:'?'wss':'ws'; var ws=new WebSocket(proto+'://'+location.host+'/ws'); pstate.ws=ws; ws.onopen=function(){updateWsBadge('online');}; ws.onclose=function(){updateWsBadge('offline');setTimeout(connectWS,5000);}; ws.onmessage=function(ev){var msg;try{msg=JSON.parse(ev.data);}catch(e){return;} if(msg.type==='mqtt'&&msg.deviceId===pstate.deviceId&&msg.key)pstate.deviceState.set(msg.key,msg.payload); }; }catch(e){} }
+function sendWsScope(){ try{ var ws=pstate.ws; if(!ws||ws.readyState!==WebSocket.OPEN)return; ws.send(JSON.stringify({ type:'register_client', siteId:pstate.siteId||null, deviceId:pstate.deviceId||null })); }catch(e){} }
+function connectWS(){ updateWsBadge('connecting'); try{ var proto=location.protocol==='https:'?'wss':'ws'; var ws=new WebSocket(proto+'://'+location.host+'/ws'); pstate.ws=ws; ws.onopen=function(){updateWsBadge('online');sendWsScope();}; ws.onclose=function(){updateWsBadge('offline');setTimeout(connectWS,5000);}; ws.onmessage=function(ev){var msg;try{msg=JSON.parse(ev.data);}catch(e){return;} if(msg.type==='mqtt'&&msg.deviceId===pstate.deviceId&&msg.key)pstate.deviceState.set(msg.key,msg.payload); }; }catch(e){} }
 
 async function loadNav(){ try{
   var d=await fetch('/api/nav/pages').then(function(r){return r.json();}).catch(function(){return{pages:[]};});
   var custom=(d.pages||[]).filter(function(p){return!p.system;}); var c=$('navContainer'); if(!c)return;
   if(!custom.length){c.innerHTML='';return;}
-  c.innerHTML='<div class="groupTitle">My Pages</div><nav class="nav">'+custom.map(function(p){return'<a href="/page.html?id='+p.id+'">'+(p.icon||'\ud83d\udcc4')+' '+p.name+'</a>';}).join('')+'</nav>';
+  c.innerHTML='<div class="groupTitle">My Pages</div><nav class="nav">'+custom.map(function(p){return'<a href="/page.html?id='+Number(p.id)+'">'+escapeHTML(p.icon||'\ud83d\udcc4')+' '+escapeHTML(p.name)+'</a>';}).join('')+'</nav>';
   document.querySelectorAll('#navContainer a').forEach(function(a){if(a.href===location.href)a.classList.add('active');});
 }catch(e){} }
 

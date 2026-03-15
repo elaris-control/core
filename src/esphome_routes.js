@@ -62,8 +62,9 @@ function checkEsphome(dataDir) {
 
 function sendWs(wsApi, clientId, type, level, text) {
   const msg = { type, level, text, ts: Date.now() };
+  // ESPHome logs go only to the requesting engineer client — never broadcast globally,
+  // as they may contain device configs, network details, and OTA progress.
   if (clientId && wsApi.sendToClient) wsApi.sendToClient(clientId, msg);
-  else wsApi.broadcast(msg);
   if (type === 'esphome_log' && wsApi.broadcastLog) {
     wsApi.broadcastLog({ level, text: `[FLASH] ${text}`, ts: Date.now() });
   }

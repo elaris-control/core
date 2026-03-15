@@ -2,6 +2,8 @@
 (function () {
   if (typeof window === 'undefined') return;
 
+  function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
   const items = [
     { href: '/',               icon: '🏠', label: 'Home' },
     { href: '/modules.html',   icon: '⚙️', label: 'Modules' },
@@ -89,9 +91,9 @@
         return;
       }
       list.innerHTML = custom.map(p => `
-        <a href="/page.html?id=${p.id}" class="mn-sheet-item">
-          <span class="mn-sheet-item-icon">${p.icon || '📄'}</span>
-          <span class="mn-sheet-item-name">${p.name}</span>
+        <a href="/page.html?id=${Number(p.id)}" class="mn-sheet-item">
+          <span class="mn-sheet-item-icon">${esc(p.icon || '📄')}</span>
+          <span class="mn-sheet-item-name">${esc(p.name)}</span>
           <span class="mn-sheet-item-arrow">›</span>
         </a>`).join('') + sheetActions();
     } catch {

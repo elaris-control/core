@@ -32,13 +32,12 @@ function validateModuleMappings(def, mappings) {
   return { ok: true };
 }
 
-function initModuleRoutes({ db, requireLogin, requireEngineer }) {
+function initModuleRoutes({ db, requireLogin, requireEngineer, access }) {
   const express = require("express");
   const router  = express.Router();
 
   function isEngineerLike(req) {
-    const role = String(req?.user?.role || '').toUpperCase();
-    return role === 'ENGINEER' || role === 'ADMIN';
+    return access.canSeePrivate(req);
   }
 
   function canUserViewDefinition(req, def) {
@@ -51,6 +50,19 @@ function initModuleRoutes({ db, requireLogin, requireEngineer }) {
     const mappings = isEngineerLike(req) ? getMappings.all(inst.id) : [];
     return { ...inst, definition: def, mappings };
   }
+
+  function requireSiteRefAccess(req, res, ref, notFound = "not_found") {
+    if (!ref) {
+      res.status(404).json({ ok: false, error: notFound });
+      return false;
+    }
+    if (!access.canAccessSiteRef(req, ref)) {
+      res.status(403).json({ ok: false, error: "forbidden" });
+      return false;
+    }
+    return true;
+  }
+
 
   // All module routes require login
   router.use(requireLogin);
@@ -111,9 +123,13 @@ function initModuleRoutes({ db, requireLogin, requireEngineer }) {
   // ── GET /api/modules/instances ────────────────────────────────────────
   router.get("/instances", (req, res) => {
     const siteId = Number(req.query.site_id || 0);
+    if (siteId) {
+      const ref = access.getSiteRef(siteId);
+      if (!requireSiteRefAccess(req, res, ref, "site_not_found")) return;
+    }
     const instances = listInstances.all();
-    const filtered = siteId ? instances.filter(inst => Number(inst.site_id) === siteId) : instances;
-    // Attach mappings + module definition to each
+    const filtered = (siteId ? instances.filter(inst => Number(inst.site_id) === siteId) : instances)
+      .filter(inst => access.canAccessSite(req, inst.site_id));
     const result = filtered
       .filter(inst => canUserViewDefinition(req, getModule(inst.module_id)))
       .map(inst => shapeInstanceForRole(req, inst));
@@ -124,6 +140,7 @@ function initModuleRoutes({ db, requireLogin, requireEngineer }) {
   router.get("/instances/:id", (req, res) => {
     const inst = getInstance.get(Number(req.params.id));
     if (!inst) return res.status(404).json({ ok: false, error: "not_found" });
+    if (!requireSiteRefAccess(req, res, access.getModuleInstanceSiteRef(inst.id), "not_found")) return;
     const def = getModule(inst.module_id);
     if (!canUserViewDefinition(req, def)) return res.status(403).json({ ok: false, error: 'forbidden' });
     res.json({ ok: true, instance: shapeInstanceForRole(req, inst) });
@@ -136,6 +153,7 @@ function initModuleRoutes({ db, requireLogin, requireEngineer }) {
     try {
       const { site_id, module_id, name, mappings = {} } = req.body || {};
       if (!site_id || !module_id) return res.status(400).json({ ok: false, error: "missing_fields" });
+      if (!requireSiteRefAccess(req, res, access.getSiteRef(site_id), "site_not_found")) return;
 
       const def = getModule(module_id);
       if (!def) return res.status(400).json({ ok: false, error: "unknown_module" });
@@ -165,13 +183,15 @@ function initModuleRoutes({ db, requireLogin, requireEngineer }) {
       const maprows  = getMappings.all(instance_id);
       res.json({ ok: true, instance: { ...inst, definition: def, mappings: maprows } });
     } catch (e) {
-      res.status(500).json({ ok: false, error: e.message });
+      const isUnique = e.code === 'SQLITE_CONSTRAINT_UNIQUE' || (e.message||'').includes('UNIQUE');
+      res.status(isUnique ? 409 : 500).json({ ok: false, error: isUnique ? 'instance_already_exists' : e.message });
     }
   });
 
   // ── PATCH /api/modules/instances/:id/config ─────────────────────────
-  router.patch("/instances/:id/config", requireEngineer || requireLogin, (req, res) => {
+  router.patch("/instances/:id/config", requireEngineer, (req, res) => {
     const id = parseInt(req.params.id);
+    if (!requireSiteRefAccess(req, res, access.getModuleInstanceSiteRef(id), "not_found")) return;
     const { config } = req.body;
     if (!config) return res.status(400).json({ ok:false, error:"config required" });
     try {
@@ -187,6 +207,7 @@ function initModuleRoutes({ db, requireLogin, requireEngineer }) {
     try {
       const inst = getInstance.get(Number(req.params.id));
       if (!inst) return res.status(404).json({ ok: false, error: "not_found" });
+      if (!requireSiteRefAccess(req, res, access.getModuleInstanceSiteRef(inst.id), "not_found")) return;
 
       const { mappings = {} } = req.body || {};
       const currentMapRows = getMappings.all(inst.id);
@@ -218,13 +239,16 @@ function initModuleRoutes({ db, requireLogin, requireEngineer }) {
 
   // ── DELETE /api/modules/instances/:id ────────────────────────────────
   router.delete("/instances/:id", requireEngineer, (req, res) => {
-    deleteInstance.run(Number(req.params.id));
+    const id = Number(req.params.id);
+    if (!requireSiteRefAccess(req, res, access.getModuleInstanceSiteRef(id), "not_found")) return;
+    deleteInstance.run(id);
     res.json({ ok: true });
   });
 
   // ── GET /api/modules/io/:site_id ─────────────────────────────────────
   // List approved IO entities for a site (used for mapping dropdowns)
   router.get("/io/:site_id", (req, res) => {
+    if (!requireSiteRefAccess(req, res, access.getSiteRef(req.params.site_id), "site_not_found")) return;
     const io = listIOForSite.all(Number(req.params.site_id));
     res.json({ ok: true, io });
   });
@@ -232,6 +256,7 @@ function initModuleRoutes({ db, requireLogin, requireEngineer }) {
   // ── GET /api/modules/suggest/:site_id/:module_id ─────────────────────
   // Auto-suggest mappings by matching entity keys to module input keys
   router.get("/suggest/:site_id/:module_id", (req, res) => {
+    if (!requireSiteRefAccess(req, res, access.getSiteRef(req.params.site_id), "site_not_found")) return;
     const def = getModule(req.params.module_id);
     if (!def) return res.status(404).json({ ok: false, error: "unknown_module" });
 

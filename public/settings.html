@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/styles.css?v=22">
   <script>try{document.documentElement.dataset.theme=localStorage.getItem('elaris_theme')||'dark';}catch(e){document.documentElement.dataset.theme='dark';}</script>
   <script src="/csrf.js?v=1"></script>
+  <script src="/js/core.js?v=1"></script>
 </head>
 
 <body>
@@ -212,8 +213,8 @@
     el.innerHTML = channels.map(ch => `
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)">
         <div>
-          <span style="font-weight:700">${ch.name}</span>
-          <span style="color:var(--muted);font-size:11px;margin-left:8px">${ch.type}</span>
+          <span style="font-weight:700">${escapeHTML(ch.name)}</span>
+          <span style="color:var(--muted);font-size:11px;margin-left:8px">${escapeHTML(ch.type)}</span>
           ${ch.enabled?'<span style="color:#22d97a;font-size:11px;margin-left:4px">● active</span>':'<span style="color:var(--muted);font-size:11px;margin-left:4px">○ disabled</span>'}
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -383,8 +384,8 @@
     el.innerHTML = scenes.map(s => `
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)">
         <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:20px">${s.icon||"🎬"}</span>
-          <span style="font-weight:700">${s.name}</span>
+          <span style="font-size:20px">${escapeHTML(s.icon||"🎬")}</span>
+          <span style="font-weight:700">${escapeHTML(s.name)}</span>
           <span style="font-size:11px;color:var(--muted)">${JSON.parse(s.actions_json||"[]").length} actions</span>
         </div>
         <div style="display:flex;gap:6px">
