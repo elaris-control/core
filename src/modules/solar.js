@@ -1,7 +1,8 @@
 // src/modules/solar.js
 // Solar module — MODULE definition + engine handler + API routes
 
-const { solarEngineHandler } = require('../automation/solar_v2');
+let solarEngineHandler;
+try { ({ solarEngineHandler } = require('../automation/solar_v2')); } catch (_) {}
 
 const MODULE = {
   id: "solar", name: "Solar System", icon: "☀️",
