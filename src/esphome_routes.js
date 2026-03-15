@@ -7,7 +7,7 @@ const path = require('path');
 const { listCatalogSummaries, getCatalogProfile, seedProfileCatalog, upsertProfileFromFile, upsertProfileFromObject } = require('./esphome/profile_registry');
 const { normalizePayload, safeName, sha256 } = require('./esphome/schema');
 const { validateConfig } = require('./esphome/validator');
-const { generateYAML } = require('./esphome/generator');
+const { generateYAML, addPeripheralToYaml } = require('./esphome/generator');
 const { parseEsphomeYaml } = require('./esphome/yaml_importer');
 const https = require('https');
 const http = require('http');
@@ -683,6 +683,151 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
       res.json({ ok: true, devices, cached: false });
     } catch (e) {
       res.status(502).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ── Add Peripheral to existing device (OTA) ─────────────────────────────
+  app.post('/api/esphome/add-peripheral', requireEngineerAccess, (req, res) => {
+    if (activeFlash) return res.status(409).json({ ok: false, error: 'flash_in_progress' });
+    const bin = getEspHomeBin(dataDir);
+    if (!bin) return res.status(503).json({ ok: false, error: 'esphome_not_installed' });
+
+    const body = req.body || {};
+    const deviceId = Number(body.device_id);
+    const ip = String(body.ip || '').trim();
+    const clientId = String(body.client_id || '').trim() || null;
+    const rawEntity = body.entity || {};
+
+    if (!deviceId) return res.status(400).json({ ok: false, error: 'device_id required' });
+    if (!ip) return res.status(400).json({ ok: false, error: 'ip required' });
+
+    // Validate entity fields
+    const eType = String(rawEntity.type || '').trim().toLowerCase();
+    const eName = String(rawEntity.name || '').trim();
+    const ePin  = String(rawEntity.pin  || '').trim();
+    const eKey  = String(rawEntity.key  || '').trim().replace(/[^a-z0-9_]/g, '_').replace(/^_|_$/g, '');
+
+    const ALLOWED_TYPES = ['ds18b20', 'dht11', 'dht', 'analog'];
+    if (!ALLOWED_TYPES.includes(eType)) return res.status(400).json({ ok: false, error: 'unsupported_entity_type' });
+    if (!eName) return res.status(400).json({ ok: false, error: 'entity name required' });
+    if (!ePin)  return res.status(400).json({ ok: false, error: 'entity pin required' });
+    if (!eKey)  return res.status(400).json({ ok: false, error: 'entity key required' });
+
+    if (!db) return res.status(500).json({ ok: false, error: 'database_unavailable' });
+
+    const device = db.prepare('SELECT * FROM esphome_devices WHERE id=?').get(deviceId);
+    if (!device) return res.status(404).json({ ok: false, error: 'device_not_found' });
+    if (!device.yaml_path) return res.status(400).json({ ok: false, error: 'device_has_no_yaml_path' });
+    if (!fs.existsSync(device.yaml_path)) return res.status(400).json({ ok: false, error: 'yaml_file_not_found' });
+
+    const existingYaml = fs.readFileSync(device.yaml_path, 'utf8');
+    const deviceSafeName = device.name || safeName(device.friendly_name || 'device');
+
+    let updatedYaml;
+    try {
+      updatedYaml = addPeripheralToYaml(existingYaml, deviceSafeName, {
+        type: eType, name: eName, key: eKey, pin: ePin,
+      });
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: 'yaml_merge_failed: ' + e.message });
+    }
+
+    fs.writeFileSync(device.yaml_path, updatedYaml, 'utf8');
+
+    // Persist updated yaml_hash in DB
+    const now = new Date().toISOString();
+    const { sha256 } = require('./esphome/schema');
+    db.prepare('UPDATE esphome_devices SET yaml_hash=?, status=?, updated_at=? WHERE id=?')
+      .run(sha256(updatedYaml), 'generated', now, deviceId);
+
+    // Save new generated config record
+    let configId = null;
+    try {
+      const cfg = db.prepare(
+        'INSERT INTO esphome_generated_configs (esphome_device_id, config_mode, board_profile_id, yaml_text, yaml_hash, validation_json, generated_by) VALUES (?,?,?,?,?,?,?)'
+      ).run(deviceId, 'add_peripheral', device.board_profile_id, updatedYaml, sha256(updatedYaml), JSON.stringify({ ok: true }), 'add_peripheral');
+      configId = cfg.lastInsertRowid;
+    } catch {}
+
+    // Create job record
+    let jobId = null;
+    try {
+      const job = db.prepare(
+        'INSERT INTO esphome_install_jobs (esphome_device_id, config_id, job_type, target_ip, status, created_at) VALUES (?,?,?,?,?,?)'
+      ).run(deviceId, configId, 'add_peripheral', ip, 'queued', now);
+      jobId = job.lastInsertRowid;
+    } catch {}
+
+    res.json({ ok: true, yaml: updatedYaml });
+
+    const logs = [];
+    const appendLog = (level, text) => {
+      logs.push(`[${level}] ${text}`);
+      sendWs(wsApi, clientId, 'esphome_add_log', level, text);
+    };
+
+    const args = ['run', device.yaml_path, '--no-logs', '--device', ip];
+    const proc = spawn(bin, args, { cwd: cfgDir });
+    activeFlash = proc;
+    if (jobId) updateJob(db, jobId, { status: 'running', started_at: now });
+
+    proc.stdout.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => appendLog('info', l)));
+    proc.stderr.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => appendLog('warn', l)));
+
+    proc.on('close', code => {
+      activeFlash = null;
+      const ok = code === 0;
+      db.prepare('UPDATE esphome_devices SET status=?, updated_at=? WHERE id=?')
+        .run(ok ? 'flashed' : 'error', new Date().toISOString(), deviceId);
+      if (jobId) updateJob(db, jobId, {
+        status: ok ? 'success' : 'failed',
+        finished_at: new Date().toISOString(),
+        exit_code: code,
+        output_log: logs.join('\n'),
+        error_text: ok ? null : logs.slice(-20).join('\n'),
+      });
+      const doneMsg = { type: 'esphome_add_done', ok, code };
+      if (clientId && wsApi.sendToClient) wsApi.sendToClient(clientId, doneMsg);
+      appendLog(ok ? 'info' : 'error', ok
+        ? `✓ Flash complete — "${eName}" added to "${device.friendly_name || device.name}"`
+        : `✗ Flash failed (exit ${code})`);
+    });
+
+    proc.on('error', err => {
+      activeFlash = null;
+      if (jobId) updateJob(db, jobId, { status: 'failed', finished_at: new Date().toISOString(), error_text: err.message, output_log: logs.join('\n') });
+      appendLog('error', `Cannot run esphome: ${err.message}`);
+    });
+  });
+
+  // ── Preview updated YAML for add-peripheral (dry-run, no flash) ──────────
+  app.post('/api/esphome/add-peripheral/preview', requireEngineerAccess, (req, res) => {
+    const body = req.body || {};
+    const deviceId = Number(body.device_id);
+    const rawEntity = body.entity || {};
+
+    const eType = String(rawEntity.type || '').trim().toLowerCase();
+    const eName = String(rawEntity.name || '').trim();
+    const ePin  = String(rawEntity.pin  || '').trim();
+    const eKey  = String(rawEntity.key  || '').trim().replace(/[^a-z0-9_]/g, '_').replace(/^_|_$/g, '');
+
+    if (!deviceId || !eType || !eName || !ePin || !eKey)
+      return res.status(400).json({ ok: false, error: 'missing required fields' });
+    if (!db) return res.status(500).json({ ok: false, error: 'database_unavailable' });
+
+    const device = db.prepare('SELECT * FROM esphome_devices WHERE id=?').get(deviceId);
+    if (!device) return res.status(404).json({ ok: false, error: 'device_not_found' });
+    if (!device.yaml_path || !fs.existsSync(device.yaml_path))
+      return res.status(400).json({ ok: false, error: 'yaml_file_not_found' });
+
+    const existingYaml = fs.readFileSync(device.yaml_path, 'utf8');
+    const deviceSafeName = device.name || safeName(device.friendly_name || 'device');
+
+    try {
+      const updatedYaml = addPeripheralToYaml(existingYaml, deviceSafeName, { type: eType, name: eName, key: eKey, pin: ePin });
+      res.json({ ok: true, yaml: updatedYaml });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 

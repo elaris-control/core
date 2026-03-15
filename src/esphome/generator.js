@@ -53,7 +53,7 @@ function generateYAML({ profile, payload }) {
   const relays = entities.filter(e => e.type === 'relay');
   const dis = entities.filter(e => e.type === 'di');
   const ds18s = entities.filter(e => e.type === 'ds18b20');
-  const dhts = entities.filter(e => e.type === 'dht');
+  const dhts = entities.filter(e => e.type === 'dht' || e.type === 'dht11');
   const analogs = entities.filter(e => e.type === 'analog');
   const lines = [];
 
@@ -204,16 +204,26 @@ function generateYAML({ profile, payload }) {
     });
     dhts.forEach((d) => {
       const pin = d.pin || d.source;
+      const model = d.type === 'dht11' ? 'DHT11' : 'DHT22';
+      const humKey = d.key + '_hum';
       lines.push('  - platform: dht');
       lines.push(`    pin: ${pin}`);
-      lines.push('    model: DHT22');
+      lines.push(`    model: ${model}`);
       lines.push('    update_interval: 30s');
       lines.push('    temperature:');
-      lines.push(`      name: "${d.name}"`);
+      lines.push(`      name: "${d.name} Temperature"`);
       lines.push(`      id: ${d.key}`);
       lines.push('      on_value:');
       lines.push('        - mqtt.publish:');
       lines.push(`            topic: "elaris/${sname}/tele/${d.key}"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.1f", x);');
+      lines.push('    humidity:');
+      lines.push(`      name: "${d.name} Humidity"`);
+      lines.push(`      id: ${humKey}`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${humKey}"`);
       lines.push('            payload: !lambda |-');
       lines.push('              return str_sprintf("%.1f", x);');
     });
@@ -236,4 +246,129 @@ function generateYAML({ profile, payload }) {
   return lines.join('\n').replace(/\n{3,}/g, '\n\n') + '\n';
 }
 
-module.exports = { generateYAML };
+// ── Peripheral injection into existing YAML ──────────────────────────────────
+
+/**
+ * Inject a new sensor/peripheral into an existing ESPHome YAML string.
+ * Uses text-based injection to preserve the original YAML structure exactly.
+ *
+ * @param {string} yamlText   - existing YAML file content
+ * @param {string} deviceSafeName - safe name of the device (for MQTT topics)
+ * @param {{ type, name, key, pin }} entity - peripheral to add
+ * @returns {string} updated YAML text
+ */
+function addPeripheralToYaml(yamlText, deviceSafeName, entity) {
+  const { type, name, key, pin } = entity;
+  let result = yamlText;
+
+  if (type === 'ds18b20') {
+    // Check if one_wire already declared for this exact pin
+    const hasOneWireForPin = /^one_wire:/m.test(result) && result.includes(`pin: ${pin}`);
+
+    if (!hasOneWireForPin) {
+      const owBlock = `one_wire:\n  - platform: gpio\n    pin: ${pin}`;
+      // Insert before existing sensor: block, or append
+      if (/^sensor:\s*$/m.test(result)) {
+        result = result.replace(/^(sensor:\s*)$/m, owBlock + '\n\n$1');
+      } else {
+        result = result.trimEnd() + '\n\n' + owBlock + '\n';
+      }
+    }
+
+    // Count existing dallas_temp sensors to assign correct index
+    const dsIndex = (result.match(/platform:\s+dallas_temp/g) || []).length;
+
+    const sensorItem = [
+      '  - platform: dallas_temp',
+      `    index: ${dsIndex}`,
+      `    name: "${yamlStr(name)}"`,
+      `    id: ${key}`,
+      '    unit_of_measurement: "°C"',
+      '    update_interval: 30s',
+      '    on_value:',
+      '      - mqtt.publish:',
+      `          topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '          payload: !lambda |-',
+      '            return str_sprintf("%.1f", x);',
+    ].join('\n');
+
+    result = _insertSensorItem(result, sensorItem);
+
+  } else if (type === 'dht11' || type === 'dht') {
+    const model = type === 'dht11' ? 'DHT11' : 'DHT22';
+    const humKey = key + '_hum';
+
+    const sensorItem = [
+      '  - platform: dht',
+      `    pin: ${pin}`,
+      `    model: ${model}`,
+      '    update_interval: 30s',
+      '    temperature:',
+      `      name: "${yamlStr(name)} Temperature"`,
+      `      id: ${key}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.1f", x);',
+      '    humidity:',
+      `      name: "${yamlStr(name)} Humidity"`,
+      `      id: ${humKey}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${humKey}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.1f", x);',
+    ].join('\n');
+
+    result = _insertSensorItem(result, sensorItem);
+
+  } else if (type === 'analog') {
+    const sensorItem = [
+      '  - platform: adc',
+      `    pin: ${pin}`,
+      `    name: "${yamlStr(name)}"`,
+      `    id: ${key}`,
+      '    update_interval: 10s',
+      '    on_value:',
+      '      - mqtt.publish:',
+      `          topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '          payload: !lambda |-',
+      '            return str_sprintf("%.3f", x);',
+    ].join('\n');
+
+    result = _insertSensorItem(result, sensorItem);
+  }
+
+  return result.replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+}
+
+/**
+ * Insert a sensor list item (lines starting with "  - platform: ...") into
+ * the existing top-level `sensor:` block of a YAML string, or append a new
+ * `sensor:` block if one doesn't exist.
+ */
+function _insertSensorItem(yamlText, sensorItemText) {
+  const lines = yamlText.split('\n');
+
+  let sensorIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^sensor:\s*$/.test(lines[i])) { sensorIdx = i; break; }
+  }
+
+  if (sensorIdx === -1) {
+    return yamlText.trimEnd() + '\n\nsensor:\n' + sensorItemText + '\n';
+  }
+
+  // Find end of sensor block: first line at column 0 that is non-empty and starts with a letter
+  let insertIdx = lines.length;
+  for (let i = sensorIdx + 1; i < lines.length; i++) {
+    if (lines[i].length > 0 && /^[a-zA-Z]/.test(lines[i])) { insertIdx = i; break; }
+  }
+
+  const newLines = sensorItemText.split('\n');
+  lines.splice(insertIdx, 0, ...newLines);
+  return lines.join('\n');
+}
+
+module.exports = { generateYAML, addPeripheralToYaml };

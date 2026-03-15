@@ -237,10 +237,74 @@
       </div>
 
       <!-- ── YAML Import / Device Browser buttons ── -->
-      <div style="display:flex;justify-content:flex-end;gap:8px">
+      <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
         <button class="btn" onclick="togglePeripheralLibrary()" style="font-size:12px">&#128268; Peripheral Library</button>
+        <button class="btn" onclick="toggleAddPeripheral()" style="font-size:12px">&#10133; Add to Device</button>
         <button class="btn" onclick="toggleDeviceBrowser()" style="font-size:12px">&#127760; Browse ESPHome Devices</button>
         <button class="btn" onclick="toggleYamlImporter()" style="font-size:12px">&#128196; Import Board from YAML</button>
+      </div>
+
+      <!-- ── Add Peripheral to Existing Device ── -->
+      <div class="card-step" id="addPeripheralPanel" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h2 style="margin:0">&#10133; Add Peripheral to Existing Device</h2>
+          <button class="btn" onclick="document.getElementById('addPeripheralPanel').style.display='none'">&#215; Close</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:14px">
+          Add a new sensor to an already-flashed device. The existing YAML is updated and reflashed via OTA — no USB needed.
+        </p>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Device</label>
+            <select id="apDeviceSelect" onchange="onApDeviceChange()">
+              <option value="">— select device —</option>
+            </select>
+            <span class="form-hint" id="apDeviceHint">Select a flashed device from the list</span>
+          </div>
+          <div class="form-row">
+            <label>Device IP (for OTA)</label>
+            <input type="text" id="apIp" placeholder="192.168.1.x" oninput="apClearPreview()">
+            <span class="form-hint">Device must be online and reachable</span>
+          </div>
+          <div class="form-row">
+            <label>Peripheral Type</label>
+            <select id="apType" onchange="apClearPreview()">
+              <option value="ds18b20">DS18B20 Temperature (1-Wire)</option>
+              <option value="dht11">DHT11 Temp + Humidity</option>
+              <option value="dht">DHT22 Temp + Humidity</option>
+              <option value="analog">Analog Input (ADC)</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>GPIO Pin</label>
+            <input type="text" id="apPin" placeholder="e.g. GPIO32" oninput="apClearPreview()">
+            <span class="form-hint">GPIO pin on the board (e.g. GPIO14, GPIO32)</span>
+          </div>
+          <div class="form-row">
+            <label>Sensor Name</label>
+            <input type="text" id="apName" placeholder="e.g. Boiler Temperature" oninput="apAutoKey();apClearPreview();">
+          </div>
+          <div class="form-row">
+            <label>Key (MQTT ID)</label>
+            <input type="text" id="apKey" placeholder="e.g. boiler_temp" oninput="apClearPreview()">
+            <span class="form-hint">Auto-generated from name. Used in MQTT topic.</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">
+          <button class="btn" id="apPreviewBtn" onclick="apPreview()" style="font-size:12px">&#128196; Preview YAML</button>
+          <button class="btn btnPrimary" id="apFlashBtn" onclick="apFlash()" style="font-size:12px;display:none">&#9889; Add &amp; Flash OTA</button>
+          <button class="btn" id="apCancelBtn" onclick="apCancel()" style="display:none;font-size:12px">&#9632; Cancel</button>
+        </div>
+        <details id="apYamlDetails" style="margin-top:12px;display:none">
+          <summary style="font-size:12px;font-weight:700;cursor:pointer;color:var(--muted2)">&#128196; Updated YAML Preview</summary>
+          <pre class="yaml-pre" id="apYamlPreview" style="max-height:300px"></pre>
+        </details>
+        <div class="terminal" id="apTerminal" style="display:none;margin-top:12px;height:240px"></div>
+        <div id="apDone" style="display:none;margin-top:12px;padding:12px;border-radius:10px;border:1px solid var(--good);background:rgba(34,217,122,.08);text-align:center">
+          <div style="font-size:18px;margin-bottom:4px">&#10003;</div>
+          <div style="font-weight:800;font-size:13px">Peripheral Added!</div>
+          <div style="font-size:12px;color:var(--muted2);margin-top:4px">The device will restart and the new sensor will appear in ELARIS within ~30 seconds.</div>
+        </div>
       </div>
 
       <!-- ── ESPHome Device Browser ── -->
@@ -805,6 +869,7 @@ var ENTITY_TYPES = [
   { v:'di',      l:'Digital Input'    },
   { v:'ds18b20', l:'DS18B20 Temp'     },
   { v:'dht',     l:'DHT22 Temp+Hum'   },
+  { v:'dht11',   l:'DHT11 Temp+Hum'   },
   { v:'analog',  l:'Analog (ADC)'     },
 ];
 
@@ -852,8 +917,8 @@ function collectEntities() {
     var nval  = (name ? name.value.trim() : '') || ('Entity ' + idx);
     var pval  = pin.value.trim();
     var key   = nval.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || ('entity_' + idx);
-    var unit  = type === 'ds18b20' || type === 'dht' ? '°C' : type === 'analog' ? 'V' : null;
-    var dc    = type === 'ds18b20' || type === 'dht' ? 'temperature' : null;
+    var unit  = type === 'ds18b20' || type === 'dht' || type === 'dht11' ? '°C' : type === 'analog' ? 'V' : null;
+    var dc    = type === 'ds18b20' || type === 'dht' || type === 'dht11' ? 'temperature' : null;
     result.push({ type, name: nval, key, pin: pval, source: pval, unit, device_class: dc });
   });
   return result;
@@ -1366,6 +1431,160 @@ async function saveCurrentConfig() {
   } catch(e) { alert('Save failed: ' + e.message); }
 }
 
+// ── Add Peripheral to Existing Device ─────────────────────────────────────
+var _apFlashing = false;
+var _apPreviewYaml = null;
+
+function toggleAddPeripheral() {
+  var p = document.getElementById('addPeripheralPanel');
+  p.style.display = p.style.display === 'none' ? '' : 'none';
+  if (p.style.display !== 'none') apPopulateDevices();
+}
+
+function apPopulateDevices() {
+  var sel = document.getElementById('apDeviceSelect');
+  sel.innerHTML = '<option value="">— select device —</option>';
+  var flashed = installerDevices.filter(function(d) { return d.status === 'flashed' || d.status === 'online'; });
+  if (!flashed.length) {
+    // Show all if none are flashed yet
+    flashed = installerDevices;
+  }
+  flashed.forEach(function(d) {
+    var opt = document.createElement('option');
+    opt.value = String(d.id);
+    opt.textContent = (d.friendly_name || d.name) + (d.ip_address ? ' (' + d.ip_address + ')' : '');
+    sel.appendChild(opt);
+  });
+  if (!installerDevices.length) {
+    sel.innerHTML += '<option value="" disabled>No devices found — flash a device first</option>';
+  }
+}
+
+function onApDeviceChange() {
+  var id = Number(document.getElementById('apDeviceSelect').value);
+  var d = installerDevices.find(function(x) { return Number(x.id) === id; });
+  var hint = document.getElementById('apDeviceHint');
+  if (d) {
+    var ip = d.ip_address || d.target_ip || '';
+    if (ip) document.getElementById('apIp').value = ip;
+    var profile = d.board_profile_id || '';
+    hint.textContent = profile + (d.hostname ? ' · ' + d.hostname : '');
+  } else {
+    hint.textContent = 'Select a flashed device from the list';
+  }
+  apClearPreview();
+}
+
+function apAutoKey() {
+  var name = document.getElementById('apName').value;
+  var key = name.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  document.getElementById('apKey').value = key || '';
+}
+
+function apClearPreview() {
+  _apPreviewYaml = null;
+  document.getElementById('apFlashBtn').style.display = 'none';
+  document.getElementById('apYamlDetails').style.display = 'none';
+  document.getElementById('apDone').style.display = 'none';
+}
+
+async function apPreview() {
+  var deviceId = document.getElementById('apDeviceSelect').value;
+  var type = document.getElementById('apType').value;
+  var name = document.getElementById('apName').value.trim();
+  var pin  = document.getElementById('apPin').value.trim();
+  var key  = document.getElementById('apKey').value.trim();
+
+  if (!deviceId) { alert('Select a device.'); return; }
+  if (!name) { alert('Enter a sensor name.'); return; }
+  if (!pin)  { alert('Enter a GPIO pin (e.g. GPIO32).'); return; }
+  if (!key)  { alert('Key is required.'); return; }
+
+  var btn = document.getElementById('apPreviewBtn');
+  btn.disabled = true; btn.textContent = 'Loading…';
+  try {
+    var r = await api('/esphome/add-peripheral/preview', {
+      method: 'POST',
+      body: JSON.stringify({ device_id: Number(deviceId), entity: { type, name, key, pin } }),
+    });
+    _apPreviewYaml = r.yaml;
+    document.getElementById('apYamlPreview').textContent = r.yaml;
+    document.getElementById('apYamlDetails').style.display = '';
+    document.getElementById('apYamlDetails').open = true;
+    document.getElementById('apFlashBtn').style.display = '';
+    document.getElementById('apDone').style.display = 'none';
+  } catch(e) {
+    alert('Preview failed: ' + e.message);
+  }
+  btn.disabled = false; btn.textContent = '📄 Preview YAML';
+}
+
+async function apFlash() {
+  if (_apFlashing) return;
+  if (!_apPreviewYaml) { alert('Click Preview YAML first.'); return; }
+
+  var deviceId = document.getElementById('apDeviceSelect').value;
+  var ip   = document.getElementById('apIp').value.trim();
+  var type = document.getElementById('apType').value;
+  var name = document.getElementById('apName').value.trim();
+  var pin  = document.getElementById('apPin').value.trim();
+  var key  = document.getElementById('apKey').value.trim();
+
+  if (!ip) { alert('Enter the device IP address for OTA.'); return; }
+
+  _apFlashing = true;
+  var flashBtn = document.getElementById('apFlashBtn');
+  var cancelBtn = document.getElementById('apCancelBtn');
+  var term = document.getElementById('apTerminal');
+  flashBtn.disabled = true; flashBtn.innerHTML = '&#9203; Flashing…';
+  cancelBtn.style.display = '';
+  term.style.display = '';
+  term.innerHTML = '';
+  document.getElementById('apDone').style.display = 'none';
+  apTermLine('info', 'Starting OTA flash…');
+
+  try {
+    await api('/esphome/add-peripheral', {
+      method: 'POST',
+      body: JSON.stringify({
+        device_id: Number(deviceId),
+        ip, client_id: esphomeClientId,
+        entity: { type, name, key, pin },
+      }),
+    });
+    apTermLine('info', 'Flash started — compiling firmware…');
+  } catch(e) {
+    apTermLine('error', 'Error: ' + e.message);
+    apResetFlashUI(false);
+  }
+}
+
+function apCancel() {
+  fetch('/api/esphome/flash', { method: 'DELETE', credentials: 'include' }).catch(function(){});
+  apTermLine('warn', '— Cancelled —');
+  apResetFlashUI(false);
+}
+
+function apResetFlashUI(ok) {
+  _apFlashing = false;
+  var flashBtn = document.getElementById('apFlashBtn');
+  var cancelBtn = document.getElementById('apCancelBtn');
+  flashBtn.disabled = false;
+  flashBtn.innerHTML = ok ? '&#10003; Done' : '&#9889; Add &amp; Flash OTA';
+  cancelBtn.style.display = 'none';
+}
+
+function apTermLine(level, text) {
+  var term = document.getElementById('apTerminal');
+  if (!term) return;
+  var d = document.createElement('div');
+  var now = new Date();
+  var ts = pad2(now.getHours()) + ':' + pad2(now.getMinutes()) + ':' + pad2(now.getSeconds());
+  d.innerHTML = '<span class="tl-ts">' + ts + '</span><span class="tl-' + level + '">' + escHtml(text) + '</span>';
+  term.appendChild(d);
+  term.scrollTop = term.scrollHeight;
+}
+
 // ── WebSocket for flash logs ───────────────────────────────────────────────
 function connectWS() {
   var proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -1395,6 +1614,20 @@ function connectWS() {
         } else {
           renderFlashReviewSummary('error');
           termLine('error', 'Flash failed. Check the output above.');
+        }
+      }
+
+      if (msg.type === 'esphome_add_log') {
+        apTermLine(msg.level || 'info', msg.text || '');
+      }
+
+      if (msg.type === 'esphome_add_done') {
+        apResetFlashUI(msg.ok);
+        if (msg.ok) {
+          document.getElementById('apDone').style.display = '';
+          try { await loadInstallerDevices(); } catch {}
+        } else {
+          apTermLine('error', 'Flash failed. Check the output above.');
         }
       }
 
