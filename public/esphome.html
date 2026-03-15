@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <script>try{document.documentElement.dataset.theme=localStorage.getItem('elaris_theme')||'dark';}catch(e){document.documentElement.dataset.theme='dark';}</script>
   <script src="/csrf.js?v=1"></script>
+  <script src="/js/core.js?v=1"></script>
   <title>ELARIS — ESPHome Installer</title>
   <link rel="icon" href="/favicon.ico">
   <link rel="manifest" href="/manifest.json">
@@ -1005,7 +1006,7 @@ function termLine(level, text) {
 }
 
 function pad2(n) { return String(n).padStart(2,'0'); }
-function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 // ── YAML Board Importer ────────────────────────────────────────────────────
 var _parsedYamlProfile = null;
@@ -1049,11 +1050,13 @@ function filterBrowserList() {
     list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No devices match.</div>';
     return;
   }
-  list.innerHTML = filtered.map(d =>
-    '<div onclick="selectBrowserDevice(\'' + d.slug + '\')" style="padding:9px 12px;cursor:pointer;font-size:12px;font-family:monospace;border-bottom:1px solid var(--line);transition:background .1s" ' +
+  list.innerHTML = filtered.map(d => {
+    var slug = String(d.slug || '');
+    var safeId = slug.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return '<div onclick="selectBrowserDevice(' + escHtml(JSON.stringify(slug)) + ')" style="padding:9px 12px;cursor:pointer;font-size:12px;font-family:monospace;border-bottom:1px solid var(--line);transition:background .1s" ' +
     'onmouseover="this.style.background=\'rgba(29,140,255,.08)\'" onmouseout="this.style.background=\'\'" ' +
-    'id="brow-' + d.slug + '">' + d.slug + '</div>'
-  ).join('');
+    'id="brow-' + safeId + '">' + escHtml(slug) + '</div>';
+  }).join('');
 }
 
 async function selectBrowserDevice(slug) {
@@ -1065,7 +1068,7 @@ async function selectBrowserDevice(slug) {
   preview.value = 'Fetching YAML...';
   // Highlight selected
   document.querySelectorAll('#browserList div').forEach(el => el.style.background = '');
-  var el = document.getElementById('brow-' + slug);
+  var el = document.getElementById('brow-' + slug.replace(/[^a-zA-Z0-9_-]/g, '_'));
   if (el) el.style.background = 'rgba(29,140,255,.15)';
   try {
     var r = await fetch('/api/esphome/device-browser/yaml?device=' + encodeURIComponent(slug), { credentials: 'include' });

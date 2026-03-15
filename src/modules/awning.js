@@ -8,7 +8,7 @@ const MODULE = AWNING_MODULE;
 const handler = awningHandler;
 
 function routes(app, ctx) {
-  const { requireLogin, requireEngineerAccess, engine, ensureUserModuleAccess } = ctx;
+  const { requireLogin, requireEngineerAccess, engine, ensureUserModuleAccess, access } = ctx;
 
   // POST /api/automation/awning/:id/control
   app.post('/api/automation/awning/:id/control', requireLogin, async (req, res) => {
@@ -45,6 +45,9 @@ function routes(app, ctx) {
       const instId = Number(req.params.id);
       const { relay, value } = req.body;
       if (!relay || !value) return res.status(400).json({ ok: false, error: 'relay and value required' });
+      const ref = access.getModuleInstanceSiteRef(instId);
+      if (!ref) return res.status(404).json({ ok: false, error: 'instance not found' });
+      if (!access.canAccessSiteRef(req, ref)) return res.status(403).json({ ok: false, error: 'forbidden' });
       const inst = engine._getInstances.all().find(i => i.id === instId);
       if (!inst) return res.status(404).json({ ok: false, error: 'instance not found' });
       const engineCtx = engine.makeCtx(inst);

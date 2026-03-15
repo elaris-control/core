@@ -46,8 +46,12 @@ function sanitizeEmailConfig(config = {}, previousConfig = null) {
   return out;
 }
 
-function sanitizeWebhookConfig(config = {}) {
-  const rawUrl = String(config.url || "").trim();
+function sanitizeWebhookConfig(config = {}, previousConfig = null) {
+  let rawUrl = String(config.url || "").trim();
+  // If the URL looks like a redacted/masked value, fall back to the stored URL
+  if ((!rawUrl || rawUrl.includes('…') || rawUrl === '***') && previousConfig?.url) {
+    rawUrl = previousConfig.url;
+  }
   if (!rawUrl) throw new Error("invalid_webhook_url");
   let parsed;
   try {
@@ -67,7 +71,7 @@ function sanitizeChannelInput({ name, type, config }, previousConfig = null) {
   if (!["email", "webhook"].includes(safeType)) throw new Error("invalid_channel_type");
   const safeConfig = safeType === "email"
     ? sanitizeEmailConfig(config, previousConfig)
-    : sanitizeWebhookConfig(config);
+    : sanitizeWebhookConfig(config, previousConfig);
   return { name: safeName, type: safeType, config: safeConfig };
 }
 

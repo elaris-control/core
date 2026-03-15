@@ -449,7 +449,7 @@ async function loadWeatherWidget(){
       if(d.weather.sunset)  _sunSet=d.weather.sunset;
       el.innerHTML=renderWeatherMinimal(d.weather);
     } else {
-      el.innerHTML='<div style="color:var(--muted);font-size:12px">'+(d.error||'No weather data')+'</div>';
+      el.innerHTML='<div style="color:var(--muted);font-size:12px">'+escapeHTML(d.error||'No weather data')+'</div>';
     }
   }catch{ el.innerHTML='<div style="color:var(--muted);font-size:12px">Weather unavailable</div>'; }
 }
@@ -463,9 +463,8 @@ async function loadScenesWidget(){
     if(!scenes.length){ body.innerHTML='<div style="color:var(--muted);font-size:12px;padding:8px 0">No scenes yet. <a href="/scenes.html" style="color:var(--blue)">Create one &rarr;</a></div>'; return; }
     let html='<div class="summary-grid">';
     scenes.forEach(s=>{
-      var col=s.color||'#6366f1';
-      var sn=(s.name||'').replace(/'/g,"\\'");
-      html+='<div class="sum-card" onclick="activateScene('+s.id+',\''+sn+'\')" id="sbtn-'+s.id+'" style="border-left:3px solid '+col+'88;cursor:pointer">';
+      var col=/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s.color||'')?s.color:'#6366f1';
+      html+='<div class="sum-card" onclick="activateScene('+Number(s.id)+','+escapeHTML(JSON.stringify(String(s.name||'')))+')\" id="sbtn-'+Number(s.id)+'" style="border-left:3px solid '+col+'88;cursor:pointer">';
       html+='<span class="sum-icon">'+escapeHTML(s.icon||'\ud83c\udfac')+'</span>';
       html+='<span class="sum-info"><div class="sum-name">'+escapeHTML(s.name)+'</div>';
       html+='<div class="sum-status">\u25b6 Activate</div></span></div>';
@@ -587,7 +586,7 @@ function renderNav(){
   const custom=state.navPages.filter(p=>!p.system);
   if(!custom.length){ c.innerHTML=''; return; }
   c.innerHTML='<div class="groupTitle">My Pages</div><nav class="nav">'+
-    custom.map(p=>'<a href="/page.html?id='+p.id+'">'+(p.icon||'\ud83d\udcc4')+' '+p.name+'</a>').join('')+'</nav>';
+    custom.map(p=>'<a href="/page.html?id='+Number(p.id)+'">'+escapeHTML(p.icon||'\ud83d\udcc4')+' '+escapeHTML(p.name)+'</a>').join('')+'</nav>';
 }
 
 // Page manager
@@ -601,7 +600,7 @@ async function loadPmPages(){
   el.innerHTML=custom.map(p=>{
     const cnt=JSON.parse(p.instances_json||'[]').length;
     return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)">'+
-      '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:18px">'+(p.icon||'\ud83d\udcc4')+'</span>'+
+      '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:18px">'+escapeHTML(p.icon||'\ud83d\udcc4')+'</span>'+
       '<div><div style="font-weight:800;font-size:13px">'+escapeHTML(p.name)+'</div><div style="font-size:11px;color:var(--muted)">'+escapeHTML(String(cnt))+' modules</div></div></div>'+
       '<div style="display:flex;gap:6px">'+
       '<a href="/page.html?id='+p.id+'" class="btn" style="padding:4px 10px;font-size:11px;text-decoration:none">Open</a>'+

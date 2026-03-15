@@ -750,7 +750,7 @@ async function renderInstance(inst){
   card.classList.toggle('wide-card', false);
   card.classList.toggle('thermo-card', inst.module_id==='thermostat');
   var icon=MODULE_ICON[inst.module_id]||'\ud83d\udce6';
-  if(isNew){card.innerHTML='<div class="inst-header"><div class="inst-name">'+icon+' '+(inst.name||'Instance #'+inst.id)+'</div><div class="inst-id">#'+inst.id+'</div></div><div id="inst-body-'+inst.id+'"><div style="color:var(--muted);font-size:12px">Loading...</div></div>';}
+  if(isNew){card.innerHTML='<div class="inst-header"><div class="inst-name">'+icon+' '+escapeHTML(inst.name||'Instance #'+inst.id)+'</div><div class="inst-id">#'+inst.id+'</div></div><div id="inst-body-'+inst.id+'"><div style="color:var(--muted);font-size:12px">Loading...</div></div>';}
   var content='';
   try{
     if(inst.module_id==='solar')content=await renderSolar(inst);
@@ -764,8 +764,8 @@ async function renderInstance(inst){
     else if(inst.module_id==='load_shifter')content=await renderLoadShifter(inst);
     else if(inst.module_id==='presence_simulator')content=await renderPresenceSimulator(inst);
     else if(inst.module_id==='energy')content=await renderEnergy(inst);
-    else content='<div style="color:var(--muted);font-size:12px">'+inst.module_id+' \u2014 coming soon</div>';
-  }catch(e){content='<div style="color:var(--bad);font-size:12px">Error: '+e.message+'</div>';}
+    else content='<div style="color:var(--muted);font-size:12px">'+escapeHTML(inst.module_id)+' \u2014 coming soon</div>';
+  }catch(e){content='<div style="color:var(--bad);font-size:12px">Error: '+escapeHTML(e.message)+'</div>';}
   var body=document.getElementById('inst-body-'+inst.id); if(body)body.innerHTML=content;
 }
 
@@ -792,7 +792,7 @@ async function refreshAll(){ clearTimeout(_rt); for(var i=0;i<pstate._instances.
     var grid=$('pageGrid');
     if(!show.length){grid.innerHTML='<div style="color:var(--muted);font-size:14px;padding:20px">No modules found.<br><a href="/modules.html" style="color:var(--blue)">Configure modules \u2192</a></div>';return;}
     grid.innerHTML=''; pstate._instances=show; await refreshAll();
-  }catch(e){ console.error('[ELARIS page.js]',e); var g=$('pageGrid'); if(g)g.innerHTML='<div style="color:var(--bad);font-size:13px;padding:20px">Error: '+e.message+'</div>'; }
+  }catch(e){ console.error('[ELARIS page.js]',e); var g=$('pageGrid'); if(g)g.innerHTML='<div style="color:var(--bad);font-size:13px;padding:20px">Error: '+escapeHTML(e.message)+'</div>'; }
 })();
 
 // ── Lighting Widget ──────────────────────────────────────────────────────────

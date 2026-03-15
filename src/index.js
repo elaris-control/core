@@ -250,7 +250,7 @@ async function main() {
 
   // Auto-load module route handlers from src/modules/
   const modulesDir = path.join(__dirname, 'modules');
-  const moduleCtx  = { db: dbApi.db, requireLogin, requireEngineerAccess, requireAdmin, mqttApi, wsApi, users, engine, auth, getModule, ...moduleHelpers };
+  const moduleCtx  = { db: dbApi.db, access, requireLogin, requireEngineerAccess, requireAdmin, mqttApi, wsApi, users, engine, auth, getModule, ...moduleHelpers };
   for (const file of fs.readdirSync(modulesDir).filter(f => f.endsWith('.js') && f !== 'index.js')) {
     try {
       const mod = require(path.join(modulesDir, file));

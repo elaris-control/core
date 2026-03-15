@@ -148,7 +148,14 @@ const MODULE = {
 const handler = solarEngineHandler;
 
 function routes(app, ctx) {
-  const { requireLogin, requireEngineerAccess, engine } = ctx;
+  const { requireLogin, requireEngineerAccess, engine, access } = ctx;
+
+  function checkAccess(req, res, id) {
+    const ref = access.getModuleInstanceSiteRef(id);
+    if (!ref) { res.status(404).json({ ok: false, error: 'instance_not_found' }); return false; }
+    if (!access.canAccessSiteRef(req, ref)) { res.status(403).json({ ok: false, error: 'forbidden' }); return false; }
+    return true;
+  }
 
   function getSolarAuto() {
     if (!engine) throw new Error('engine not in ctx');
@@ -196,8 +203,9 @@ function routes(app, ctx) {
   // GET /api/automation/solar/:id/setpoints
   app.get('/api/automation/solar/:id/setpoints', requireLogin, (req, res) => {
     try {
-      const sp = getSolarAuto().getSetpointsForInstance(Number(req.params.id));
-      res.json({ ok: true, setpoints: sp });
+      const id = Number(req.params.id);
+      if (!checkAccess(req, res, id)) return;
+      res.json({ ok: true, setpoints: getSolarAuto().getSetpointsForInstance(id) });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
@@ -205,6 +213,7 @@ function routes(app, ctx) {
   app.patch('/api/automation/solar/:id/setpoints', requireEngineerAccess, (req, res) => {
     try {
       const id  = Number(req.params.id);
+      if (!checkAccess(req, res, id)) return;
       const { key, value } = req.body || {};
       const v = getSolarAuto().setSetpoint(id, key, value);
       res.json({ ok: true, key, value: v });
@@ -214,26 +223,30 @@ function routes(app, ctx) {
   // GET /api/automation/solar/:id/log
   app.get('/api/automation/solar/:id/log', requireLogin, (req, res) => {
     try {
-      const log = getSolarAuto().getLog(Number(req.params.id), 100);
-      res.json({ ok: true, log });
+      const id = Number(req.params.id);
+      if (!checkAccess(req, res, id)) return;
+      res.json({ ok: true, log: getSolarAuto().getLog(id, 100) });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
   // GET /api/automation/solar/:id/history?hours=4
   app.get('/api/automation/solar/:id/history', requireLogin, (req, res) => {
     try {
+      const id    = Number(req.params.id);
+      if (!checkAccess(req, res, id)) return;
       const hours = Math.min(Number(req.query.hours) || 4, 24);
       const since = Date.now() - hours * 3600 * 1000;
-      const data  = getSolarAuto().getHistory(Number(req.params.id), since);
-      res.json({ ok: true, history: data });
+      res.json({ ok: true, history: getSolarAuto().getHistory(id, since) });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
   // POST /api/automation/solar/:id/override  { paused: true/false }
   app.post('/api/automation/solar/:id/override', requireEngineerAccess, (req, res) => {
     try {
+      const id = Number(req.params.id);
+      if (!checkAccess(req, res, id)) return;
       const paused = !!req.body.paused;
-      getSolarAuto().setOverride(Number(req.params.id), paused);
+      getSolarAuto().setOverride(id, paused);
       res.json({ ok: true, paused });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
@@ -241,8 +254,9 @@ function routes(app, ctx) {
   // GET /api/automation/solar/:id/status
   app.get('/api/automation/solar/:id/status', requireLogin, (req, res) => {
     try {
-      const status = getSolarAuto().getLiveStatus(Number(req.params.id));
-      res.json({ ok: true, ...status });
+      const id = Number(req.params.id);
+      if (!checkAccess(req, res, id)) return;
+      res.json({ ok: true, ...getSolarAuto().getLiveStatus(id) });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 }

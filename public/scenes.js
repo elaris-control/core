@@ -19,15 +19,14 @@ async function loadScenes(){
   var h='';
   var manage=canManageScenes();
   scenes.forEach(function(s){
-    var col=s.color||'#6366f1';
-    var sn=String(s.name||'').replace(/'/g,"\\'");
+    var col=/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s.color||'')?s.color:'#6366f1';
     var ac=0;try{ac=JSON.parse(s.actions_json||'[]').length;}catch(e){}
     h+='<div class="scene-card" id="sc-'+s.id+'" style="background:'+col+'22;border-color:'+col+'66">';
     if(manage) h+='<button class="scene-edit-btn" onclick="openEdit('+s.id+')">✎</button>';
     h+='<div class="scene-icon">'+escapeHTML(s.icon||'🎬')+'</div>';
     h+='<div class="scene-name">'+escapeHTML(s.name)+'</div>';
     if(ac>0 && manage) h+='<div style="font-size:10px;color:var(--muted2);margin-top:-4px">'+ac+' action'+(ac>1?'s':'')+'</div>';
-    h+='<button id="abtn-'+s.id+'" class="scene-activate" style="background:'+col+'" onclick="activate('+s.id+',\''+sn+'\',\''+col+'\')">▶ Activate</button>';
+    h+='<button id="abtn-'+Number(s.id)+'" class="scene-activate" style="background:'+col+'" onclick="activate('+Number(s.id)+','+escapeHTML(JSON.stringify(String(s.name||'')))+','+escapeHTML(JSON.stringify(col))+')">▶ Activate</button>';
     h+='</div>';
   });
   if(manage) h+='<div class="add-card" onclick="openNew()"><span style="font-size:28px">+</span><span>New Scene</span></div>';

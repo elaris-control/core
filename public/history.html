@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <script>try{document.documentElement.dataset.theme=localStorage.getItem("elaris_theme")||"dark";}catch(e){document.documentElement.dataset.theme="dark";}</script>
   <script src="/csrf.js?v=1"></script>
+  <script src="/js/core.js?v=1"></script>
   <title>ELARIS — History</title>
   <link rel="icon" href="/favicon.ico">
   <link rel="manifest" href="/manifest.json">
@@ -207,7 +208,7 @@ async function boot(){
 
     renderAll();
   } catch(e){
-    document.getElementById('hbody').innerHTML='<div class="no-data-banner"><div class="icon">❌</div><p>Error: '+e.message+'</p></div>';
+    document.getElementById('hbody').innerHTML='<div class="no-data-banner"><div class="icon">❌</div><p>Error: '+escapeHTML(e.message)+'</p></div>';
   }
 }
 
@@ -222,7 +223,7 @@ function renderAll(){
     card.style.setProperty('--chart-color', io.color);
     card.id = 'chart-card-'+io.id;
     card.innerHTML = '<div class="chart-header">' +
-      '<div class="chart-title">'+escHtml(io.name||io.key)+'<span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:6px">'+io.device_id+'.'+io.key+'</span></div>' +
+      '<div class="chart-title">'+escHtml(io.name||io.key)+'<span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:6px">'+escHtml(io.device_id)+'.'+escHtml(io.key)+'</span></div>' +
       '<div class="chart-meta"><span class="spinner"></span></div>' +
       '</div>' +
       '<div class="chart-stats" id="stats-'+io.id+'"></div>' +
@@ -297,7 +298,7 @@ async function loadChart(io){
 
   } catch(e){
     var wrapEl2 = document.getElementById('wrap-'+io.id);
-    if (wrapEl2) wrapEl2.innerHTML = '<div class="chart-empty">Error: '+e.message+'</div>';
+    if (wrapEl2) wrapEl2.innerHTML = '<div class="chart-empty">Error: '+escapeHTML(e.message)+'</div>';
   }
 }
 

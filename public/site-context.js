@@ -32,7 +32,7 @@ async function _loadSiteNav() {
     container.innerHTML =
       '<div class="groupTitle">My Pages</div>' +
       '<nav class="nav">' +
-      custom.map(p => `<a href="/page.html?id=${p.id}">${p.icon || '📄'} ${p.name}</a>`).join('') +
+      custom.map(p => '<a href="/page.html?id=' + Number(p.id) + '">' + escapeHTML(p.icon || '📄') + ' ' + escapeHTML(p.name) + '</a>').join('') +
       '</nav>';
   } catch {}
 }

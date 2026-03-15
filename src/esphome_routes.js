@@ -508,7 +508,7 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
       activeSetup = null;
       const ok = code === 0;
       const doneMsg = { type: 'esphome_setup_done', ok };
-      if (clientId && wsApi.sendToClient) wsApi.sendToClient(clientId, doneMsg); else wsApi.broadcast(doneMsg);
+      if (clientId && wsApi.sendToClient) wsApi.sendToClient(clientId, doneMsg);
       sendWs(wsApi, clientId, 'esphome_setup_log', ok ? 'info' : 'error', ok ? '✓ ESPHome installed successfully.' : `✗ Setup failed (exit ${code})`);
     });
     proc.on('error', err => {
@@ -564,7 +564,7 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
         error_text: ok ? null : logs.slice(-20).join('\n'),
       });
       const doneMsg = { type: 'esphome_done', ok, code };
-      if (clientId && wsApi.sendToClient) wsApi.sendToClient(clientId, doneMsg); else wsApi.broadcast(doneMsg);
+      if (clientId && wsApi.sendToClient) wsApi.sendToClient(clientId, doneMsg);
       appendLog(ok ? 'info' : 'error', ok ? `✓ Flash complete — "${payload.device_name}" will appear in Installer once it connects` : `✗ Flash failed (exit ${code})`);
     });
 

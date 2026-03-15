@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script>try{document.documentElement.dataset.theme=localStorage.getItem("elaris_theme")||"dark";}catch(e){document.documentElement.dataset.theme="dark";}</script>
   <script src="/csrf.js?v=1"></script>
+  <script src="/js/core.js?v=1"></script>
 <title>ELARIS — Modules</title>
 <link rel="icon" href="/favicon.ico">
   <link rel="manifest" href="/manifest.json">
@@ -463,8 +464,8 @@ function renderThermostatWizardIntoDom(currentMappings={}, rowRenderer) {
 
 function ioLabelById(ioId) {
   const io = siteIO.find(x => Number(x.id) === Number(ioId));
-  if (!io) return `IO ${ioId}`;
-  return `${io.device_id}·${io.group_name}.${io.key}` + (io.name && io.name !== io.key ? ` (${io.name})` : '');
+  if (!io) return `IO ${Number(ioId)}`;
+  return escapeHTML(`${io.device_id}·${io.group_name}.${io.key}`) + (io.name && io.name !== io.key ? ` (${escapeHTML(io.name)})` : '');
 }
 
 function collectCurrentWizardMappings() {
@@ -571,7 +572,7 @@ function renderThermostatCommissioningSummary(currentMappings={}) {
     return `<span class="thermo-zone-pill"><strong>Z${z.n}</strong><span class="mini">${parts.join(' • ') || 'EMPTY'}</span></span>`;
   }).join('') || `<span class="thermo-zone-pill"><strong>No zones yet</strong><span class="mini">Map Zone 1 to start</span></span>`;
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => { const sev = ['bad','warn','info'].includes(i.severity) ? i.severity : 'info'; return `<div class="thermo-issue sev-${sev}"><strong>${sev === 'bad' ? 'Fix' : sev === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`; }).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> This thermostat setup looks clean so far.</div></div>`;
   const legacyMode = (a.legacy.temp_room || a.legacy.ac_relay || a.legacy.temp_outdoor) ? 'Legacy mapped' : 'Unused';
   return `
@@ -1888,15 +1889,15 @@ function renderInstances() {
         <div class="inst-icon-name">
           <div class="inst-icon">${def?.icon||"📦"}</div>
           <div>
-            <div class="inst-name">${inst.name}
+            <div class="inst-name">${escapeHTML(inst.name||'')}
               ${hasAuto?`<span class="auto-badge running" id="badge_${inst.id}">⚡ auto</span>`:""}
             </div>
-            <div class="inst-module-label">${def?.name||inst.module_id}</div>
+            <div class="inst-module-label">${escapeHTML(def?.name||inst.module_id||'')}</div>
           </div>
         </div>
         <div class="inst-actions">
           <button class="btn btn-sm" onclick="editInstance(${inst.id})">✎</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteInstance(${inst.id},'${inst.name.replace(/'/g,"\\'")}')">✕</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteInstance(${Number(inst.id)},${escapeHTML(JSON.stringify(String(inst.name||'')))})">✕</button>
         </div>
       </div>
       <div class="map-list" id="maps_${inst.id}">${mapRows}</div>
@@ -2692,8 +2693,8 @@ function renderRuleTestInput(ioId) {
   const binary = isBinaryType(io.type);
   return `
     <div style="padding:8px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.02)">
-      <div style="font-size:12px;font-weight:700">${io.name || io.key || ('IO ' + io.id)}</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${io.device_id}/${io.key} • ${io.type}${unit}</div>
+      <div style="font-size:12px;font-weight:700">${escapeHTML(io.name || io.key || ('IO ' + Number(io.id)))}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${escapeHTML(io.device_id)}/${escapeHTML(io.key)} • ${escapeHTML(io.type)}${escapeHTML(unit)}</div>
       ${binary ? `
         <select class="sp-input" onchange="setRuleTestValue(${io.id}, this.value)">
           <option value="" ${current === '' ? 'selected' : ''}>Use live value</option>

@@ -105,8 +105,8 @@ function initWS(server, { db, access, getRole } = {}) {
             if (!access) { nextDeviceIds.add(deviceId); continue; } // dev mode
             const ref = access.getDeviceSiteRef(deviceId);
             if (!ref) {
-              // Device not yet assigned to a site — no private data to leak, allow.
-              nextDeviceIds.add(deviceId);
+              // Device not yet assigned — only engineers can subscribe to unassigned devices
+              if (ws._isEngineer) nextDeviceIds.add(deviceId);
               continue;
             }
             if (!wsCanAccessRef(ws, ref)) continue;        // private site, no permission
