@@ -14,6 +14,10 @@
   <img src="https://img.shields.io/badge/protocol-MQTT-purple" alt="MQTT">
 </p>
 
+<p align="center">
+  <a href="https://elariscontrol.online">🌐 elariscontrol.online</a>
+</p>
+
 ELARIS Core is the open foundation of the ELARIS ecosystem — a runtime automation platform built around MQTT device integration, a role-aware control model, and a modular logic system designed for real installations.
 
 ---
