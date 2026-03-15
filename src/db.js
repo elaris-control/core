@@ -65,6 +65,12 @@ db.exec(`
     CREATE TABLE IF NOT EXISTS sites (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
+      note TEXT,
+      is_private INTEGER NOT NULL DEFAULT 0,
+      lat TEXT,
+      lon TEXT,
+      timezone TEXT,
+      address TEXT,
       created_ts INTEGER NOT NULL
     );
 
@@ -112,6 +118,9 @@ db.exec(`
   const cols = db.prepare(`PRAGMA table_info(sites);`).all().map(r => r.name);
   if (!cols.includes("note"))       { try { db.exec(`ALTER TABLE sites ADD COLUMN note TEXT;`); } catch (_) {} }
   if (!cols.includes("is_private")) { try { db.exec(`ALTER TABLE sites ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0;`); } catch (_) {} }
+  ["lat","lon","timezone","address"].forEach(col => {
+    if (!cols.includes(col)) { try { db.exec(`ALTER TABLE sites ADD COLUMN ${col} TEXT`); } catch(_) {} }
+  });
 
 
   // ── ESPHome board profile catalog (DB-backed, seeded from bundled profiles) ──
@@ -779,11 +788,6 @@ db.exec(`
       UNIQUE(instance_id, input_key)
     );
   `);
-
-  // ── Site location migration (safe — idempotent) ─────────────────────
-  ["lat","lon","timezone","address"].forEach(col => {
-    try { db.exec(`ALTER TABLE sites ADD COLUMN ${col} TEXT`); } catch(_) {}
-  });
 
   return {
     db,
