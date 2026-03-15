@@ -690,7 +690,7 @@ function renderLightingCommissioningSummary(currentMappings={}) {
   ].filter(Boolean).join('') || `<span class="thermo-zone-pill"><strong>No outputs</strong><span class="mini">Map relay or dimmer to control the load.</span></span>`;
 
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> This lighting mapping looks clean so far.</div></div>`;
 
   return `
@@ -773,7 +773,7 @@ function renderSolarCommissioningSummary(currentMappings={}) {
     a.sensorBoiler ? `<span class="thermo-zone-pill"><strong>Boiler</strong><span class="mini">${ioLabelById(a.sensorBoiler)}</span></span>` : ''
   ].filter(Boolean).join('') || `<span class="thermo-zone-pill"><strong>No sensors</strong><span class="mini">Map collector and boiler temperatures.</span></span>`;
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> This solar mapping looks clean so far.</div></div>`;
   return `
     <div class="thermo-summary">
@@ -834,7 +834,7 @@ function renderEnergyCommissioningSummary(currentMappings={}) {
     a.relay ? `<span class="thermo-zone-pill"><strong>Relay</strong><span class="mini">${ioLabelById(a.relay)}</span></span>` : ''
   ].filter(Boolean).join('') || `<span class="thermo-zone-pill"><strong>No IO mapped</strong><span class="mini">Map a power sensor to enable monitoring.</span></span>`;
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> Energy Monitor setup looks clean so far.</div></div>`;
   return `
     <div class="thermo-summary">
@@ -972,7 +972,7 @@ function renderIrrigationCommissioningSummary(currentMappings={}) {
     a.flow ? `<span class="thermo-zone-pill"><strong>Flow</strong><span class="mini">${ioLabelById(a.flow)}</span></span>` : ''
   ].filter(Boolean).join('') || `<span class="thermo-zone-pill"><strong>No sensors</strong><span class="mini">Rain / soil / temp / wind / flow are optional but useful.</span></span>`;
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> Irrigation mapping looks clean so far.</div></div>`;
   return `
     <div class="thermo-summary">
@@ -1108,7 +1108,7 @@ function renderHydronicCommissioningSummary(currentMappings={}) {
     a.flow ? `<span class="thermo-zone-pill"><strong>Flow</strong><span class="mini">${ioLabelById(a.flow)}</span></span>` : ''
   ].filter(Boolean).join('') || `<span class="thermo-zone-pill"><strong>Helpers</strong><span class="mini">Outdoor / RH / flow / buffer are optional.</span></span>`;
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> Hydronic mapping looks clean so far.</div></div>`;
   return `
     <div class="thermo-summary">
@@ -1260,7 +1260,7 @@ function renderPoolSpaCommissioningSummary(currentMappings={}) {
     a.extras.lights ? `<span class="thermo-zone-pill"><strong>Lights</strong><span class="mini">${ioLabelById(a.extras.lights)}</span></span>` : ''
   ].filter(Boolean).join('') || `<span class="thermo-zone-pill"><strong>Helpers</strong><span class="mini">Solar / heaters / chemistry / spa are optional.</span></span>`;
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> Pool &amp; Spa mapping looks clean so far.</div></div>`;
   return `
     <div class="thermo-summary">
@@ -1411,7 +1411,7 @@ function renderPresenceCommissioningSummary(currentMappings={}) {
     a.awning ? `<span class="thermo-zone-pill"><strong>Awning</strong><span class="mini">${ioLabelById(a.awning)}</span></span>` : ''
   ].filter(Boolean).join('') || `<span class="thermo-zone-pill"><strong>No extras</strong><span class="mini">TV / awning are optional.</span></span>`;
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> Presence simulation mapping looks clean so far.</div></div>`;
   return `
     <div class="thermo-summary">
@@ -1502,7 +1502,7 @@ function renderWaterManagerCommissioningSummary(currentMappings={}) {
     a.pressure ? `<span class="thermo-zone-pill"><strong>Pressure</strong><span class="mini">${ioLabelById(a.pressure)}</span></span>` : ''
   ].filter(Boolean).join('') || `<span class="thermo-zone-pill"><strong>No helpers</strong><span class="mini">Flow / pressure are optional.</span></span>`;
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> Water Manager mapping looks clean so far.</div></div>`;
   return `
     <div class="thermo-summary">
@@ -1589,7 +1589,7 @@ function renderLoadShifterCommissioningSummary(currentMappings={}) {
     ? a.loads.map(l => `<span class="thermo-zone-pill"><strong>Load ${l.idx}</strong><span class="mini">${ioLabelById(l.io)}</span></span>`).join('')
     : `<span class="thermo-zone-pill"><strong>No loads</strong><span class="mini">Map one or more relay loads to shed.</span></span>`;
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> Load Shifter mapping looks clean so far.</div></div>`;
   return `
     <div class="thermo-summary">
@@ -1673,7 +1673,7 @@ function renderMaintenanceCommissioningSummary(currentMappings={}) {
     ? a.mapped.map(eq => `<span class="thermo-zone-pill"><strong>${(a.names.find(n=>n.idx===eq.idx)?.value)||('Equipment '+eq.idx)}</strong><span class="mini">${ioLabelById(eq.io)}</span></span>`).join('')
     : `<span class="thermo-zone-pill"><strong>No equipment mapped</strong><span class="mini">Map one or more running-state relays/inputs.</span></span>`;
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> Maintenance tracker mapping looks clean so far.</div></div>`;
   return `
     <div class="thermo-summary">
@@ -1769,7 +1769,7 @@ function renderSmartLightingCommissioningSummary(currentMappings={}) {
   const outputPills = a.outputs.map(o => `<span class="thermo-zone-pill"><strong>${String(o.key).toUpperCase()}</strong><span class="mini">${ioLabelById(o.io)}</span></span>`).join('') || `<span class="thermo-zone-pill"><strong>No outputs</strong><span class="mini">Add one or more relay/dimmer outputs.</span></span>`;
   const inputPills = a.inputs.map(i => `<span class="thermo-zone-pill"><strong>${String(i.key).toUpperCase()}</strong><span class="mini">${ioLabelById(i.io)}</span></span>`).join('') || `<span class="thermo-zone-pill"><strong>No inputs</strong><span class="mini">Add DI/AI triggers if you want motion, switch or sensor based scenes.</span></span>`;
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => `<div class="thermo-issue sev-${i.severity === 'bad' ? 'bad' : i.severity === 'warn' ? 'warn' : 'info'}"><strong>${i.severity === 'bad' ? 'Fix' : i.severity === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> The Smart Lighting I/O mapping looks clean so far.</div></div>`;
   return `
     <div class="thermo-summary">
@@ -2066,7 +2066,7 @@ async function enrichCard(inst) {
 
 
 function renderBadge(text, color, border) {
-  return `<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.04);border:1px solid ${border||'var(--line)'};border-radius:999px;padding:3px 8px;font-size:10px;font-weight:700;color:${color||'var(--text)'}">${text}</span>`;
+  return `<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.04);border:1px solid ${border||'var(--line)'};border-radius:999px;padding:3px 8px;font-size:10px;font-weight:700;color:${color||'var(--text)'}">${escapeHTML(String(text ?? ''))}</span>`;
 }
 
 function renderLightingSummary(inst, settings, live) {
@@ -2264,7 +2264,7 @@ function isAOAction(a){
 function ioLabel(io) {
   const z = io.zone_name ? ` [${io.zone_name}]` : (io.zone_id ? ` [zone ${io.zone_id}]` : ``);
   const name = io.name && io.name !== io.key ? `${io.device_id}·${io.group_name}.${io.key} (${io.name})` : `${io.device_id}·${io.group_name}.${io.key}`;
-  return `${name}${z}`;
+  return escapeHTML(`${name}${z}`);
 }
 
 function norm(s){ return String(s||"").toLowerCase().trim(); }
@@ -2306,7 +2306,7 @@ function buildZoneOptionsHTML() {
   }
   const items = Array.from(seen.entries())
     .sort((a,b)=> a[1].localeCompare(b[1]))
-    .map(([id,name]) => `<option value="${id}">${name}</option>`)
+    .map(([id,name]) => `<option value="${id}">${escapeHTML(name)}</option>`)
     .join("");
   return `<option value="">All zones</option><option value="__none__">No zone</option>` + items;
 }
@@ -2326,7 +2326,7 @@ function refreshIOFilterSelects() {
 
 function ioOptions(list, selectedId, emptyLabel = "— select IO —", filter = null) {
   const filtered = filter ? filterIOList(list, filter.query, filter.zone, selectedId) : list;
-  return `<option value="">${emptyLabel}</option>` +
+  return `<option value="">${escapeHTML(emptyLabel)}</option>` +
     (filtered||[]).map(io => `<option value="${io.id}" ${String(io.id) === String(selectedId) ? "selected" : ""}>${ioLabel(io)}</option>`).join("");
 }
 
@@ -3124,7 +3124,7 @@ function renderScenarioCard(s, si, mappings) {
     return `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <span style="font-size:11px;color:var(--muted2);min-width:60px;font-family:monospace">${m.input_key}</span>
-      <span style="font-size:11px;color:var(--muted);min-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.io_name||m.io_key||''}</span>
+      <span style="font-size:11px;color:var(--muted);min-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHTML(m.io_name||m.io_key||'')}</span>
       ${isRelay ? `
         <select class="cond-sel" style="width:80px" onchange="scOut(${si},'${m.input_key}',Number(this.value))">
           <option value="100" ${level>=50?'selected':''}>ON</option>

@@ -5,12 +5,144 @@ const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { listCatalogSummaries, getCatalogProfile, seedProfileCatalog, upsertProfileFromFile, upsertProfileFromObject } = require('./esphome/profile_registry');
-const { normalizePayload, safeName, sha256 } = require('./esphome/schema');
+const { normalizePayload, safeName, sha256, parseGpio, toGpioLabel } = require('./esphome/schema');
 const { validateConfig } = require('./esphome/validator');
 const { generateYAML, addPeripheralToYaml } = require('./esphome/generator');
 const { parseEsphomeYaml } = require('./esphome/yaml_importer');
 const https = require('https');
 const http = require('http');
+
+
+const COMMON_ESP32_GPIO_PINS = [0, 1, 2, 3, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33, 34, 35, 36, 39];
+const COMMON_ESP32_ADC_PINS = new Set([32, 33, 34, 35, 36, 39]);
+const COMMON_ESP8266_GPIO_PINS = [0, 1, 2, 3, 4, 5, 12, 13, 14, 15, 16];
+
+function uniqNums(items) {
+  return [...new Set((items || []).map(n => Number(n)).filter(Number.isFinite))].sort((a, b) => a - b);
+}
+
+function getProfilePinRules(profile) {
+  const rules = profile?.pinRules || {};
+  return {
+    reserved: uniqNums([...(rules.reserved || []), ...(rules.ethernetReservedPins || [])]),
+    inputOnly: uniqNums(rules.inputOnly || []),
+    noPullup: uniqNums(rules.noPullup || []),
+    flashPins: uniqNums(rules.flashPins || []),
+    strapping: uniqNums([...(rules.strapping || []), ...(rules.strappingPins || [])]),
+  };
+}
+
+function getCandidatePins(profile) {
+  const platform = String(profile?.platform || '').toLowerCase();
+  if (platform === 'esp32') return [...COMMON_ESP32_GPIO_PINS];
+  if (platform === 'esp8266') return [...COMMON_ESP8266_GPIO_PINS];
+
+  const hinted = new Set();
+  for (const e of Array.isArray(profile?.entityDefaults) ? profile.entityDefaults : []) {
+    const gpio = parseGpio(String(e.pin || e.source || '').trim().toUpperCase());
+    if (gpio !== null) hinted.add(gpio);
+  }
+  const rules = getProfilePinRules(profile);
+  for (const n of [...rules.reserved, ...rules.inputOnly, ...rules.noPullup, ...rules.flashPins, ...rules.strapping]) hinted.add(Number(n));
+  if (hinted.size) return [...hinted].filter(Number.isFinite).sort((a, b) => a - b);
+
+  return Array.from({ length: 17 }, (_, i) => i);
+}
+
+function getPinCapabilities(profile, gpio) {
+  const rules = getProfilePinRules(profile);
+  if (rules.flashPins.includes(gpio) || rules.reserved.includes(gpio)) return [];
+  const inputOnly = rules.inputOnly.includes(gpio);
+  const caps = new Set();
+  if (!inputOnly) {
+    caps.add('ds18b20');
+    caps.add('dht');
+    caps.add('dht11');
+  }
+  caps.add('pulse_counter');
+  if (String(profile?.platform || '').toLowerCase() === 'esp32' && COMMON_ESP32_ADC_PINS.has(gpio)) caps.add('analog');
+  return [...caps];
+}
+
+function collectYamlPinUsage(yamlText) {
+  const usage = new Map();
+  const lines = String(yamlText || '').split(/\r?\n/);
+  let topSection = null;
+  let currentPlatform = null;
+
+  function mark(pinText) {
+    const pin = normalizePinInput(pinText);
+    if (!pin) return;
+    if (!usage.has(pin)) usage.set(pin, { pin, kinds: new Set() });
+    const bucket = usage.get(pin);
+    bucket.kinds.add(`${topSection || 'root'}:${currentPlatform || 'raw'}`);
+  }
+
+  for (const line of lines) {
+    const topMatch = line.match(/^([a-z_][a-z0-9_]*):\s*$/i);
+    if (topMatch && !line.startsWith(' ')) {
+      topSection = topMatch[1];
+      currentPlatform = null;
+      continue;
+    }
+    const platformMatch = line.match(/^\s*-\s*platform:\s*([a-z_][a-z0-9_]*)\s*$/i);
+    if (platformMatch) {
+      currentPlatform = platformMatch[1].toLowerCase();
+      continue;
+    }
+    const pinMatch = line.match(/^\s*(?:pin:|number:)\s*(?:['"])?(GPIO\s*\d+|\d+)(?:['"])?\s*$/i);
+    if (pinMatch) mark(pinMatch[1]);
+  }
+
+  return usage;
+}
+
+function isDs18b20SharedBusUsage(kinds) {
+  const allow = new Set(['one_wire:gpio', 'sensor:dallas_temp']);
+  for (const kind of kinds || []) {
+    if (!allow.has(kind)) return false;
+  }
+  return true;
+}
+
+function validatePeripheralEntity({ profile, yamlText, entity }) {
+  const errors = [];
+  const warnings = [];
+  const type = String(entity?.type || '').trim().toLowerCase();
+  const pinText = String(entity?.pin || '').trim().toUpperCase();
+  const gpio = parseGpio(pinText);
+  if (gpio === null) return { ok: false, errors: ['invalid_pin_format — use GPIO<number>'], warnings, pin: null, pinMode: null };
+
+  const rules = getProfilePinRules(profile);
+  const caps = getPinCapabilities(profile, gpio);
+  const label = toGpioLabel(gpio);
+
+  if (rules.flashPins.includes(gpio)) errors.push(`${label} is a flash pin and cannot be used.`);
+  if (rules.reserved.includes(gpio)) errors.push(`${label} is reserved by the board/profile.`);
+  if (!caps.includes(type)) {
+    if (type === 'analog') errors.push(`${label} does not support ADC on this board/profile.`);
+    else if ((type === 'dht' || type === 'dht11' || type === 'ds18b20') && rules.inputOnly.includes(gpio)) errors.push(`${label} is input-only and cannot be used for ${type.toUpperCase()} sensors.`);
+    else errors.push(`${label} is not compatible with ${type}.`);
+  }
+
+  if (rules.strapping.includes(gpio)) warnings.push(`${label} is a strapping pin; use with care.`);
+  if (type === 'pulse_counter' && rules.noPullup.includes(gpio)) warnings.push(`${label} has no internal pull-up; YAML will use INPUT mode, so wire an external pull-up if your sensor needs one.`);
+
+  const usage = collectYamlPinUsage(yamlText).get(pinText);
+  if (usage) {
+    const sharedDs = type === 'ds18b20' && isDs18b20SharedBusUsage(usage.kinds);
+    if (!sharedDs) errors.push(`pin_conflict — ${pinText} is already used in this device YAML.`);
+    else warnings.push(`Shared 1-Wire bus detected on ${pinText}; adding another DS18B20 on the same pin is allowed.`);
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    warnings: [...new Set(warnings)],
+    pin: pinText,
+    pinMode: type === 'pulse_counter' && rules.noPullup.includes(gpio) ? 'INPUT' : (type === 'pulse_counter' ? 'INPUT_PULLUP' : null),
+  };
+}
 
 function fetchUrl(url) {
   return new Promise((resolve, reject) => {
@@ -352,11 +484,57 @@ async function fetchDeviceYaml(slug) {
   throw new Error(`No YAML found for device: ${slug}`);
 }
 
-function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngineerAccess }) {
+function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngineerAccess, access }) {
   const cfgDir = path.join(dataDir, 'esphome');
   const venvDir = path.join(dataDir, 'esphome_venv');
   fs.mkdirSync(cfgDir, { recursive: true });
   ensureEsphomeTables(db);
+
+  const getDeviceByIdStmt = db ? db.prepare('SELECT * FROM esphome_devices WHERE id=?') : null;
+  const getDevicesByNameStmt = db ? db.prepare('SELECT * FROM esphome_devices WHERE lower(name)=lower(?) ORDER BY id DESC') : null;
+
+  function escapeRegex(s) {
+    return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function normalizePinInput(value) {
+    const gpio = parseGpio(value);
+    return gpio === null ? null : toGpioLabel(gpio);
+  }
+
+  function hasYamlId(yamlText, key) {
+    const re = new RegExp(`\\bid:\\s*${escapeRegex(String(key || '').trim())}\\b`);
+    return re.test(String(yamlText || ''));
+  }
+
+  function ensureDeviceAccess(req, device, res) {
+    if (!device) {
+      if (res) res.status(404).json({ ok: false, error: 'device_not_found' });
+      return false;
+    }
+    if (!access || access.canAccessSite(req, device.site_id)) return true;
+    if (res) res.status(403).json({ ok: false, error: 'forbidden' });
+    return false;
+  }
+
+  function configSiteId(cfg) {
+    const siteId = Number(cfg?.site_id);
+    if (Number.isFinite(siteId) && siteId > 0) return siteId;
+    const deviceName = safeName(cfg?.device_name || '');
+    if (!deviceName || !getDevicesByNameStmt) return null;
+    const rows = getDevicesByNameStmt.all(deviceName) || [];
+    const row = rows.find(r => r && r.site_id != null);
+    return row ? row.site_id : null;
+  }
+
+  function redactSavedConfig(cfg) {
+    const out = { ...(cfg || {}) };
+    if (Object.prototype.hasOwnProperty.call(out, 'wifi_pass')) {
+      out.wifi_pass_set = !!out.wifi_pass;
+      out.wifi_pass = '';
+    }
+    return out;
+  }
 
   app.get('/api/esphome/check', requireLogin, (req, res) => {
     res.json({
@@ -595,7 +773,7 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
   });
 
 
-  app.get('/api/esphome/devices', requireLogin, (req, res) => {
+  app.get('/api/esphome/devices', requireEngineerAccess, (req, res) => {
     if (!db) return res.json({ devices: [] });
     try {
       const rows = db.prepare(`
@@ -631,14 +809,14 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
             LIMIT 1
           )
         ORDER BY d.id DESC
-      `).all();
+      `).all().filter(row => !access || access.canAccessSite(req, row.site_id));
       res.json({ devices: rows });
     } catch (e) {
       res.json({ devices: [], error: e.message });
     }
   });
 
-  app.get('/api/esphome/configs', requireLogin, (req, res) => {
+  app.get('/api/esphome/configs', requireEngineerAccess, (req, res) => {
     try {
       const files = fs.readdirSync(cfgDir)
         .filter(f => f.endsWith('.json'))
@@ -646,7 +824,9 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
           try { return JSON.parse(fs.readFileSync(path.join(cfgDir, f), 'utf8')); }
           catch { return null; }
         })
-        .filter(Boolean);
+        .filter(Boolean)
+        .filter(cfg => !access || access.canAccessSite(req, configSiteId(cfg)))
+        .map(redactSavedConfig);
       res.json({ configs: files });
     } catch {
       res.json({ configs: [] });
@@ -686,6 +866,88 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
     }
   });
 
+  // ── Pin options for Add Peripheral panel ─────────────────────────────────
+  app.get('/api/esphome/device/:id/pin-options', requireEngineerAccess, (req, res) => {
+    const deviceId = Number(req.params.id);
+    if (!db) return res.status(500).json({ ok: false, error: 'database_unavailable' });
+
+    const device = getDeviceByIdStmt.get(deviceId);
+    if (!ensureDeviceAccess(req, device, res)) return;
+
+    const profile = getCatalogProfile(db, device.board_profile_id);
+
+    // Detect used pins from existing YAML
+    const usedPinMap = device.yaml_path && fs.existsSync(device.yaml_path)
+      ? collectYamlPinUsage(fs.readFileSync(device.yaml_path, 'utf8'))
+      : new Map();
+    const usedPins = [...usedPinMap.keys()];
+
+    // Build board-aware + generic GPIO pin options.
+    // If the profile has labeled ports (HT1 / A1 / etc.) we surface them first,
+    // then append generic GPIO options so every board still works without custom labels.
+    const sensorPorts = [];
+    const seenPins = new Set();
+    if (profile && Array.isArray(profile.entityDefaults)) {
+      for (const e of profile.entityDefaults) {
+        const pin = String(e.pin || (typeof e.source === 'string' && /^GPIO\d+$/i.test(e.source) ? e.source : '') || '').trim().toUpperCase();
+        const gpio = parseGpio(pin);
+        if (!pin || gpio === null || seenPins.has(pin)) continue;
+        const supports = getPinCapabilities(profile, gpio);
+        if (!supports.length) continue;
+        const usage = usedPinMap.get(pin);
+        sensorPorts.push({
+          value: pin,
+          label: e.source || pin,
+          hint: e.name || (e.source || pin),
+          supports,
+          inUse: !!usage,
+          usageKinds: usage ? [...usage.kinds] : [],
+          noPullup: getProfilePinRules(profile).noPullup.includes(gpio),
+          inputOnly: getProfilePinRules(profile).inputOnly.includes(gpio),
+          generic: false,
+        });
+        seenPins.add(pin);
+      }
+    }
+
+    const rules = getProfilePinRules(profile);
+    for (const gpio of getCandidatePins(profile)) {
+      const pin = toGpioLabel(gpio);
+      if (seenPins.has(pin)) continue;
+      const supports = getPinCapabilities(profile, gpio);
+      if (!supports.length) continue;
+      const usage = usedPinMap.get(pin);
+      sensorPorts.push({
+        value: pin,
+        label: pin,
+        hint: [
+          supports.includes('analog') ? 'ADC capable' : null,
+          rules.inputOnly.includes(gpio) ? 'input-only' : null,
+          rules.noPullup.includes(gpio) ? 'no internal pull-up' : null,
+          rules.strapping.includes(gpio) ? 'strapping pin' : null,
+        ].filter(Boolean).join(' · ') || 'Generic GPIO',
+        supports,
+        inUse: !!usage,
+        usageKinds: usage ? [...usage.kinds] : [],
+        noPullup: rules.noPullup.includes(gpio),
+        inputOnly: rules.inputOnly.includes(gpio),
+        generic: true,
+      });
+    }
+
+    res.json({
+      ok: true,
+      boardLabel: profile?.label || device.board_profile_id,
+      sensorPorts,
+      usedPins,
+      reservedPins: rules.reserved,
+      flashPins: rules.flashPins,
+      inputOnlyPins: rules.inputOnly,
+      noPullupPins: rules.noPullup,
+      strappingPins: rules.strapping,
+    });
+  });
+
   // ── Add Peripheral to existing device (OTA) ─────────────────────────────
   app.post('/api/esphome/add-peripheral', requireEngineerAccess, (req, res) => {
     if (activeFlash) return res.status(409).json({ ok: false, error: 'flash_in_progress' });
@@ -702,43 +964,87 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
     if (!ip) return res.status(400).json({ ok: false, error: 'ip required' });
 
     // Validate entity fields
-    const eType = String(rawEntity.type || '').trim().toLowerCase();
-    const eName = String(rawEntity.name || '').trim();
-    const ePin  = String(rawEntity.pin  || '').trim();
-    const eKey  = String(rawEntity.key  || '').trim().replace(/[^a-z0-9_]/g, '_').replace(/^_|_$/g, '');
+    const eType        = String(rawEntity.type         || '').trim().toLowerCase();
+    const eName        = String(rawEntity.name         || '').trim();
+    const ePinRaw      = String(rawEntity.pin          || '').trim();
+    const ePin         = normalizePinInput(ePinRaw);
+    const eKey         = String(rawEntity.key          || '').trim().replace(/[^a-z0-9_]/g, '_').replace(/^_|_$/g, '');
+    const eScale       = String(rawEntity.scale        || 'none').trim();
+    const eScaleFactor = Number(rawEntity.scale_factor) || 1;
 
-    const ALLOWED_TYPES = ['ds18b20', 'dht11', 'dht', 'analog'];
+    const ALLOWED_TYPES = ['ds18b20', 'dht11', 'dht', 'analog', 'pulse_counter'];
     if (!ALLOWED_TYPES.includes(eType)) return res.status(400).json({ ok: false, error: 'unsupported_entity_type' });
     if (!eName) return res.status(400).json({ ok: false, error: 'entity name required' });
-    if (!ePin)  return res.status(400).json({ ok: false, error: 'entity pin required' });
+    if (!ePinRaw)  return res.status(400).json({ ok: false, error: 'entity pin required' });
     if (!eKey)  return res.status(400).json({ ok: false, error: 'entity key required' });
+
+    if (!ePin)
+      return res.status(400).json({ ok: false, error: 'invalid_pin_format — use GPIO<number> or a numeric GPIO pin (e.g. GPIO32 or 32)' });
 
     if (!db) return res.status(500).json({ ok: false, error: 'database_unavailable' });
 
-    const device = db.prepare('SELECT * FROM esphome_devices WHERE id=?').get(deviceId);
-    if (!device) return res.status(404).json({ ok: false, error: 'device_not_found' });
+    const device = getDeviceByIdStmt.get(deviceId);
+    if (!ensureDeviceAccess(req, device, res)) return;
     if (!device.yaml_path) return res.status(400).json({ ok: false, error: 'device_has_no_yaml_path' });
     if (!fs.existsSync(device.yaml_path)) return res.status(400).json({ ok: false, error: 'yaml_file_not_found' });
 
-    const existingYaml = fs.readFileSync(device.yaml_path, 'utf8');
+    const profile = getCatalogProfile(db, device.board_profile_id);
+
+    // Read YAML early so we can do duplicate checks before writing anything
+    const existingYamlForCheck = fs.readFileSync(device.yaml_path, 'utf8');
+
+    // Check duplicate key — id: <key> already present in YAML
+    if (hasYamlId(existingYamlForCheck, eKey) || ((eType === 'dht' || eType === 'dht11') && hasYamlId(existingYamlForCheck, `${eKey}_hum`)))
+      return res.status(400).json({ ok: false, error: `duplicate_key — "${eKey}" already exists in this device's YAML` });
+
+    const validation = validatePeripheralEntity({
+      profile,
+      yamlText: existingYamlForCheck,
+      entity: { type: eType, pin: ePin },
+    });
+    if (!validation.ok)
+      return res.status(400).json({ ok: false, error: validation.errors.join(' · '), warnings: validation.warnings || [] });
+
+    const existingYaml = existingYamlForCheck;
+    const originalYamlHash = device.yaml_hash || null;
     const deviceSafeName = device.name || safeName(device.friendly_name || 'device');
 
     let updatedYaml;
     try {
       updatedYaml = addPeripheralToYaml(existingYaml, deviceSafeName, {
-        type: eType, name: eName, key: eKey, pin: ePin,
+        type: eType, name: eName, key: eKey, pin: validation.pin || ePin,
+        pin_mode: validation.pinMode,
+        scale: eScale, scale_factor: eScaleFactor,
+      }, {
+        deviceName: device.friendly_name || device.name || deviceSafeName,
+        boardLabel: profile?.label || device.board_profile_id,
+        boardProfileId: device.board_profile_id,
       });
     } catch (e) {
       return res.status(500).json({ ok: false, error: 'yaml_merge_failed: ' + e.message });
     }
 
+    // Write updated YAML — keep original in memory for rollback
     fs.writeFileSync(device.yaml_path, updatedYaml, 'utf8');
 
-    // Persist updated yaml_hash in DB
     const now = new Date().toISOString();
     const { sha256 } = require('./esphome/schema');
+    const updatedYamlHash = sha256(updatedYaml);
+
     db.prepare('UPDATE esphome_devices SET yaml_hash=?, status=?, updated_at=? WHERE id=?')
-      .run(sha256(updatedYaml), 'generated', now, deviceId);
+      .run(updatedYamlHash, 'generated', now, deviceId);
+
+    // Rollback helper — restores original YAML on flash failure
+    const rollback = () => {
+      try {
+        fs.writeFileSync(device.yaml_path, existingYaml, 'utf8');
+        db.prepare('UPDATE esphome_devices SET yaml_hash=?, status=?, updated_at=? WHERE id=?')
+          .run(originalYamlHash, 'flashed', new Date().toISOString(), deviceId);
+        appendLog('warn', '↩ YAML rolled back to previous version (flash failed).');
+      } catch (rbErr) {
+        appendLog('error', `Rollback failed: ${rbErr.message}`);
+      }
+    };
 
     // Save new generated config record
     let configId = null;
@@ -758,7 +1064,7 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
       jobId = job.lastInsertRowid;
     } catch {}
 
-    res.json({ ok: true, yaml: updatedYaml });
+    res.json({ ok: true, yaml: updatedYaml, warnings: validation.warnings || [] });
 
     const logs = [];
     const appendLog = (level, text) => {
@@ -777,8 +1083,9 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
     proc.on('close', code => {
       activeFlash = null;
       const ok = code === 0;
-      db.prepare('UPDATE esphome_devices SET status=?, updated_at=? WHERE id=?')
-        .run(ok ? 'flashed' : 'error', new Date().toISOString(), deviceId);
+      if (!ok) rollback();
+      else db.prepare('UPDATE esphome_devices SET status=?, updated_at=? WHERE id=?')
+        .run('flashed', new Date().toISOString(), deviceId);
       if (jobId) updateJob(db, jobId, {
         status: ok ? 'success' : 'failed',
         finished_at: new Date().toISOString(),
@@ -786,15 +1093,17 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
         output_log: logs.join('\n'),
         error_text: ok ? null : logs.slice(-20).join('\n'),
       });
-      const doneMsg = { type: 'esphome_add_done', ok, code };
+      const doneMsg = { type: 'esphome_add_done', ok, code, awaiting_report: !!ok, entity_key: eKey };
       if (clientId && wsApi.sendToClient) wsApi.sendToClient(clientId, doneMsg);
       appendLog(ok ? 'info' : 'error', ok
         ? `✓ Flash complete — "${eName}" added to "${device.friendly_name || device.name}"`
         : `✗ Flash failed (exit ${code})`);
+      if (ok) appendLog('info', `Waiting for the device to reconnect and publish MQTT config/state so ELARIS can auto-register pending IO "${eKey}".`);
     });
 
     proc.on('error', err => {
       activeFlash = null;
+      rollback();
       if (jobId) updateJob(db, jobId, { status: 'failed', finished_at: new Date().toISOString(), error_text: err.message, output_log: logs.join('\n') });
       appendLog('error', `Cannot run esphome: ${err.message}`);
     });
@@ -806,26 +1115,54 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
     const deviceId = Number(body.device_id);
     const rawEntity = body.entity || {};
 
-    const eType = String(rawEntity.type || '').trim().toLowerCase();
-    const eName = String(rawEntity.name || '').trim();
-    const ePin  = String(rawEntity.pin  || '').trim();
-    const eKey  = String(rawEntity.key  || '').trim().replace(/[^a-z0-9_]/g, '_').replace(/^_|_$/g, '');
+    const eType        = String(rawEntity.type         || '').trim().toLowerCase();
+    const eName        = String(rawEntity.name         || '').trim();
+    const ePinRaw      = String(rawEntity.pin          || '').trim();
+    const ePin         = normalizePinInput(ePinRaw);
+    const eKey         = String(rawEntity.key          || '').trim().replace(/[^a-z0-9_]/g, '_').replace(/^_|_$/g, '');
+    const eScale       = String(rawEntity.scale        || 'none').trim();
+    const eScaleFactor = Number(rawEntity.scale_factor) || 1;
 
-    if (!deviceId || !eType || !eName || !ePin || !eKey)
+    const ALLOWED_TYPES = ['ds18b20', 'dht11', 'dht', 'analog', 'pulse_counter'];
+    if (!deviceId || !eType || !eName || !ePinRaw || !eKey)
       return res.status(400).json({ ok: false, error: 'missing required fields' });
+    if (!ALLOWED_TYPES.includes(eType))
+      return res.status(400).json({ ok: false, error: 'unsupported_entity_type' });
+    if (!ePin)
+      return res.status(400).json({ ok: false, error: 'invalid_pin_format — use GPIO<number> or a numeric GPIO pin' });
     if (!db) return res.status(500).json({ ok: false, error: 'database_unavailable' });
 
-    const device = db.prepare('SELECT * FROM esphome_devices WHERE id=?').get(deviceId);
-    if (!device) return res.status(404).json({ ok: false, error: 'device_not_found' });
+    const device = getDeviceByIdStmt.get(deviceId);
+    if (!ensureDeviceAccess(req, device, res)) return;
     if (!device.yaml_path || !fs.existsSync(device.yaml_path))
       return res.status(400).json({ ok: false, error: 'yaml_file_not_found' });
 
     const existingYaml = fs.readFileSync(device.yaml_path, 'utf8');
+    if (hasYamlId(existingYaml, eKey) || ((eType === 'dht' || eType === 'dht11') && hasYamlId(existingYaml, `${eKey}_hum`)))
+      return res.status(400).json({ ok: false, error: `duplicate_key — "${eKey}" already exists` });
+
+    const profile = getCatalogProfile(db, device.board_profile_id);
+    const validation = validatePeripheralEntity({
+      profile,
+      yamlText: existingYaml,
+      entity: { type: eType, pin: ePin },
+    });
+    if (!validation.ok)
+      return res.status(400).json({ ok: false, error: validation.errors.join(' · '), warnings: validation.warnings || [] });
+
     const deviceSafeName = device.name || safeName(device.friendly_name || 'device');
 
     try {
-      const updatedYaml = addPeripheralToYaml(existingYaml, deviceSafeName, { type: eType, name: eName, key: eKey, pin: ePin });
-      res.json({ ok: true, yaml: updatedYaml });
+      const updatedYaml = addPeripheralToYaml(existingYaml, deviceSafeName, {
+        type: eType, name: eName, key: eKey, pin: validation.pin || ePin,
+        pin_mode: validation.pinMode,
+        scale: eScale, scale_factor: eScaleFactor,
+      }, {
+        deviceName: device.friendly_name || device.name || deviceSafeName,
+        boardLabel: profile?.label || device.board_profile_id,
+        boardProfileId: device.board_profile_id,
+      });
+      res.json({ ok: true, yaml: updatedYaml, warnings: validation.warnings || [] });
     } catch (e) {
       res.status(500).json({ ok: false, error: e.message });
     }

@@ -117,6 +117,16 @@
 .guide-num { flex-shrink:0; width:24px; height:24px; border-radius:50%; background:var(--blue); color:#fff; font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; }
 .guide-tip { background:rgba(29,140,255,.08); border:1px solid rgba(29,140,255,.2); border-radius:8px; padding:10px 14px; font-size:11px; color:var(--muted2); line-height:1.6; }
 .guide-step code { background:rgba(255,255,255,.08); border-radius:4px; padding:1px 5px; font-family:monospace; font-size:11px; }
+.pin-quick-select { margin-bottom:8px; }
+.apNoticeBox { display:none; margin-top:8px; border-radius:10px; border:1px solid var(--line); background:rgba(255,255,255,.03); padding:10px 12px; }
+.apNoticeTitle { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--muted2); margin-bottom:8px; }
+.apNoticeList { display:flex; flex-direction:column; gap:6px; }
+.apNoticeItem { display:flex; align-items:flex-start; gap:8px; font-size:11px; line-height:1.45; }
+.apNoticeItem .ico { flex:0 0 auto; width:16px; text-align:center; }
+.apNoticeItem.warn { color:var(--warn); }
+.apNoticeItem.err { color:var(--bad); }
+.apNoticeItem.info { color:var(--muted2); }
+.apNoticeItem.ok { color:var(--good); }
 </style>
 </head>
 <body>
@@ -268,17 +278,37 @@
           </div>
           <div class="form-row">
             <label>Peripheral Type</label>
-            <select id="apType" onchange="apClearPreview()">
+            <select id="apType" onchange="apLoadPinOptions()">
               <option value="ds18b20">DS18B20 Temperature (1-Wire)</option>
               <option value="dht11">DHT11 Temp + Humidity</option>
               <option value="dht">DHT22 Temp + Humidity</option>
               <option value="analog">Analog Input (ADC)</option>
+              <option value="pulse_counter">Pulse Counter (flow / anemometer)</option>
             </select>
           </div>
           <div class="form-row">
-            <label>GPIO Pin</label>
-            <input type="text" id="apPin" placeholder="e.g. GPIO32" oninput="apClearPreview()">
-            <span class="form-hint">GPIO pin on the board (e.g. GPIO14, GPIO32)</span>
+            <label>Pin</label>
+            <select id="apPinDropdown" class="pin-quick-select" style="display:none" onchange="apOnPinDropdownChange()">
+              <option value="">Quick board label (optional)</option>
+            </select>
+            <input type="text" id="apPin" placeholder="e.g. GPIO32" oninput="apOnPinInput()">
+            <span class="form-hint" id="apPinHint">Type a GPIO pin. Board labels are optional shortcuts.</span>
+            <div id="apPinValidation" class="apNoticeBox"></div>
+          </div>
+          <div class="form-row" id="apScaleRow" style="display:none">
+            <label>Scaling</label>
+            <select id="apScale" onchange="apOnScaleChange();apClearPreview()">
+              <option value="none">None — raw pulses/min</option>
+              <option value="yfs201">YF-S201 Water Flow → L/min</option>
+              <option value="anemometer">Anemometer → Hz</option>
+              <option value="custom">Custom factor…</option>
+            </select>
+            <span class="form-hint">Convert pulse count to engineering units</span>
+          </div>
+          <div class="form-row" id="apScaleCustomRow" style="display:none">
+            <label>Custom Factor</label>
+            <input type="number" id="apScaleFactor" value="1" step="any" min="0" oninput="apClearPreview()">
+            <span class="form-hint">result = pulses_per_min × factor</span>
           </div>
           <div class="form-row">
             <label>Sensor Name</label>
@@ -295,6 +325,7 @@
           <button class="btn btnPrimary" id="apFlashBtn" onclick="apFlash()" style="font-size:12px;display:none">&#9889; Add &amp; Flash OTA</button>
           <button class="btn" id="apCancelBtn" onclick="apCancel()" style="display:none;font-size:12px">&#9632; Cancel</button>
         </div>
+        <div id="apPreviewWarnings" class="apNoticeBox" style="margin-top:12px"></div>
         <details id="apYamlDetails" style="margin-top:12px;display:none">
           <summary style="font-size:12px;font-weight:700;cursor:pointer;color:var(--muted2)">&#128196; Updated YAML Preview</summary>
           <pre class="yaml-pre" id="apYamlPreview" style="max-height:300px"></pre>
@@ -303,7 +334,7 @@
         <div id="apDone" style="display:none;margin-top:12px;padding:12px;border-radius:10px;border:1px solid var(--good);background:rgba(34,217,122,.08);text-align:center">
           <div style="font-size:18px;margin-bottom:4px">&#10003;</div>
           <div style="font-weight:800;font-size:13px">Peripheral Added!</div>
-          <div style="font-size:12px;color:var(--muted2);margin-top:4px">The device will restart and the new sensor will appear in ELARIS within ~30 seconds.</div>
+          <div style="font-size:12px;color:var(--muted2);margin-top:4px">The device will restart, publish its updated MQTT config, and the new IO should auto-appear in Installer as Pending within ~30 seconds.</div>
         </div>
       </div>
 
@@ -1434,6 +1465,7 @@ async function saveCurrentConfig() {
 // ── Add Peripheral to Existing Device ─────────────────────────────────────
 var _apFlashing = false;
 var _apPreviewYaml = null;
+var _apPinOptions = null;
 
 function toggleAddPeripheral() {
   var p = document.getElementById('addPeripheralPanel');
@@ -1445,19 +1477,15 @@ function apPopulateDevices() {
   var sel = document.getElementById('apDeviceSelect');
   sel.innerHTML = '<option value="">— select device —</option>';
   var flashed = installerDevices.filter(function(d) { return d.status === 'flashed' || d.status === 'online'; });
-  if (!flashed.length) {
-    // Show all if none are flashed yet
-    flashed = installerDevices;
-  }
+  if (!flashed.length) flashed = installerDevices;
   flashed.forEach(function(d) {
     var opt = document.createElement('option');
     opt.value = String(d.id);
     opt.textContent = (d.friendly_name || d.name) + (d.ip_address ? ' (' + d.ip_address + ')' : '');
     sel.appendChild(opt);
   });
-  if (!installerDevices.length) {
+  if (!installerDevices.length)
     sel.innerHTML += '<option value="" disabled>No devices found — flash a device first</option>';
-  }
 }
 
 function onApDeviceChange() {
@@ -1467,12 +1495,11 @@ function onApDeviceChange() {
   if (d) {
     var ip = d.ip_address || d.target_ip || '';
     if (ip) document.getElementById('apIp').value = ip;
-    var profile = d.board_profile_id || '';
-    hint.textContent = profile + (d.hostname ? ' · ' + d.hostname : '');
+    hint.textContent = (d.board_profile_id || '') + (d.hostname ? ' · ' + d.hostname : '');
   } else {
     hint.textContent = 'Select a flashed device from the list';
   }
-  apClearPreview();
+  apLoadPinOptions();
 }
 
 function apAutoKey() {
@@ -1486,26 +1513,215 @@ function apClearPreview() {
   document.getElementById('apFlashBtn').style.display = 'none';
   document.getElementById('apYamlDetails').style.display = 'none';
   document.getElementById('apDone').style.display = 'none';
+  apRenderNoticeBox('apPreviewWarnings', '', []);
+}
+
+function apRenderNoticeBox(boxId, title, items) {
+  var box = document.getElementById(boxId);
+  if (!box) return;
+  items = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!items.length) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+  box.style.display = '';
+  box.innerHTML = '<div class="apNoticeTitle">' + escHtml(title || 'Info') + '</div><div class="apNoticeList">'
+    + items.map(function(item) {
+      var level = ['err', 'warn', 'info', 'ok'].indexOf(item.level) >= 0 ? item.level : 'info';
+      var icon = item.icon || (level === 'err' ? '&#10060;' : level === 'warn' ? '&#9888;' : level === 'ok' ? '&#10003;' : '&#8505;');
+      return '<div class="apNoticeItem ' + level + '"><span class="ico">' + icon + '</span><span>' + escHtml(item.text || '') + '</span></div>';
+    }).join('') + '</div>';
+}
+
+function apRenderPreviewWarnings(warnings) {
+  var list = (warnings || []).map(function(w) {
+    return typeof w === 'string' ? { level: 'warn', text: w } : { level: w.level || 'warn', text: w.text || '' };
+  }).filter(function(x) { return x.text; });
+  if (!list.length) list.push({ level: 'ok', text: 'Preview looks clean — no extra warnings from the generator.' });
+  apRenderNoticeBox('apPreviewWarnings', 'Preview checks', list);
+}
+
+function apFindPortByValue(pinValue) {
+  var pin = String(pinValue || '').trim().toUpperCase();
+  return ((_apPinOptions && _apPinOptions.sensorPorts) || []).find(function(p) { return String(p.value || '').toUpperCase() === pin; }) || null;
+}
+
+function apRenderPinValidation() {
+  var pinText = String(document.getElementById('apPin').value || '').trim().toUpperCase();
+  var type = document.getElementById('apType').value;
+  var hint = document.getElementById('apPinHint');
+  var messages = [];
+  if (!pinText) {
+    hint.textContent = 'Type a GPIO pin. Board labels are optional shortcuts.';
+    hint.style.color = '';
+    apRenderNoticeBox('apPinValidation', '', []);
+    return;
+  }
+  var m = pinText.match(/^GPIO(\d+)$/i);
+  if (!m) {
+    hint.textContent = 'Use GPIO<number> format, for example GPIO14 or GPIO32.';
+    hint.style.color = '#f5a623';
+    apRenderNoticeBox('apPinValidation', 'Pin checks', [{ level: 'warn', text: 'Pin format should be GPIO<number>.' }]);
+    return;
+  }
+  var gpio = Number(m[1]);
+  var rules = _apPinOptions || {};
+  var port = apFindPortByValue(pinText);
+  var hasPortList = Array.isArray(rules.sensorPorts) && rules.sensorPorts.length;
+  if (port && !port.generic && port.label) {
+    hint.textContent = 'Matched board label: ' + port.label + ' (' + pinText + ')' + (port.hint ? ' · ' + port.hint : '');
+  } else if (hasPortList) {
+    hint.textContent = 'Using ' + pinText + ' on ' + (rules.boardLabel || 'this board') + '.';
+  } else {
+    hint.textContent = 'Manual GPIO entry for this board.';
+  }
+  hint.style.color = '';
+
+  if ((rules.flashPins || []).indexOf(gpio) >= 0) messages.push({ level: 'err', text: pinText + ' is a flash pin and should not be used.' });
+  if ((rules.reservedPins || []).indexOf(gpio) >= 0) messages.push({ level: 'err', text: pinText + ' is reserved by the board/profile.' });
+  if ((rules.inputOnlyPins || []).indexOf(gpio) >= 0 && ['dht', 'dht11', 'ds18b20'].indexOf(type) >= 0)
+    messages.push({ level: 'err', text: pinText + ' is input-only and is not suitable for this sensor type.' });
+  if ((rules.strappingPins || []).indexOf(gpio) >= 0) messages.push({ level: 'warn', text: pinText + ' is a strapping pin — use with care during boot.' });
+  if ((rules.noPullupPins || []).indexOf(gpio) >= 0 && type === 'pulse_counter')
+    messages.push({ level: 'warn', text: pinText + ' has no internal pull-up. Use an external pull-up if your sensor needs one.' });
+
+  if (port) {
+    if (Array.isArray(port.supports) && port.supports.indexOf(type) < 0) {
+      messages.push({ level: 'err', text: (port.label || pinText) + ' is not compatible with ' + type + ' on this board.' });
+    }
+    if (port.inUse) {
+      var sharedDs = type === 'ds18b20' && Array.isArray(port.usageKinds) && port.usageKinds.every(function(k) { return k === 'one_wire:gpio' || k === 'sensor:dallas_temp'; });
+      if (sharedDs) messages.push({ level: 'warn', text: pinText + ' is already used for 1-Wire. Sharing the bus for another DS18B20 is allowed.' });
+      else messages.push({ level: 'err', text: pinText + ' is already in use in this device YAML and will be rejected on save.' });
+    }
+  } else if (hasPortList) {
+    messages.push({ level: 'info', text: pinText + ' is not listed as a labeled port on this board. It may still work if the board supports it.' });
+  }
+
+  if (!messages.length) messages.push({ level: 'ok', text: pinText + ' looks valid for this peripheral based on the current board profile.' });
+  apRenderNoticeBox('apPinValidation', 'Pin checks', messages);
+}
+
+// Called when device or type changes — loads board pin metadata from server
+async function apLoadPinOptions() {
+  apClearPreview();
+  var deviceId = Number(document.getElementById('apDeviceSelect').value);
+  var type = document.getElementById('apType').value;
+
+  var isPulse = type === 'pulse_counter';
+  document.getElementById('apScaleRow').style.display = isPulse ? '' : 'none';
+  if (!isPulse) document.getElementById('apScaleCustomRow').style.display = 'none';
+
+  document.getElementById('apPinDropdown').style.display = 'none';
+  document.getElementById('apPinHint').textContent = 'Type a GPIO pin. Board labels are optional shortcuts.';
+  document.getElementById('apPinHint').style.color = '';
+  apRenderNoticeBox('apPinValidation', '', []);
+
+  if (!deviceId) { _apPinOptions = null; apRenderPinValidation(); return; }
+
+  try {
+    var r = await api('/esphome/device/' + deviceId + '/pin-options');
+    _apPinOptions = r;
+    apBuildPinDropdown(type);
+  } catch(e) {
+    _apPinOptions = null;
+  }
+  apRenderPinValidation();
+}
+
+// Build the optional labeled pin dropdown from profile data
+function apBuildPinDropdown(type) {
+  var dropdown = document.getElementById('apPinDropdown');
+  if (!_apPinOptions) { dropdown.style.display = 'none'; return; }
+
+  var ports = (_apPinOptions.sensorPorts || []).filter(function(p) {
+    return !p.generic && (Array.isArray(p.supports) ? p.supports.indexOf(type) >= 0 : true);
+  });
+
+  if (ports.length > 0) {
+    dropdown.innerHTML = '<option value="">Quick board label (optional)</option>';
+    ports.forEach(function(p) {
+      var opt = document.createElement('option');
+      opt.value = p.value;
+      var titleBits = [];
+      if (p.hint) titleBits.push(p.hint);
+      if (p.noPullup && type === 'pulse_counter') titleBits.push('No internal pull-up — external pull-up may be required');
+      if (p.inUse) titleBits.push(type === 'ds18b20' ? 'Already used — shared 1-Wire bus may be okay' : 'Already in use');
+      var label = p.label === p.value ? p.label : (p.label + '  (' + p.value + ')');
+      opt.textContent = label
+        + (p.inUse ? (type === 'ds18b20' ? '  ⚠ shared bus' : '  ⚠ in use') : '')
+        + (p.noPullup && type === 'pulse_counter' ? '  · ext pull-up' : '');
+      if (p.inUse) opt.style.color = '#f5a623';
+      opt.title = titleBits.join(' · ');
+      dropdown.appendChild(opt);
+    });
+    dropdown.style.display = '';
+  } else {
+    dropdown.style.display = 'none';
+  }
+}
+
+function apOnPinInput() {
+  var dropdown = document.getElementById('apPinDropdown');
+  if (dropdown && dropdown.style.display !== 'none') {
+    var typed = String(document.getElementById('apPin').value || '').trim().toUpperCase();
+    if (!typed || String(dropdown.value || '').toUpperCase() !== typed) dropdown.value = '';
+  }
+  apClearPreview();
+  apRenderPinValidation();
+}
+
+// Called when board port dropdown changes
+function apOnPinDropdownChange() {
+  var val = document.getElementById('apPinDropdown').value;
+  var textInput = document.getElementById('apPin');
+  if (val) {
+    textInput.value = val;
+  }
+  apOnPinInput();
+}
+
+function apOnScaleChange() {
+  var scale = document.getElementById('apScale').value;
+  document.getElementById('apScaleCustomRow').style.display = scale === 'custom' ? '' : 'none';
+}
+
+// Returns the effective GPIO pin value (from dropdown or text input)
+function apGetPin() {
+  var typed = document.getElementById('apPin').value.trim();
+  if (typed) return typed;
+  var dropdown = document.getElementById('apPinDropdown');
+  return dropdown && dropdown.style.display !== 'none' ? String(dropdown.value || '').trim() : '';
+}
+
+// Returns scale fields if type is pulse_counter
+function apGetScaleEntity(type) {
+  if (type !== 'pulse_counter') return {};
+  var scale = document.getElementById('apScale').value;
+  var factor = parseFloat(document.getElementById('apScaleFactor').value) || 1;
+  return { scale: scale, scale_factor: factor };
 }
 
 async function apPreview() {
   var deviceId = document.getElementById('apDeviceSelect').value;
   var type = document.getElementById('apType').value;
   var name = document.getElementById('apName').value.trim();
-  var pin  = document.getElementById('apPin').value.trim();
+  var pin  = apGetPin();
   var key  = document.getElementById('apKey').value.trim();
 
   if (!deviceId) { alert('Select a device.'); return; }
   if (!name) { alert('Enter a sensor name.'); return; }
-  if (!pin)  { alert('Enter a GPIO pin (e.g. GPIO32).'); return; }
+  if (!pin)  { alert('Select or enter a GPIO pin.'); return; }
   if (!key)  { alert('Key is required.'); return; }
 
   var btn = document.getElementById('apPreviewBtn');
   btn.disabled = true; btn.textContent = 'Loading…';
   try {
+    var entity = Object.assign({ type: type, name: name, key: key, pin: pin }, apGetScaleEntity(type));
     var r = await api('/esphome/add-peripheral/preview', {
       method: 'POST',
-      body: JSON.stringify({ device_id: Number(deviceId), entity: { type, name, key, pin } }),
+      body: JSON.stringify({ device_id: Number(deviceId), entity: entity }),
     });
     _apPreviewYaml = r.yaml;
     document.getElementById('apYamlPreview').textContent = r.yaml;
@@ -1513,7 +1729,9 @@ async function apPreview() {
     document.getElementById('apYamlDetails').open = true;
     document.getElementById('apFlashBtn').style.display = '';
     document.getElementById('apDone').style.display = 'none';
+    apRenderPreviewWarnings(r.warnings || []);
   } catch(e) {
+    apRenderPreviewWarnings([{ text: 'Preview failed: ' + e.message, level: 'err' }]);
     alert('Preview failed: ' + e.message);
   }
   btn.disabled = false; btn.textContent = '📄 Preview YAML';
@@ -1527,7 +1745,7 @@ async function apFlash() {
   var ip   = document.getElementById('apIp').value.trim();
   var type = document.getElementById('apType').value;
   var name = document.getElementById('apName').value.trim();
-  var pin  = document.getElementById('apPin').value.trim();
+  var pin  = apGetPin();
   var key  = document.getElementById('apKey').value.trim();
 
   if (!ip) { alert('Enter the device IP address for OTA.'); return; }
@@ -1544,12 +1762,13 @@ async function apFlash() {
   apTermLine('info', 'Starting OTA flash…');
 
   try {
+    var entity = Object.assign({ type: type, name: name, key: key, pin: pin }, apGetScaleEntity(type));
     await api('/esphome/add-peripheral', {
       method: 'POST',
       body: JSON.stringify({
         device_id: Number(deviceId),
         ip, client_id: esphomeClientId,
-        entity: { type, name, key, pin },
+        entity: entity,
       }),
     });
     apTermLine('info', 'Flash started — compiling firmware…');
@@ -1625,6 +1844,7 @@ function connectWS() {
         apResetFlashUI(msg.ok);
         if (msg.ok) {
           document.getElementById('apDone').style.display = '';
+          if (msg.awaiting_report) apTermLine('info', 'Waiting for first MQTT report so ELARIS can auto-register the new IO in Installer…');
           try { await loadInstallerDevices(); } catch {}
         } else {
           apTermLine('error', 'Flash failed. Check the output above.');
@@ -1681,14 +1901,17 @@ var PL_TEMPLATES = [
       { id: 'update_interval', label: 'Update Interval', type: 'text', default: '5s' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'sensor:\n' +
         '  - platform: pulse_counter\n' +
         '    pin: ' + f.gpio + '\n' +
         '    name: "Wind Speed"\n' +
+        '    id: wind_speed\n' +
         '    unit_of_measurement: "km/h"\n' +
         '    update_interval: ' + f.update_interval + '\n' +
         '    filters:\n' +
-        '      - lambda: return x * (0.666 / 60.0 * 3.6);\n';
+        '      - lambda: return x * (0.666 / 60.0 * 3.6);\n' +
+        plTele(s, 'wind_speed', '%.1f');
     }
   },
   {
@@ -1698,11 +1921,14 @@ var PL_TEMPLATES = [
       { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 34 }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'binary_sensor:\n' +
         '  - platform: gpio\n' +
         '    pin: ' + f.gpio + '\n' +
         '    name: "Rain Sensor"\n' +
-        '    device_class: moisture\n';
+        '    id: rain_sensor\n' +
+        '    device_class: moisture\n' +
+        plTeleBin(s, 'rain_sensor');
     }
   },
   {
@@ -1712,15 +1938,20 @@ var PL_TEMPLATES = [
       { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 4 }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'sensor:\n' +
         '  - platform: dht\n' +
         '    model: DHT22\n' +
         '    pin: ' + f.gpio + '\n' +
+        '    update_interval: 30s\n' +
         '    temperature:\n' +
         '      name: "Temperature"\n' +
+        '      id: temperature\n' +
+        plTele(s, 'temperature', '%.1f', '      ') +
         '    humidity:\n' +
         '      name: "Humidity"\n' +
-        '    update_interval: 60s\n';
+        '      id: humidity\n' +
+        plTele(s, 'humidity', '%.1f', '      ');
     }
   },
   {
@@ -1732,17 +1963,24 @@ var PL_TEMPLATES = [
       { id: 'address', label: 'I2C Address (hex)', type: 'text', default: '0x76' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'i2c:\n  sda: ' + f.sda + '\n  scl: ' + f.scl + '\n\n' +
         'sensor:\n' +
         '  - platform: bme280_i2c\n' +
         '    address: ' + f.address + '\n' +
+        '    update_interval: 60s\n' +
         '    temperature:\n' +
         '      name: "Temperature"\n' +
+        '      id: temperature\n' +
+        plTele(s, 'temperature', '%.1f', '      ') +
         '    humidity:\n' +
         '      name: "Humidity"\n' +
+        '      id: humidity\n' +
+        plTele(s, 'humidity', '%.1f', '      ') +
         '    pressure:\n' +
         '      name: "Pressure"\n' +
-        '    update_interval: 60s\n';
+        '      id: pressure\n' +
+        plTele(s, 'pressure', '%.1f', '      ');
     }
   },
   {
@@ -1754,12 +1992,15 @@ var PL_TEMPLATES = [
       { id: 'address', label: 'I2C Address (hex)', type: 'text', default: '0x23' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'i2c:\n  sda: ' + f.sda + '\n  scl: ' + f.scl + '\n\n' +
         'sensor:\n' +
         '  - platform: bh1750\n' +
         '    address: ' + f.address + '\n' +
         '    name: "Illuminance"\n' +
-        '    update_interval: 60s\n';
+        '    id: illuminance\n' +
+        '    update_interval: 60s\n' +
+        plTele(s, 'illuminance', '%.1f');
     }
   },
   // ── Temperature ────────────────────────────────────────────────────────
@@ -1770,12 +2011,18 @@ var PL_TEMPLATES = [
       { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 14 }
     ],
     generate: function(c, f) {
-      return c + 'dallas:\n' +
-        '  - pin: ' + f.gpio + '\n\n' +
+      var s = safePlName(f._dn);
+      return c + 'one_wire:\n' +
+        '  - platform: gpio\n' +
+        '    pin: GPIO' + f.gpio + '\n\n' +
         'sensor:\n' +
         '  - platform: dallas_temp\n' +
+        '    index: 0\n' +
         '    name: "Temperature"\n' +
-        '    update_interval: 60s\n';
+        '    id: temperature\n' +
+        '    unit_of_measurement: "°C"\n' +
+        '    update_interval: 30s\n' +
+        plTele(s, 'temperature', '%.1f');
     }
   },
   {
@@ -1785,16 +2032,19 @@ var PL_TEMPLATES = [
       { id: 'gpio', label: 'GPIO Pin (ADC)', type: 'number', default: 34 }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'sensor:\n' +
         '  - platform: ntc\n' +
         '    sensor: ntc_source\n' +
         '    name: "NTC Temperature"\n' +
+        '    id: ntc_temp\n' +
         '    calibration:\n' +
         '      b_constant: 3950\n' +
         '      reference_resistance: 10k\n' +
         '      reference_temperature: 25\n' +
-        '      nominal_resistance: 10k\n\n' +
-        '  - platform: adc\n' +
+        '      nominal_resistance: 10k\n' +
+        plTele(s, 'ntc_temp', '%.1f') +
+        '\n  - platform: adc\n' +
         '    id: ntc_source\n' +
         '    pin: GPIO' + f.gpio + '\n' +
         '    update_interval: 60s\n';
@@ -1808,11 +2058,14 @@ var PL_TEMPLATES = [
       { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 23 }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'binary_sensor:\n' +
         '  - platform: gpio\n' +
         '    pin: ' + f.gpio + '\n' +
         '    name: "Motion"\n' +
-        '    device_class: motion\n';
+        '    id: motion\n' +
+        '    device_class: motion\n' +
+        plTeleBin(s, 'motion');
     }
   },
   {
@@ -1822,13 +2075,16 @@ var PL_TEMPLATES = [
       { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 25 }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'binary_sensor:\n' +
         '  - platform: gpio\n' +
         '    pin:\n' +
         '      number: ' + f.gpio + '\n' +
         '      mode: INPUT_PULLUP\n' +
         '    name: "Door Contact"\n' +
-        '    device_class: door\n';
+        '    id: door_contact\n' +
+        '    device_class: door\n' +
+        plTeleBin(s, 'door_contact');
     }
   },
   {
@@ -1838,11 +2094,14 @@ var PL_TEMPLATES = [
       { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 26 }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'binary_sensor:\n' +
         '  - platform: gpio\n' +
         '    pin: ' + f.gpio + '\n' +
         '    name: "Vibration"\n' +
-        '    device_class: vibration\n';
+        '    id: vibration\n' +
+        '    device_class: vibration\n' +
+        plTeleBin(s, 'vibration');
     }
   },
   // ── Air Quality ────────────────────────────────────────────────────────
@@ -1855,18 +2114,23 @@ var PL_TEMPLATES = [
       { id: 'update_interval', label: 'Update Interval', type: 'text', default: '60s' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'uart:\n' +
         '  rx_pin: ' + f.rx_pin + '\n' +
         '  tx_pin: ' + f.tx_pin + '\n' +
         '  baud_rate: 9600\n\n' +
         'sensor:\n' +
         '  - platform: mhz19\n' +
+        '    update_interval: ' + f.update_interval + '\n' +
+        '    automatic_baseline_calibration: false\n' +
         '    co2:\n' +
         '      name: "CO2"\n' +
+        '      id: co2\n' +
+        plTele(s, 'co2', '%.0f', '      ') +
         '    temperature:\n' +
         '      name: "MHZ19 Temperature"\n' +
-        '    update_interval: ' + f.update_interval + '\n' +
-        '    automatic_baseline_calibration: false\n';
+        '      id: mhz19_temp\n' +
+        plTele(s, 'mhz19_temp', '%.1f', '      ');
     }
   },
   {
@@ -1878,15 +2142,20 @@ var PL_TEMPLATES = [
       { id: 'address', label: 'I2C Address (hex)', type: 'text', default: '0x5A' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'i2c:\n  sda: ' + f.sda + '\n  scl: ' + f.scl + '\n\n' +
         'sensor:\n' +
         '  - platform: ccs811\n' +
         '    address: ' + f.address + '\n' +
+        '    update_interval: 60s\n' +
         '    eco2:\n' +
         '      name: "eCO2"\n' +
+        '      id: eco2\n' +
+        plTele(s, 'eco2', '%.0f', '      ') +
         '    tvoc:\n' +
         '      name: "TVOC"\n' +
-        '    update_interval: 60s\n';
+        '      id: tvoc\n' +
+        plTele(s, 'tvoc', '%.0f', '      ');
     }
   },
   // ── Soil / Water ───────────────────────────────────────────────────────
@@ -1899,10 +2168,12 @@ var PL_TEMPLATES = [
       { id: 'max_voltage', label: 'Max Voltage (wet)', type: 'number', default: 2.8 }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'sensor:\n' +
         '  - platform: adc\n' +
         '    pin: GPIO' + f.gpio + '\n' +
         '    name: "Soil Moisture"\n' +
+        '    id: soil_moisture\n' +
         '    unit_of_measurement: "%"\n' +
         '    update_interval: 60s\n' +
         '    filters:\n' +
@@ -1911,7 +2182,8 @@ var PL_TEMPLATES = [
         '          - ' + f.max_voltage + ' -> 0.0\n' +
         '      - clamp:\n' +
         '          min_value: 0\n' +
-        '          max_value: 100\n';
+        '          max_value: 100\n' +
+        plTele(s, 'soil_moisture', '%.1f');
     }
   },
   {
@@ -1921,11 +2193,14 @@ var PL_TEMPLATES = [
       { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 27 }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'binary_sensor:\n' +
         '  - platform: gpio\n' +
         '    pin: ' + f.gpio + '\n' +
         '    name: "Water Leak"\n' +
-        '    device_class: moisture\n';
+        '    id: water_leak\n' +
+        '    device_class: moisture\n' +
+        plTeleBin(s, 'water_leak');
     }
   },
   // ── Power / Energy ─────────────────────────────────────────────────────
@@ -1938,6 +2213,7 @@ var PL_TEMPLATES = [
       { id: 'update_interval', label: 'Update Interval', type: 'text', default: '10s' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'uart:\n' +
         '  tx_pin: ' + f.tx_pin + '\n' +
         '  rx_pin: ' + f.rx_pin + '\n' +
@@ -1947,21 +2223,33 @@ var PL_TEMPLATES = [
         '  - platform: pzemac\n' +
         '    current:\n' +
         '      name: "' + f._dn + ' Current"\n' +
+        '      id: ' + s + '_current\n' +
         '      unit_of_measurement: "A"\n' +
+        plTele(s, s + '_current', '%.3f', '      ') +
         '    voltage:\n' +
         '      name: "' + f._dn + ' Voltage"\n' +
+        '      id: ' + s + '_voltage\n' +
         '      unit_of_measurement: "V"\n' +
+        plTele(s, s + '_voltage', '%.1f', '      ') +
         '    energy:\n' +
         '      name: "' + f._dn + ' Energy"\n' +
+        '      id: ' + s + '_energy\n' +
         '      unit_of_measurement: "Wh"\n' +
+        plTele(s, s + '_energy', '%.1f', '      ') +
         '    power:\n' +
         '      name: "' + f._dn + ' Power"\n' +
+        '      id: ' + s + '_power\n' +
         '      unit_of_measurement: "W"\n' +
+        plTele(s, s + '_power', '%.1f', '      ') +
         '    frequency:\n' +
         '      name: "' + f._dn + ' Frequency"\n' +
+        '      id: ' + s + '_freq\n' +
         '      unit_of_measurement: "Hz"\n' +
+        plTele(s, s + '_freq', '%.1f', '      ') +
         '    power_factor:\n' +
         '      name: "' + f._dn + ' Power Factor"\n' +
+        '      id: ' + s + '_pf\n' +
+        plTele(s, s + '_pf', '%.3f', '      ') +
         '    update_interval: ' + f.update_interval + '\n';
     }
   },
@@ -1975,6 +2263,7 @@ var PL_TEMPLATES = [
       { id: 'update_interval', label: 'Update Interval', type: 'text', default: '10s' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'i2c:\n  sda: ' + f.sda + '\n  scl: ' + f.scl + '\n\n' +
         'sensor:\n' +
         '  - platform: ina219\n' +
@@ -1982,12 +2271,20 @@ var PL_TEMPLATES = [
         '    shunt_resistance: 0.1 ohm\n' +
         '    current:\n' +
         '      name: "' + f._dn + ' Current"\n' +
+        '      id: ' + s + '_current\n' +
+        plTele(s, s + '_current', '%.3f', '      ') +
         '    power:\n' +
         '      name: "' + f._dn + ' Power"\n' +
+        '      id: ' + s + '_power\n' +
+        plTele(s, s + '_power', '%.2f', '      ') +
         '    bus_voltage:\n' +
         '      name: "' + f._dn + ' Bus Voltage"\n' +
+        '      id: ' + s + '_bus_v\n' +
+        plTele(s, s + '_bus_v', '%.2f', '      ') +
         '    shunt_voltage:\n' +
         '      name: "' + f._dn + ' Shunt Voltage"\n' +
+        '      id: ' + s + '_shunt_v\n' +
+        plTele(s, s + '_shunt_v', '%.4f', '      ') +
         '    update_interval: ' + f.update_interval + '\n';
     }
   },
@@ -1999,16 +2296,19 @@ var PL_TEMPLATES = [
       { id: 'update_interval', label: 'Update Interval', type: 'text', default: '5s' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'sensor:\n' +
         '  - platform: ct_clamp\n' +
         '    sensor: adc_sensor\n' +
         '    name: "' + f._dn + ' Current"\n' +
+        '    id: ' + s + '_current\n' +
         '    update_interval: ' + f.update_interval + '\n' +
         '    filters:\n' +
         '      - calibrate_linear:\n' +
         '        - 0 -> 0\n' +
-        '        - 0.11 -> 4.0\n\n' +
-        '  - platform: adc\n' +
+        '        - 0.11 -> 4.0\n' +
+        plTele(s, s + '_current', '%.3f') +
+        '\n  - platform: adc\n' +
         '    pin: GPIO' + f.gpio + '\n' +
         '    id: adc_sensor\n' +
         '    attenuation: 11db\n';
@@ -2026,6 +2326,7 @@ var PL_TEMPLATES = [
       { id: 'update_interval', label: 'Update Interval', type: 'text', default: '10s' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       var dnid = f._dn.replace(/-/g, '_');
       return c + 'sensor:\n' +
         '  - platform: ultrasonic\n' +
@@ -2036,9 +2337,11 @@ var PL_TEMPLATES = [
         '    unit_of_measurement: "cm"\n' +
         '    update_interval: ' + f.update_interval + '\n' +
         '    filters:\n' +
-        '      - lambda: return x * 100.0;  # m to cm\n\n' +
-        '  - platform: template\n' +
+        '      - lambda: return x * 100.0;  # m to cm\n' +
+        plTele(s, dnid + '_distance', '%.1f') +
+        '\n  - platform: template\n' +
         '    name: "' + f._dn + ' Level"\n' +
+        '    id: ' + dnid + '_level\n' +
         '    unit_of_measurement: "%"\n' +
         '    update_interval: ' + f.update_interval + '\n' +
         '    lambda: |-\n' +
@@ -2047,7 +2350,8 @@ var PL_TEMPLATES = [
         '      float dist  = id(' + dnid + '_distance).state;\n' +
         '      if (isnan(dist)) return {};\n' +
         '      float pct = (empty - dist) / (empty - full) * 100.0;\n' +
-        '      return std::max(0.0f, std::min(100.0f, pct));\n';
+        '      return std::max(0.0f, std::min(100.0f, pct));\n' +
+        plTele(s, dnid + '_level', '%.1f');
     }
   },
   {
@@ -2058,24 +2362,29 @@ var PL_TEMPLATES = [
       { id: 'update_interval', label: 'Update Interval', type: 'text', default: '5s' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'sensor:\n' +
         '  - platform: pulse_counter\n' +
         '    pin:\n' +
         '      number: GPIO' + f.gpio + '\n' +
         '      mode: INPUT_PULLUP\n' +
         '    name: "' + f._dn + ' Flow Rate"\n' +
+        '    id: ' + s + '_flow_rate\n' +
         '    unit_of_measurement: "L/min"\n' +
         '    update_interval: ' + f.update_interval + '\n' +
         '    filters:\n' +
-        '      - lambda: return x / 7.5;  # YF-S201: 7.5 pulses per second per L/min\n\n' +
-        '  - platform: pulse_meter\n' +
+        '      - lambda: return x / 7.5;  # YF-S201: 7.5 pulses per second per L/min\n' +
+        plTele(s, s + '_flow_rate', '%.2f') +
+        '\n  - platform: pulse_meter\n' +
         '    pin:\n' +
         '      number: GPIO' + f.gpio + '\n' +
         '      mode: INPUT_PULLUP\n' +
         '    name: "' + f._dn + ' Total"\n' +
+        '    id: ' + s + '_total\n' +
         '    unit_of_measurement: "L"\n' +
         '    filters:\n' +
-        '      - lambda: return x / 450.0;  # 450 pulses per litre\n';
+        '      - lambda: return x / 450.0;  # 450 pulses per litre\n' +
+        plTele(s, s + '_total', '%.2f');
     }
   },
   {
@@ -2085,6 +2394,7 @@ var PL_TEMPLATES = [
       { id: 'gpio', label: 'GPIO Pin', type: 'number', default: 27 }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'binary_sensor:\n' +
         '  - platform: gpio\n' +
         '    pin:\n' +
@@ -2092,7 +2402,9 @@ var PL_TEMPLATES = [
         '      mode: INPUT_PULLUP\n' +
         '      inverted: true\n' +
         '    name: "' + f._dn + ' Float"\n' +
-        '    device_class: moisture\n';
+        '    id: ' + s + '_float\n' +
+        '    device_class: moisture\n' +
+        plTeleBin(s, s + '_float');
     }
   },
   // ── Gas / Safety ───────────────────────────────────────────────────────
@@ -2104,6 +2416,7 @@ var PL_TEMPLATES = [
       { id: 'update_interval', label: 'Update Interval', type: 'text', default: '10s' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       var dnid = f._dn.replace(/-/g, '_');
       return c + 'sensor:\n' +
         '  - platform: adc\n' +
@@ -2114,13 +2427,16 @@ var PL_TEMPLATES = [
         '    attenuation: 11db\n' +
         '    update_interval: ' + f.update_interval + '\n' +
         '    filters:\n' +
-        '      - lambda: return x;\n\n' +
-        'binary_sensor:\n' +
+        '      - lambda: return x;\n' +
+        plTele(s, dnid + '_mq2_raw', '%.3f') +
+        '\nbinary_sensor:\n' +
         '  - platform: template\n' +
         '    name: "' + f._dn + ' Gas Alert"\n' +
+        '    id: ' + dnid + '_gas_alert\n' +
         '    device_class: gas\n' +
         '    lambda: |-\n' +
-        '      return id(' + dnid + '_mq2_raw).state > 1.5;\n';
+        '      return id(' + dnid + '_mq2_raw).state > 1.5;\n' +
+        plTeleBin(s, dnid + '_gas_alert');
     }
   },
   {
@@ -2131,6 +2447,7 @@ var PL_TEMPLATES = [
       { id: 'update_interval', label: 'Update Interval', type: 'text', default: '10s' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       var dnid = f._dn.replace(/-/g, '_');
       return c + 'sensor:\n' +
         '  - platform: adc\n' +
@@ -2139,13 +2456,16 @@ var PL_TEMPLATES = [
         '    name: "' + f._dn + ' CO Raw"\n' +
         '    unit_of_measurement: "V"\n' +
         '    attenuation: 11db\n' +
-        '    update_interval: ' + f.update_interval + '\n\n' +
-        'binary_sensor:\n' +
+        '    update_interval: ' + f.update_interval + '\n' +
+        plTele(s, dnid + '_co_raw', '%.3f') +
+        '\nbinary_sensor:\n' +
         '  - platform: template\n' +
         '    name: "' + f._dn + ' CO Alert"\n' +
+        '    id: ' + dnid + '_co_alert\n' +
         '    device_class: carbon_monoxide\n' +
         '    lambda: |-\n' +
-        '      return id(' + dnid + '_co_raw).state > 1.2;\n';
+        '      return id(' + dnid + '_co_raw).state > 1.2;\n' +
+        plTeleBin(s, dnid + '_co_alert');
     }
   },
   {
@@ -2156,6 +2476,7 @@ var PL_TEMPLATES = [
       { id: 'update_interval', label: 'Update Interval', type: 'text', default: '10s' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       var dnid = f._dn.replace(/-/g, '_');
       return c + 'sensor:\n' +
         '  - platform: adc\n' +
@@ -2164,13 +2485,16 @@ var PL_TEMPLATES = [
         '    name: "' + f._dn + ' Air Quality Raw"\n' +
         '    unit_of_measurement: "V"\n' +
         '    attenuation: 11db\n' +
-        '    update_interval: ' + f.update_interval + '\n\n' +
-        'binary_sensor:\n' +
+        '    update_interval: ' + f.update_interval + '\n' +
+        plTele(s, dnid + '_air_quality_raw', '%.3f') +
+        '\nbinary_sensor:\n' +
         '  - platform: template\n' +
         '    name: "' + f._dn + ' Air Quality Alert"\n' +
+        '    id: ' + dnid + '_air_alert\n' +
         '    device_class: smoke\n' +
         '    lambda: |-\n' +
-        '      return id(' + dnid + '_air_quality_raw).state > 1.8;\n';
+        '      return id(' + dnid + '_air_quality_raw).state > 1.8;\n' +
+        plTeleBin(s, dnid + '_air_alert');
     }
   },
   // ── Display ────────────────────────────────────────────────────────────
@@ -2207,9 +2531,11 @@ var PL_TEMPLATES = [
       { id: 'update_interval', label: 'Update Interval', type: 'text', default: '1s' }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'sensor:\n' +
         '  - platform: hx711\n' +
         '    name: "' + f._dn + ' Weight"\n' +
+        '    id: ' + s + '_weight\n' +
         '    dout_pin: GPIO' + f.dout_pin + '\n' +
         '    clk_pin: GPIO' + f.clk_pin + '\n' +
         '    gain: 128\n' +
@@ -2219,7 +2545,8 @@ var PL_TEMPLATES = [
         '      - calibrate_linear:\n' +
         '        - 0 -> 0\n' +
         '        - 430000 -> 1.0\n' +
-        '      - delta: 0.01\n';
+        '      - delta: 0.01\n' +
+        plTele(s, s + '_weight', '%.3f');
     }
   },
   {
@@ -2231,45 +2558,82 @@ var PL_TEMPLATES = [
       { id: 'pin_btn', label: 'Button Pin', type: 'number', default: 23 }
     ],
     generate: function(c, f) {
+      var s = safePlName(f._dn);
       return c + 'sensor:\n' +
         '  - platform: rotary_encoder\n' +
         '    name: "' + f._dn + ' Position"\n' +
+        '    id: ' + s + '_position\n' +
         '    pin_a: GPIO' + f.pin_a + '\n' +
         '    pin_b: GPIO' + f.pin_b + '\n' +
-        '    resolution: 1\n\n' +
-        'binary_sensor:\n' +
+        '    resolution: 1\n' +
+        plTele(s, s + '_position', '%d') +
+        '\nbinary_sensor:\n' +
         '  - platform: gpio\n' +
         '    pin:\n' +
         '      number: GPIO' + f.pin_btn + '\n' +
         '      mode: INPUT_PULLUP\n' +
         '      inverted: true\n' +
-        '    name: "' + f._dn + ' Button"\n';
+        '    name: "' + f._dn + ' Button"\n' +
+        '    id: ' + s + '_btn\n' +
+        plTeleBin(s, s + '_btn');
     }
   }
 ];
 
 var plSelectedTemplate = null;
 
+function safePlName(name) {
+  return String(name||'').toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
+}
+
+// Generates on_value mqtt.publish block (4-space indent for sensor sub-key)
+function plTele(sname, key, fmt, indent) {
+  var pad = indent || '    ';
+  return pad + 'on_value:\n' +
+    pad + '  - mqtt.publish:\n' +
+    pad + '      topic: "elaris/' + sname + '/tele/' + key + '"\n' +
+    pad + '      payload: !lambda |-\n' +
+    pad + '        return str_sprintf("' + (fmt||'%.2f') + '", x);\n';
+}
+
+// Generates on_state mqtt.publish block for binary_sensor
+function plTeleBin(sname, key) {
+  return '    on_state:\n' +
+    '      - mqtt.publish:\n' +
+    '          topic: "elaris/' + sname + '/tele/' + key + '"\n' +
+    '          payload: !lambda |-\n' +
+    '            return x ? "ON" : "OFF";\n';
+}
+
 function plCommonHeader(deviceName, wifiSsid, wifiPassword, mqttBroker) {
+  var sname = safePlName(deviceName);
+  var cfgPayload = JSON.stringify({
+    device: { name: deviceName, hostname: sname, model: 'ELARIS Peripheral', sw: '1.0.0' },
+    capabilities: {},
+  }).replace(/'/g, "''");
   return 'esphome:\n' +
-    '  name: ' + deviceName + '\n\n' +
+    '  name: ' + sname + '\n' +
+    '  friendly_name: "' + deviceName + '"\n\n' +
     'esp32:\n' +
     '  board: esp32dev\n' +
     '  framework:\n' +
     '    type: arduino\n\n' +
     'logger:\n\n' +
-    'api:\n\n' +
     'ota:\n' +
     '  - platform: esphome\n\n' +
     'wifi:\n' +
     '  ssid: "' + wifiSsid + '"\n' +
-    '  password: "' + wifiPassword + '"\n' +
-    '  ap:\n' +
-    '    ssid: "' + deviceName + '-AP"\n' +
-    '    password: "elaris1234"\n\n' +
+    '  password: "' + wifiPassword + '"\n\n' +
     'mqtt:\n' +
     '  broker: ' + mqttBroker + '\n' +
-    '  topic_prefix: elaris/' + deviceName + '\n\n';
+    '  port: 1883\n' +
+    '  discovery: false\n' +
+    '  on_connect:\n' +
+    '    then:\n' +
+    '      - mqtt.publish:\n' +
+    '          topic: "elaris/' + sname + '/config"\n' +
+    "          payload: '" + cfgPayload + "'\n" +
+    '          retain: true\n\n';
 }
 
 function plBuildSensorList() {

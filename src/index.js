@@ -246,7 +246,7 @@ async function main() {
   app.use('/api', initRoutes({ auth, hasFeature, requireLogin, users }));
 
   // ESPHome
-  initEsphomeRoutes(app, { wsApi, dataDir: path.join(process.cwd(), 'data'), db: dbApi.db, requireLogin, requireEngineerAccess });
+  initEsphomeRoutes(app, { wsApi, dataDir: path.join(process.cwd(), 'data'), db: dbApi.db, requireLogin, requireEngineerAccess, access });
 
   // Auto-load module route handlers from src/modules/
   const modulesDir = path.join(__dirname, 'modules');

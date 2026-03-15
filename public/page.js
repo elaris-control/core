@@ -874,7 +874,7 @@ async function setDimmer(id,val){
   try{await api('/automation/lighting/'+id+'/level',{method:'POST',body:JSON.stringify({level:Number(val)})});}catch(e){toast('Error: '+e.message);}
   setTimeout(function(){rerenderInstance(id);},400);
 }
-function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 async function manualLight(id,isOn){
   try{await api('/automation/lighting/'+id+'/manual',{method:'POST',body:JSON.stringify({on:!isOn})});}catch(e){toast('Cannot control');}
   setTimeout(function(){rerenderInstance(id);},300);
@@ -1042,7 +1042,7 @@ async function slActivate(instId, scenarioId){
   } catch(e){ console.error('slActivate:',e); }
 }
 
-function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 // ─── Energy Monitor widget ─────────────────────────────────────────────────
 async function renderEnergy(inst){

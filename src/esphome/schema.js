@@ -10,9 +10,13 @@ function safeName(name) {
 
 function parseGpio(value) {
   if (value === null || value === undefined) return null;
-  const m = String(value).trim().match(/^GPIO\s*([0-9]+)$/i);
-  if (!m) return null;
-  return Number(m[1]);
+  if (typeof value === 'number' && Number.isFinite(value)) return Number(value);
+  const raw = String(value).trim().replace(/^['"]|['"]$/g, '');
+  let m = raw.match(/^GPIO\s*([0-9]+)$/i);
+  if (m) return Number(m[1]);
+  m = raw.match(/^([0-9]+)$/);
+  if (m) return Number(m[1]);
+  return null;
 }
 
 function toGpioLabel(n) {

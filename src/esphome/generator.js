@@ -10,7 +10,52 @@ function yamlStr(s) {
 }
 
 function mqttDiscoveryJson({ deviceName, boardLabel, boardProfileId, entities }) {
-  const counts = entities.reduce((acc, e) => {
+  const entityList = (Array.isArray(entities) ? entities : []).flatMap((e) => {
+    const type = String(e.type || '').toLowerCase();
+    const group = e.group || (type === 'relay' || type === 'switch' ? 'state' : 'tele');
+    if (type === 'dht' || type === 'dht11') {
+      return [
+        {
+          key: e.key,
+          group: 'tele',
+          type: 'sensor',
+          name: `${e.name} Temperature`,
+          unit: '°C',
+          device_class: 'temperature',
+        },
+        {
+          key: `${e.key}_hum`,
+          group: 'tele',
+          type: 'sensor',
+          name: `${e.name} Humidity`,
+          unit: '%',
+          device_class: 'humidity',
+        },
+      ];
+    }
+    if (type === 'relay' || type === 'switch') {
+      return [{ key: e.key, group: 'state', type: 'relay', name: e.name }];
+    }
+    if (type === 'di') {
+      return [{ key: e.key, group: group, type: 'sensor', name: e.name }];
+    }
+    if (type === 'ds18b20') {
+      return [{ key: e.key, group: 'tele', type: 'sensor', name: e.name, unit: '°C', device_class: 'temperature' }];
+    }
+    if (type === 'analog') {
+      return [{ key: e.key, group: 'tele', type: 'sensor', name: e.name }];
+    }
+    if (type === 'pulse_counter') {
+      let unit = 'pulses/min';
+      if (e.scale === 'yfs201') unit = 'L/min';
+      else if (e.scale === 'anemometer') unit = 'Hz';
+      else if (e.scale === 'custom' && e.scale_unit) unit = e.scale_unit;
+      return [{ key: e.key, group: 'tele', type: 'sensor', name: e.name, unit }];
+    }
+    return [{ key: e.key, group, type: type === 'sensor' ? 'sensor' : 'sensor', name: e.name }];
+  });
+
+  const counts = entityList.reduce((acc, e) => {
     const t = String(e.type || '').toLowerCase();
     acc[t] = (acc[t] || 0) + 1;
     return acc;
@@ -24,9 +69,184 @@ function mqttDiscoveryJson({ deviceName, boardLabel, boardProfileId, entities })
       sw: '1.0.0',
     },
     capabilities: counts,
+    entities: entityList,
   });
 }
 
+function peripheralDiscoveryEntities(entity) {
+  const type = String(entity?.type || '').toLowerCase();
+  if (!entity || !entity.key) return [];
+  if (type === 'dht' || type === 'dht11') {
+    return [
+      {
+        key: entity.key,
+        group: 'tele',
+        type: 'sensor',
+        name: `${entity.name} Temperature`,
+        unit: '°C',
+        device_class: 'temperature',
+      },
+      {
+        key: `${entity.key}_hum`,
+        group: 'tele',
+        type: 'sensor',
+        name: `${entity.name} Humidity`,
+        unit: '%',
+        device_class: 'humidity',
+      },
+    ];
+  }
+  if (type === 'ds18b20') {
+    return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name, unit: '°C', device_class: 'temperature' }];
+  }
+  if (type === 'analog') {
+    return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name }];
+  }
+  if (type === 'pulse_counter') {
+    let unit = 'pulses/min';
+    if (entity.scale === 'yfs201') unit = 'L/min';
+    else if (entity.scale === 'anemometer') unit = 'Hz';
+    else if (entity.scale === 'custom' && entity.scale_unit) unit = entity.scale_unit;
+    return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name, unit }];
+  }
+  return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name }];
+}
+
+function _findOneWireBlock(yamlText, pin) {
+  const lines = String(yamlText || '').split(/\r?\n/);
+  let inSection = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!inSection) {
+      if (/^one_wire:\s*$/i.test(line)) inSection = true;
+      continue;
+    }
+    if (/^[^\s#][^:]*:\s*$/.test(line) && !line.startsWith(' ')) break;
+    if (/^\s*-\s*platform:\s*gpio\s*$/i.test(line)) {
+      let end = i + 1;
+      while (end < lines.length) {
+        const next = lines[end];
+        if (/^\s*-\s*platform:\s*gpio\s*$/i.test(next)) break;
+        if (/^[^\s#][^:]*:\s*$/.test(next) && !next.startsWith(' ')) break;
+        end++;
+      }
+      const block = lines.slice(i, end);
+      const pinIdx = block.findIndex((ln) => /^\s*pin:\s*/i.test(ln));
+      if (pinIdx >= 0) {
+        const raw = block[pinIdx].replace(/^\s*pin:\s*/i, '').trim().replace(/^['"]|['"]$/g, '');
+        if (String(raw).toUpperCase() === String(pin).toUpperCase()) {
+          const idIdx = block.findIndex((ln) => /^\s*id:\s*/i.test(ln));
+          return { pinIdx: i + pinIdx, idIdx: idIdx >= 0 ? i + idIdx : -1 };
+        }
+      }
+      i = end - 1;
+    }
+  }
+  return null;
+}
+
+function _ensureOneWireBusId(yamlText, pin, preferredId) {
+  const found = _findOneWireBlock(yamlText, pin);
+  if (found) {
+    const lines = yamlText.split(/\r?\n/);
+    if (found.idIdx >= 0) {
+      const existingId = String(lines[found.idIdx]).replace(/^\s*id:\s*/i, '').trim();
+      return { yamlText, busId: existingId || preferredId };
+    }
+    lines.splice(found.pinIdx + 1, 0, `    id: ${preferredId}`);
+    return { yamlText: lines.join('\n'), busId: preferredId };
+  }
+
+  const owBlock = `one_wire:\n  - platform: gpio\n    pin: ${pin}\n    id: ${preferredId}`;
+  if (/^sensor:\s*$/m.test(yamlText)) {
+    return { yamlText: yamlText.replace(/^(sensor:\s*)$/m, owBlock + '\n\n$1'), busId: preferredId };
+  }
+  return { yamlText: yamlText.trimEnd() + '\n\n' + owBlock + '\n', busId: preferredId };
+}
+
+function _countDallasSensorsForBus(yamlText, busId) {
+  const lines = String(yamlText || '').split(/\r?\n/);
+  let inSensor = false;
+  let currentPlatform = null;
+  let currentHasBus = false;
+  let count = 0;
+  function flush() {
+    if (inSensor && currentPlatform === 'dallas_temp' && currentHasBus) count++;
+    currentPlatform = null;
+    currentHasBus = false;
+  }
+  for (const line of lines) {
+    if (!inSensor) {
+      if (/^sensor:\s*$/i.test(line)) inSensor = true;
+      continue;
+    }
+    if (/^[^\s#][^:]*:\s*$/.test(line) && !line.startsWith(' ')) { flush(); break; }
+    const platformMatch = line.match(/^\s*-\s*platform:\s*([a-z_][a-z0-9_]*)\s*$/i);
+    if (platformMatch) {
+      flush();
+      currentPlatform = platformMatch[1].toLowerCase();
+      continue;
+    }
+    if (currentPlatform === 'dallas_temp' && /^\s*one_wire_id:\s*/i.test(line)) {
+      const v = line.replace(/^\s*one_wire_id:\s*/i, '').trim();
+      if (v === busId) currentHasBus = true;
+    }
+  }
+  flush();
+  return count;
+}
+
+function _refreshDiscoveryPayload(yamlText, deviceSafeName, deviceName, boardLabel, boardProfileId, entitiesToAdd) {
+  const topicNeedle = `topic: "elaris/${deviceSafeName}/config"`;
+  const lines = yamlText.split('\n');
+  const idx = lines.findIndex((line) => line.includes(topicNeedle));
+  if (idx < 0) return yamlText;
+
+  let payloadIdx = -1;
+  for (let i = idx + 1; i < Math.min(lines.length, idx + 12); i++) {
+    if (/^\s*payload:\s*/.test(lines[i])) { payloadIdx = i; break; }
+    if (/^\s*topic:\s*/.test(lines[i])) break;
+  }
+  if (payloadIdx < 0) return yamlText;
+
+  const m = lines[payloadIdx].match(/^(\s*payload:\s*)'(.*)'\s*$/);
+  if (!m) return yamlText;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(m[2].replace(/''/g, "'"));
+  } catch (_) {
+    parsed = {
+      device: { name: deviceName, hostname: safeName(deviceName), model: boardLabel || 'ELARIS Board', board_profile_id: boardProfileId || null, sw: '1.0.0' },
+      entities: [],
+    };
+  }
+
+  const current = Array.isArray(parsed.entities) ? parsed.entities : [];
+  const next = [...current];
+  for (const entity of entitiesToAdd || []) {
+    if (!entity?.key) continue;
+    const existingIdx = next.findIndex((x) => String(x.key) === String(entity.key));
+    if (existingIdx >= 0) next[existingIdx] = { ...next[existingIdx], ...entity };
+    else next.push(entity);
+  }
+  parsed.entities = next;
+  parsed.capabilities = next.reduce((acc, e) => {
+    const t = String(e.type || '').toLowerCase();
+    acc[t] = (acc[t] || 0) + 1;
+    return acc;
+  }, {});
+  if (!parsed.device || typeof parsed.device !== 'object') parsed.device = {};
+  parsed.device.name = parsed.device.name || deviceName;
+  parsed.device.hostname = parsed.device.hostname || safeName(deviceName);
+  parsed.device.model = parsed.device.model || boardLabel || 'ELARIS Board';
+  if (!('board_profile_id' in parsed.device)) parsed.device.board_profile_id = boardProfileId || null;
+  parsed.device.sw = parsed.device.sw || '1.0.0';
+
+  const payload = JSON.stringify(parsed).replace(/'/g, "''");
+  lines[payloadIdx] = `${m[1]}'${payload}'`;
+  return lines.join('\n');
+}
 function pinLines(entity) {
   if (entity._resolvedExpander) {
     const x = entity._resolvedExpander;
@@ -257,29 +477,23 @@ function generateYAML({ profile, payload }) {
  * @param {{ type, name, key, pin }} entity - peripheral to add
  * @returns {string} updated YAML text
  */
-function addPeripheralToYaml(yamlText, deviceSafeName, entity) {
+function addPeripheralToYaml(yamlText, deviceSafeName, entity, opts = {}) {
   const { type, name, key, pin } = entity;
+  const deviceName = opts.deviceName || deviceSafeName;
+  const boardLabel = opts.boardLabel || 'ELARIS Board';
+  const boardProfileId = opts.boardProfileId || null;
   let result = yamlText;
 
   if (type === 'ds18b20') {
-    // Check if one_wire already declared for this exact pin
-    const hasOneWireForPin = /^one_wire:/m.test(result) && result.includes(`pin: ${pin}`);
-
-    if (!hasOneWireForPin) {
-      const owBlock = `one_wire:\n  - platform: gpio\n    pin: ${pin}`;
-      // Insert before existing sensor: block, or append
-      if (/^sensor:\s*$/m.test(result)) {
-        result = result.replace(/^(sensor:\s*)$/m, owBlock + '\n\n$1');
-      } else {
-        result = result.trimEnd() + '\n\n' + owBlock + '\n';
-      }
-    }
-
-    // Count existing dallas_temp sensors to assign correct index
-    const dsIndex = (result.match(/platform:\s+dallas_temp/g) || []).length;
+    const busIdBase = `ow_gpio_${String(pin).replace(/[^0-9]/g, '') || 'bus'}`;
+    const ensured = _ensureOneWireBusId(result, pin, busIdBase);
+    result = ensured.yamlText;
+    const busId = ensured.busId;
+    const dsIndex = _countDallasSensorsForBus(result, busId);
 
     const sensorItem = [
       '  - platform: dallas_temp',
+      `    one_wire_id: ${busId}`,
       `    index: ${dsIndex}`,
       `    name: "${yamlStr(name)}"`,
       `    id: ${key}`,
@@ -338,8 +552,49 @@ function addPeripheralToYaml(yamlText, deviceSafeName, entity) {
     ].join('\n');
 
     result = _insertSensorItem(result, sensorItem);
+
+  } else if (type === 'pulse_counter') {
+    const updateInterval = entity.update_interval || '10s';
+    const scale = entity.scale || 'none';
+    const scaleFactor = Number(entity.scale_factor) || 1;
+    const pinMode = entity.pin_mode || 'INPUT_PULLUP';
+
+    let unit, filterLines;
+    if (scale === 'yfs201') {
+      unit = 'L/min';
+      filterLines = ['    filters:', '      - lambda: return x / 450.0;  # YF-S201: 450 pulses/min = 1 L/min'];
+    } else if (scale === 'anemometer') {
+      unit = 'Hz';
+      filterLines = ['    filters:', '      - lambda: return x / 60.0;  # pulses/min → Hz'];
+    } else if (scale === 'custom') {
+      unit = entity.scale_unit || 'units';
+      filterLines = ['    filters:', `      - lambda: return x * ${scaleFactor};`];
+    } else {
+      unit = 'pulses/min';
+      filterLines = [];
+    }
+
+    const sensorItem = [
+      '  - platform: pulse_counter',
+      '    pin:',
+      `      number: ${pin}`,
+      `      mode: ${pinMode}`,
+      `    name: "${yamlStr(name)}"`,
+      `    id: ${key}`,
+      `    unit_of_measurement: "${unit}"`,
+      `    update_interval: ${updateInterval}`,
+      ...filterLines,
+      '    on_value:',
+      '      - mqtt.publish:',
+      `          topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '          payload: !lambda |-',
+      '            return str_sprintf("%.2f", x);',
+    ].join('\n');
+
+    result = _insertSensorItem(result, sensorItem);
   }
 
+  result = _refreshDiscoveryPayload(result, deviceSafeName, deviceName, boardLabel, boardProfileId, peripheralDiscoveryEntities(entity));
   return result.replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
 }
 

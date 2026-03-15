@@ -741,6 +741,14 @@ db.exec(`
     for (const e of entities) {
       if (!e?.key) continue;
       const group = e.group || (e.type === "relay" || e.type === "switch" ? "state" : "tele");
+
+      // Do not recreate approved or user-blocked IOs every time the device republishes
+      // its discovery/config payload after reboot or OTA.
+      const alreadyApproved = isApprovedIO.get(deviceId, group, e.key);
+      if (alreadyApproved) continue;
+      const blocked = isBlockedIO.get(deviceId, group, e.key);
+      if (blocked) continue;
+
       upsertPendingIO.run({
         device_id: deviceId,
         group_name: group,
