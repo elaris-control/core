@@ -626,4 +626,39 @@ function _insertSensorItem(yamlText, sensorItemText) {
   return lines.join('\n');
 }
 
-module.exports = { generateYAML, addPeripheralToYaml };
+/**
+ * Apply device name, WiFi and MQTT overrides to raw ESPHome YAML.
+ * Uses regex to preserve formatting. Works with common ESPHome structure.
+ */
+function applyYamlOverrides(yamlText, overrides = {}) {
+  let out = String(yamlText || '');
+  const name = String(overrides.device_name || '').trim();
+  const wifiSsid = String(overrides.wifi_ssid || '').trim();
+  const wifiPass = String(overrides.wifi_pass ?? '');
+  const mqttHost = String(overrides.mqtt_host || '').trim();
+
+  if (name) {
+    // esphome block usually has 2-space indented name and friendly_name
+    const quoted = `"${yamlStr(name)}"`;
+    out = out.replace(/^(\s{2})name\s*:\s*.*$/m, `$1name: ${quoted}`);
+    out = out.replace(/^(\s{2})friendly_name\s*:\s*.*$/m, `$1friendly_name: ${quoted}`);
+    // If no name line exists, add after first "esphome:"
+    if (!/^\s{2}name\s*:/m.test(out) && /^esphome:\s*$/m.test(out)) {
+      out = out.replace(/(^esphome:\s*)\n/m, `$1\n  name: ${quoted}\n  friendly_name: ${quoted}\n`);
+    }
+  }
+
+  if (wifiSsid || wifiPass !== undefined) {
+    // wifi: networks: - ssid: "x" password: "y"
+    out = out.replace(/(\bssid\s*:\s*)["']?[^"'\n]*["']?/m, (m, pre) => wifiSsid ? `${pre}"${yamlStr(wifiSsid)}"` : m);
+    out = out.replace(/(\bpassword\s*:\s*)["']?[^"'\n]*["']?/m, (m, pre) => `${pre}"${yamlStr(wifiPass)}"`);
+  }
+
+  if (mqttHost) {
+    out = out.replace(/(\bbroker\s*:\s*)[^\s\n][^\n]*/m, `$1${mqttHost}`);
+  }
+
+  return out;
+}
+
+module.exports = { generateYAML, addPeripheralToYaml, applyYamlOverrides };

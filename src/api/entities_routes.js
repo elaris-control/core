@@ -46,8 +46,19 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
   });
 
   router.delete('/pending-io/:id', requireEngineerAccess, (req, res) => {
-    dbApi.deletePendingIOAndBlock(Number(req.params.id));
-    res.json({ ok: true });
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id < 1) {
+      return res.status(400).json({ ok: false, error: 'invalid_id' });
+    }
+    try {
+      dbApi.deletePendingIOAndBlock(id);
+      res.json({ ok: true });
+    } catch (e) {
+      if (String(e?.message || e) === 'pending_not_found' || (e?.message || '').includes('not found')) {
+        return res.status(404).json({ ok: false, error: 'pending_not_found' });
+      }
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
   });
 
   // ── Blocked IO ────────────────────────────────────────────────────────

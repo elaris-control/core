@@ -122,9 +122,11 @@ async function main() {
   const _origOut = process.stdout.write.bind(process.stdout);
   const _origErr = process.stderr.write.bind(process.stderr);
   function _emitLog(level, text) {
-    for (const line of text.replace(/\n$/, '').split('\n')) {
-      if (line.trim()) wsApi.broadcastLog({ level, text: line, ts: Date.now() });
-    }
+    try {
+      for (const line of text.replace(/\n$/, '').split('\n')) {
+        if (line.trim()) wsApi.broadcastLog({ level, text: line, ts: Date.now() });
+      }
+    } catch (_) { /* avoid broadcast errors breaking stdout/stderr */ }
   }
   process.stdout.write = (chunk, ...rest) => { _origOut(chunk, ...rest); _emitLog('info', typeof chunk === 'string' ? chunk : chunk.toString('utf8')); return true; };
   process.stderr.write = (chunk, ...rest) => { _origErr(chunk, ...rest); _emitLog('warn', typeof chunk === 'string' ? chunk : chunk.toString('utf8')); return true; };

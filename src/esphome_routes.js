@@ -7,7 +7,7 @@ const path = require('path');
 const { listCatalogSummaries, getCatalogProfile, seedProfileCatalog, upsertProfileFromFile, upsertProfileFromObject } = require('./esphome/profile_registry');
 const { normalizePayload, safeName, sha256, parseGpio, toGpioLabel } = require('./esphome/schema');
 const { validateConfig } = require('./esphome/validator');
-const { generateYAML, addPeripheralToYaml } = require('./esphome/generator');
+const { generateYAML, addPeripheralToYaml, applyYamlOverrides } = require('./esphome/generator');
 const { parseEsphomeYaml } = require('./esphome/yaml_importer');
 const https = require('https');
 const http = require('http');
@@ -637,6 +637,63 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
     }
   });
 
+  // ── Add peripheral to draft YAML (before first flash) ──────────────────────
+  app.post('/api/esphome/add-peripheral-to-draft', requireEngineerAccess, (req, res) => {
+    try {
+      const yamlText = String(req.body?.yaml_text || '').trim();
+      const rawEntity = req.body?.entity || {};
+      if (!yamlText) return res.status(400).json({ ok: false, error: 'yaml_text_required' });
+
+      let parsed;
+      try {
+        parsed = parseEsphomeYaml(yamlText);
+      } catch (e) {
+        return res.status(400).json({ ok: false, error: 'invalid_yaml: ' + e.message });
+      }
+
+      const deviceSafeName = parsed.id || safeName(parsed.label || 'device') || 'device';
+      const eType = String(rawEntity.type || '').trim().toLowerCase();
+      const eName = String(rawEntity.name || '').trim();
+      const ePinRaw = String(rawEntity.pin || '').trim();
+      const ePin = parseGpio(ePinRaw) !== null ? toGpioLabel(parseGpio(ePinRaw)) : null;
+      const eKey = String(rawEntity.key || '').trim().replace(/[^a-z0-9_]/g, '_').replace(/^_|_$/g, '') || safeName(eName) || 'sensor_1';
+      const eScale = String(rawEntity.scale || 'none').trim();
+      const eScaleFactor = Number(rawEntity.scale_factor) || 1;
+
+      const ALLOWED_TYPES = ['ds18b20', 'dht11', 'dht', 'analog', 'pulse_counter'];
+      if (!ALLOWED_TYPES.includes(eType)) return res.status(400).json({ ok: false, error: 'unsupported_entity_type' });
+      if (!eName) return res.status(400).json({ ok: false, error: 'entity_name_required' });
+      if (!ePin) return res.status(400).json({ ok: false, error: 'invalid_pin_format' });
+
+      const validation = validatePeripheralEntity({
+        profile: parsed,
+        yamlText,
+        entity: { type: eType, pin: ePin },
+      });
+      if (!validation.ok) {
+        return res.status(400).json({ ok: false, error: validation.errors.join(' · '), warnings: validation.warnings || [] });
+      }
+
+      const updatedYaml = addPeripheralToYaml(yamlText, deviceSafeName, {
+        type: eType,
+        name: eName,
+        key: eKey,
+        pin: validation.pin || ePin,
+        pin_mode: validation.pinMode,
+        scale: eScale,
+        scale_factor: eScaleFactor,
+      }, {
+        deviceName: parsed.label || deviceSafeName,
+        boardLabel: parsed.label || 'ELARIS',
+        boardProfileId: parsed.id || null,
+      });
+
+      res.json({ ok: true, yaml: updatedYaml, validation: { ok: true, warnings: validation.warnings || [] } });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // ── YAML import: save to catalog ──────────────────────────────────────────
   app.post('/api/esphome/catalog/save-parsed', requireEngineerAccess, (req, res) => {
     try {
@@ -764,6 +821,112 @@ function initEsphomeRoutes(app, { wsApi, dataDir, db, requireLogin, requireEngin
       activeFlash = null;
     }
     res.json({ ok: true });
+  });
+
+  // ── Flash from raw YAML (Use my YAML flow) ─────────────────────────────────
+  app.post('/api/esphome/flash-from-yaml', requireEngineerAccess, (req, res) => {
+    if (activeFlash) return res.status(409).json({ error: 'flash_in_progress' });
+    const bin = getEspHomeBin(dataDir);
+    if (!bin) return res.status(503).json({ error: 'esphome_not_installed' });
+
+    const body = req.body || {};
+    let yamlText = String(body.yaml_text || '').trim();
+    const device_name = String(body.device_name || '').trim();
+    const wifi_ssid = String(body.wifi_ssid || '').trim();
+    const wifi_pass = String(body.wifi_pass ?? '');
+    const mqtt_host = String(body.mqtt_host || '').trim();
+    const port = String(body.port || body.ip || '').trim();
+    const site_id = body.site_id != null ? Number(body.site_id) : defaultSiteId(db);
+    const client_id = String(body.client_id || '').trim() || null;
+
+    if (!yamlText) return res.status(400).json({ ok: false, error: 'yaml_text_required' });
+    if (!device_name) return res.status(400).json({ ok: false, error: 'device_name_required' });
+    if (!port) return res.status(400).json({ ok: false, error: 'port_or_ip_required' });
+
+    const finalYaml = applyYamlOverrides(yamlText, { device_name, wifi_ssid, wifi_pass, mqtt_host });
+    let parsed;
+    try {
+      parsed = parseEsphomeYaml(finalYaml);
+    } catch (e) {
+      return res.status(400).json({ ok: false, error: 'invalid_yaml_after_overrides: ' + e.message });
+    }
+
+    const minimalProfile = {
+      id: parsed.id || 'yaml_draft',
+      label: parsed.label || device_name,
+      platform: parsed.platform || 'esp32',
+      frameworkDefault: parsed.frameworkDefault || 'arduino',
+    };
+    const payload = {
+      site_id,
+      device_name,
+      board_profile_id: minimalProfile.id,
+      wifi_ssid,
+      wifi_pass,
+      mqtt_host,
+      port,
+      client_id,
+      entities: Array.isArray(parsed.entityDefaults) ? parsed.entityDefaults : [],
+    };
+    const validation = { ok: true };
+    const yamlPath = path.join(cfgDir, `${safeName(device_name)}.yaml`);
+    fs.writeFileSync(yamlPath, finalYaml, 'utf8');
+    const persisted = persistInstallState(db, {
+      payload,
+      profile: minimalProfile,
+      validation,
+      yaml: finalYaml,
+      yamlPath,
+      port,
+      jobStatus: 'queued',
+    });
+
+    res.json({ ok: true, yaml: finalYaml, validation });
+
+    const logs = [];
+    const appendLog = (level, text) => {
+      logs.push(`[${level}] ${text}`);
+      sendWs(wsApi, client_id, 'esphome_log', level, text);
+    };
+
+    const args = ['run', yamlPath, '--no-logs'];
+    if (port) args.push('--device', port);
+
+    const proc = spawn(bin, args, { cwd: cfgDir });
+    activeFlash = proc;
+    updateJob(db, persisted?.jobId, { status: 'running', started_at: new Date().toISOString() });
+
+    proc.stdout.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => appendLog('info', l)));
+    proc.stderr.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => appendLog('warn', l)));
+
+    proc.on('close', code => {
+      activeFlash = null;
+      const ok = code === 0;
+      if (db && persisted?.deviceId) {
+        db.prepare('UPDATE esphome_devices SET status=?, updated_at=? WHERE id=?').run(ok ? 'flashed' : 'error', new Date().toISOString(), persisted.deviceId);
+      }
+      updateJob(db, persisted?.jobId, {
+        status: ok ? 'success' : 'failed',
+        finished_at: new Date().toISOString(),
+        exit_code: code,
+        output_log: logs.join('\n'),
+        error_text: ok ? null : logs.slice(-20).join('\n'),
+      });
+      const doneMsg = { type: 'esphome_done', ok, code };
+      if (client_id && wsApi.sendToClient) wsApi.sendToClient(client_id, doneMsg);
+      appendLog(ok ? 'info' : 'error', ok ? `✓ Flash complete — "${device_name}" will appear in Installer once it connects` : `✗ Flash failed (exit ${code})`);
+    });
+
+    proc.on('error', err => {
+      activeFlash = null;
+      updateJob(db, persisted?.jobId, {
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        error_text: err.message,
+        output_log: logs.join('\n'),
+      });
+      appendLog('error', `Cannot run esphome: ${err.message}`);
+    });
   });
 
   app.get('/api/esphome/yaml/:name', requireEngineerAccess, (req, res) => {

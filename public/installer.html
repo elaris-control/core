@@ -218,12 +218,15 @@
     </div>
 
     <div class="card" id="pendingCard" style="display:none;">
-      <div class="row" style="justify-content:space-between;">
+      <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px;">
         <div>
           <div style="font-weight:900;">Pending IO detected</div>
           <div class="muted">Keys seen on MQTT, not active until you approve them.</div>
         </div>
-        <button class="btn" id="reloadBtn">Reload</button>
+        <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
+          <input id="pendingSearch" placeholder="Filter by device, key or label…" style="min-width:220px;max-width:260px;" />
+          <button class="btn" id="reloadBtn">Reload</button>
+        </div>
       </div>
 
       <div id="msg" class="muted" style="margin-top:8px;"></div>
@@ -373,18 +376,35 @@
     return `<select class="zoneSel">${opts}</select>`;
   }
 
+  let pendingFilter = "";
+
   async function loadPending(){
     setMsg("Loading pending IO...");
     const out = await api("/pending-io");
-    const pending = out.pending || [];
+    const allPending = out.pending || [];
     const tbody = $("rows");
     tbody.innerHTML = "";
 
-    if(!pending.length){
+    const term = (pendingFilter || "").toLowerCase().trim();
+    const pending = term
+      ? allPending.filter(p => {
+          const device = String(p.device_id || "").toLowerCase();
+          const key = String(p.key || "").toLowerCase();
+          const group = String(p.group_name || "").toLowerCase();
+          const lastVal = String(p.last_value ?? "").toLowerCase();
+          return device.includes(term) || key.includes(term) || group.includes(term) || lastVal.includes(term);
+        })
+      : allPending;
+
+    if(!allPending.length){
       setMsg("No pending IO.");
       return;
     }
-    setMsg("");
+    if (term && !pending.length) {
+      setMsg("No matching pending IO for this filter.");
+      return;
+    }
+    setMsg(term ? ("Filtered to " + pending.length + " of " + allPending.length + " pending IO.") : "");
 
     pending.forEach(p=>{
       const tr = document.createElement("tr");
@@ -561,6 +581,20 @@
       btn.textContent = 'Import IOs';
     }
   };
+
+  const searchInput = document.getElementById("pendingSearch");
+  if (searchInput) {
+    const params = new URLSearchParams(window.location.search || "");
+    const initial = params.get("device") || "";
+    if (initial) {
+      searchInput.value = initial;
+      pendingFilter = initial;
+    }
+    searchInput.addEventListener("input", function() {
+      pendingFilter = this.value || "";
+      loadPending().catch(e=>setMsg("Load error: "+e.message,true));
+    });
+  }
 
   $("reloadBtn").onclick = ()=> loadPending();
   $("refreshBtn").onclick = ()=> boot();

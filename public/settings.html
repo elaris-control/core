@@ -86,7 +86,7 @@
 
           <div style="margin-bottom:12px">
             <label style="font-size:11px;font-weight:700;color:var(--muted,#64748b);display:block;margin-bottom:4px">ADDRESS (optional)</label>
-            <input id="addressInput" type="text" placeholder="e.g. Κηφισιά, Αττική"
+            <input id="addressInput" type="text" placeholder="e.g. London, UK"
               style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line2,#1e2d3d);background:rgba(255,255,255,.04);color:var(--text,#f1f5f9);font-size:13px;outline:none">
           </div>
 
@@ -128,7 +128,7 @@
             <small id="ioCount">—</small>
           </div>
           <div class="empty" style="padding-top:6px">
-            Εδώ ο χρήστης κάνει <b>Enable/Disable</b>, rename και zone. Για μόνιμο <b>Block</b> (να μην ξανα-εμφανιστεί από discovery), πήγαινε Installer.
+            Here you can <b>Enable/Disable</b>, rename, and assign a zone to each entity. For a permanent <b>Block</b> (to prevent it from reappearing after discovery), go to Installer.
           </div>
           <div class="spacer"></div>
           <div id="ioWrap"></div>
@@ -139,7 +139,7 @@
         <!-- ── Notifications ─────────────────────────────────── -->
         <section class="card" id="notifyCard">
           <div class="cardTitle"><span>🔔 Notifications</span><small id="notifyCount">—</small></div>
-          <div class="empty" style="padding-top:4px;margin-bottom:10px">Προσθήκη καναλιών για Email ή Webhook (ntfy.sh, Pushover, custom).</div>
+          <div class="empty" style="padding-top:4px;margin-bottom:10px">Add channels for Email or Webhook notifications (ntfy.sh, Pushover, custom).</div>
           <div id="notifyChannelsList"></div>
           <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn" onclick="openNotifyModal('email')">+ Email</button>
@@ -151,7 +151,7 @@
         <!-- ── Scenes ──────────────────────────────────────────── -->
         <section class="card" id="scenesCard">
           <div class="cardTitle"><span>🎬 Scenes</span><small id="scenesCount">—</small></div>
-          <div class="empty" style="padding-top:4px;margin-bottom:10px">Δημιούργησε presets που ενεργοποιούν πολλές ενέργειες με ένα κουμπί.</div>
+          <div class="empty" style="padding-top:4px;margin-bottom:10px">Create presets that trigger multiple actions with a single button.</div>
           <div id="scenesList"></div>
           <div style="margin-top:10px">
             <button class="btn" onclick="openSceneModal(null)">+ New Scene</button>

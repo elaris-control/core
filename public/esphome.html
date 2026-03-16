@@ -247,11 +247,14 @@
       </div>
 
       <!-- ── YAML Import / Device Browser buttons ── -->
-      <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-right:4px">Board from catalog</span>
         <button class="btn" onclick="togglePeripheralLibrary()" style="font-size:12px">&#128268; Peripheral Library</button>
         <button class="btn" onclick="toggleAddPeripheral()" style="font-size:12px">&#10133; Add to Device</button>
         <button class="btn" onclick="toggleDeviceBrowser()" style="font-size:12px">&#127760; Browse ESPHome Devices</button>
         <button class="btn" onclick="toggleYamlImporter()" style="font-size:12px">&#128196; Import Board from YAML</button>
+        <span style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-left:12px;margin-right:4px">Use my YAML</span>
+        <button class="btn btnPrimary" onclick="toggleUseMyYaml()" style="font-size:12px">&#128196; Paste &amp; Flash</button>
       </div>
 
       <!-- ── Add Peripheral to Existing Device ── -->
@@ -425,6 +428,88 @@
         </div>
       </div>
 
+      <!-- ── Use my YAML (Paste → Add peripherals → Flash) ── -->
+      <div class="card-step" id="useMyYamlPanel" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h2 style="margin:0">&#128196; Use my YAML</h2>
+          <button class="btn" onclick="toggleUseMyYaml()">&#215; Close</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:14px">
+          Paste your ESPHome YAML, optionally add sensors, then enter device name and network settings to flash. No need to save to catalog first.
+        </p>
+        <div class="form-row">
+          <label>Step 1 — Paste YAML</label>
+          <textarea id="umyYamlText" placeholder="Paste ESPHome YAML here…" style="width:100%;height:180px;font-family:monospace;font-size:11px;padding:10px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03);color:var(--text);resize:vertical"></textarea>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+            <button class="btn btnPrimary" onclick="umyParse()">&#128269; Parse</button>
+            <span style="font-size:12px;color:var(--muted)" id="umyParseMsg"></span>
+          </div>
+        </div>
+        <div id="umyPreview" style="display:none;margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:10px;background:rgba(0,0,0,.12)">
+          <div style="font-weight:700;margin-bottom:8px">Parsed: <span id="umyParsedName"></span> — <span id="umyParsedEntities"></span> entities</div>
+        </div>
+        <div id="umyStep2" style="display:none;margin-top:16px">
+          <label style="font-size:11px;font-weight:800;color:var(--muted2);display:block;margin-bottom:8px">Step 2 — (Optional) Add peripherals</label>
+          <div id="umyAddedList" style="margin-bottom:10px;font-size:12px;color:var(--muted2)"></div>
+          <div class="form-grid" style="margin-bottom:10px">
+            <div class="form-row">
+              <label>Type</label>
+              <select id="umyAddType">
+                <option value="ds18b20">DS18B20</option>
+                <option value="dht11">DHT11</option>
+                <option value="dht">DHT22</option>
+                <option value="analog">Analog</option>
+                <option value="pulse_counter">Pulse counter</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Pin</label>
+              <input type="text" id="umyAddPin" placeholder="GPIO32">
+            </div>
+            <div class="form-row">
+              <label>Name</label>
+              <input type="text" id="umyAddName" placeholder="e.g. Boiler temp">
+            </div>
+            <div class="form-row">
+              <label>Key</label>
+              <input type="text" id="umyAddKey" placeholder="boiler_temp">
+            </div>
+          </div>
+          <button class="btn btn-sm" onclick="umyAddPeripheral()">&#10133; Add to YAML</button>
+        </div>
+        <div id="umyStep3" style="display:none;margin-top:16px">
+          <label style="font-size:11px;font-weight:800;color:var(--muted2);display:block;margin-bottom:8px">Step 3 — Device name &amp; network</label>
+          <div class="form-grid">
+            <div class="form-row">
+              <label>Device name</label>
+              <input type="text" id="umyDeviceName" placeholder="e.g. my-sensor">
+            </div>
+            <div class="form-row">
+              <label>WiFi SSID</label>
+              <input type="text" id="umyWifiSsid" placeholder="Your WiFi">
+            </div>
+            <div class="form-row">
+              <label>WiFi password</label>
+              <input type="password" id="umyWifiPass" placeholder="••••••••">
+            </div>
+            <div class="form-row">
+              <label>MQTT broker IP</label>
+              <input type="text" id="umyMqttHost" placeholder="192.168.1.10">
+            </div>
+            <div class="form-row">
+              <label>USB port or OTA IP</label>
+              <input type="text" id="umyPort" placeholder="/dev/ttyUSB0 or 192.168.1.x">
+              <span class="form-hint">USB for first flash; IP for OTA re-flash</span>
+            </div>
+          </div>
+        </div>
+        <div id="umyStep4" style="display:none;margin-top:16px;flex-wrap:wrap;gap:8px">
+          <button class="btn btnPrimary" id="umyFlashBtn" onclick="umyFlash()">&#9889; Flash</button>
+          <span style="font-size:12px;color:var(--muted)" id="umyFlashMsg"></span>
+        </div>
+        <div class="terminal" id="umyTerminal" style="display:none;margin-top:12px;height:200px"></div>
+      </div>
+
       <!-- ── YAML Board Importer ── -->
       <div class="card-step" id="yamlImportPanel" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -452,9 +537,10 @@
             <input id="yamlProfileLabel" placeholder="Label (e.g. KinCony KC868-A32)" style="flex:1;min-width:220px" />
           </div>
           <div id="yamlEntityList" style="font-size:12px;font-family:monospace;max-height:260px;overflow-y:auto;background:rgba(0,0,0,.12);border-radius:8px;padding:10px;margin-bottom:10px"></div>
-          <div style="display:flex;gap:8px;align-items:center">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button class="btn btnAccent" onclick="saveYamlProfile()">&#10003; Save Board Profile</button>
             <span style="font-size:12px;color:var(--muted)" id="yamlSaveMsg"></span>
+            <button class="btn btnPrimary" id="yamlContinueFlashCta" style="display:none;margin-left:8px">&#9889; Continue to Flash with this board</button>
           </div>
         </div>
       </div>
@@ -1218,6 +1304,114 @@ function toggleYamlImporter() {
   p.style.display = p.style.display === 'none' ? '' : 'none';
 }
 
+// ── Use my YAML flow ─────────────────────────────────────────────────────
+var _umyCurrentYaml = '';
+var _umyAddedPeripherals = [];
+
+function toggleUseMyYaml() {
+  var p = document.getElementById('useMyYamlPanel');
+  if (p.style.display === 'none') {
+    p.style.display = '';
+    _umyCurrentYaml = '';
+    _umyAddedPeripherals = [];
+    document.getElementById('umyYamlText').value = '';
+    document.getElementById('umyParseMsg').textContent = '';
+    document.getElementById('umyPreview').style.display = 'none';
+    document.getElementById('umyStep2').style.display = 'none';
+    document.getElementById('umyStep3').style.display = 'none';
+    document.getElementById('umyStep4').style.display = 'none';
+    document.getElementById('umyTerminal').style.display = 'none';
+  } else {
+    p.style.display = 'none';
+  }
+}
+
+async function umyParse() {
+  var text = document.getElementById('umyYamlText').value.trim();
+  if (!text) { document.getElementById('umyParseMsg').textContent = 'Paste YAML first.'; return; }
+  document.getElementById('umyParseMsg').textContent = 'Parsing…';
+  try {
+    var r = await api('/esphome/catalog/parse-yaml', { method: 'POST', body: JSON.stringify({ yaml: text }) });
+    if (!r.ok) throw new Error(r.error);
+    _umyCurrentYaml = text;
+    _umyAddedPeripherals = [];
+    document.getElementById('umyParsedName').textContent = (r.parsed.label || r.parsed.id || 'device');
+    document.getElementById('umyParsedEntities').textContent = (r.parsed.entityDefaults || []).length;
+    document.getElementById('umyPreview').style.display = 'block';
+    document.getElementById('umyStep2').style.display = 'block';
+    document.getElementById('umyStep3').style.display = 'block';
+    document.getElementById('umyStep4').style.display = 'block';
+    document.getElementById('umyDeviceName').value = (r.parsed.id || r.parsed.label || '').replace(/[^a-z0-9_-]/gi, '-').toLowerCase() || 'my-device';
+    document.getElementById('umyParseMsg').textContent = 'Parsed. You can add peripherals below or go to Step 3.';
+  } catch(e) {
+    document.getElementById('umyParseMsg').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function umyAddPeripheral() {
+  if (!_umyCurrentYaml) { alert('Parse YAML first.'); return; }
+  var type = document.getElementById('umyAddType').value;
+  var pin = document.getElementById('umyAddPin').value.trim();
+  var name = document.getElementById('umyAddName').value.trim() || type;
+  var key = document.getElementById('umyAddKey').value.trim().replace(/[^a-z0-9_]/g, '_') || name.toLowerCase().replace(/\s+/g, '_');
+  if (!pin) { alert('Enter pin (e.g. GPIO32).'); return; }
+  document.getElementById('umyFlashMsg').textContent = 'Adding…';
+  try {
+    var r = await api('/esphome/add-peripheral-to-draft', {
+      method: 'POST',
+      body: JSON.stringify({ yaml_text: _umyCurrentYaml, entity: { type: type, pin: pin, name: name, key: key } }),
+    });
+    if (!r.ok) throw new Error(r.error);
+    _umyCurrentYaml = r.yaml;
+    _umyAddedPeripherals.push({ type: type, name: name, key: key });
+    var listEl = document.getElementById('umyAddedList');
+    listEl.innerHTML = _umyAddedPeripherals.map(function(p) { return '<span class="pill-info" style="margin-right:6px">' + escHtml(p.type) + ': ' + escHtml(p.name) + '</span>'; }).join('');
+    document.getElementById('umyFlashMsg').textContent = 'Added. You can add more or go to Step 3 and Flash.';
+  } catch(e) {
+    document.getElementById('umyFlashMsg').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function umyFlash() {
+  if (!_umyCurrentYaml) { alert('Parse YAML first.'); return; }
+  var device_name = document.getElementById('umyDeviceName').value.trim();
+  var wifi_ssid = document.getElementById('umyWifiSsid').value.trim();
+  var wifi_pass = document.getElementById('umyWifiPass').value;
+  var mqtt_host = document.getElementById('umyMqttHost').value.trim();
+  var port = document.getElementById('umyPort').value.trim();
+  if (!device_name) { alert('Enter device name.'); return; }
+  if (!port) { alert('Enter USB port or OTA IP.'); return; }
+  document.getElementById('umyFlashBtn').disabled = true;
+  document.getElementById('umyFlashMsg').textContent = 'Flashing…';
+  document.getElementById('umyTerminal').style.display = 'block';
+  document.getElementById('umyTerminal').innerHTML = '<span class="tl-info">Starting flash…</span>\n';
+  try {
+    var r = await api('/esphome/flash-from-yaml', {
+      method: 'POST',
+      body: JSON.stringify({
+        yaml_text: _umyCurrentYaml,
+        device_name: device_name,
+        wifi_ssid: wifi_ssid,
+        wifi_pass: wifi_pass,
+        mqtt_host: mqtt_host,
+        port: port,
+        client_id: window.__elarisWsClientId || null,
+      }),
+    });
+    if (!r.ok) throw new Error(r.error);
+    document.getElementById('umyFlashMsg').textContent = 'Flash started. Watch the log below.';
+  } catch(e) {
+    document.getElementById('umyFlashBtn').disabled = false;
+    document.getElementById('umyFlashMsg').textContent = 'Error: ' + e.message;
+    document.getElementById('umyTerminal').innerHTML += '<span class="tl-error">' + escHtml(e.message) + '</span>\n';
+  }
+}
+
+function onEsphomeDoneFromUseMyYaml(ok, code) {
+  document.getElementById('umyFlashBtn').disabled = false;
+  document.getElementById('umyFlashMsg').textContent = ok ? 'Flash complete. Device will appear in Installer.' : 'Flash failed (exit ' + code + ').';
+}
+
 async function fetchYamlFromUrl() {
   var url = document.getElementById('yamlUrl').value.trim();
   if (!url) return;
@@ -1291,12 +1485,24 @@ async function saveYamlProfile() {
     });
     if (!r.ok) throw new Error(r.error);
     document.getElementById('yamlSaveMsg').textContent = 'Saved! Refreshing boards…';
-    // Refresh boards list so it appears in dropdown immediately
     var status = await api('/esphome/check');
     boards = status.boards || [];
     presets = status.presets || {};
     populateBoards();
-    document.getElementById('yamlSaveMsg').textContent = 'Board "' + escHtml(label) + '" saved and available in board selector.';
+    document.getElementById('yamlSaveMsg').textContent = 'Board "' + escHtml(label) + '" saved.';
+    // Show "Continue to Flash" CTA
+    var cta = document.getElementById('yamlContinueFlashCta');
+    if (cta) {
+      cta.style.display = 'block';
+      cta.onclick = function() {
+        document.getElementById('yamlImportPanel').style.display = 'none';
+        var sel = document.getElementById('boardSelect');
+        for (var i = 0; i < sel.options.length; i++) {
+          if (sel.options[i].value === id) { sel.selectedIndex = i; onBoardChange(); break; }
+        }
+        goStep(2);
+      };
+    }
   } catch(e) {
     document.getElementById('yamlSaveMsg').textContent = 'Error: ' + e.message;
   }
@@ -1820,19 +2026,30 @@ function connectWS() {
       var msg = JSON.parse(e.data);
 
       if (msg.type === 'esphome_log') {
-        termLine(msg.level || 'info', msg.text || '');
+        var umyPanel = document.getElementById('useMyYamlPanel');
+        if (umyPanel && umyPanel.style.display !== 'none') {
+          var umyTerm = document.getElementById('umyTerminal');
+          if (umyTerm) umyTerm.innerHTML += '<span class="tl-' + (msg.level === 'warn' ? 'warn' : msg.level === 'error' ? 'error' : 'info') + '">' + escHtml(msg.text || '') + '</span>\n';
+        } else {
+          termLine(msg.level || 'info', msg.text || '');
+        }
       }
 
       if (msg.type === 'esphome_done') {
-        resetFlashUI(msg.ok ? 'done' : 'error');
-        if (msg.ok) {
-          document.getElementById('flashDone').style.display = '';
-          renderFlashReviewSummary('done');
-          try { await refreshPorts(); } catch {}
-          try { await loadInstallerDevices(); } catch {}
+        var umyPanel = document.getElementById('useMyYamlPanel');
+        if (umyPanel && umyPanel.style.display !== 'none') {
+          if (typeof onEsphomeDoneFromUseMyYaml === 'function') onEsphomeDoneFromUseMyYaml(msg.ok, msg.code);
         } else {
-          renderFlashReviewSummary('error');
-          termLine('error', 'Flash failed. Check the output above.');
+          resetFlashUI(msg.ok ? 'done' : 'error');
+          if (msg.ok) {
+            document.getElementById('flashDone').style.display = '';
+            renderFlashReviewSummary('done');
+            try { await refreshPorts(); } catch {}
+            try { await loadInstallerDevices(); } catch {}
+          } else {
+            renderFlashReviewSummary('error');
+            termLine('error', 'Flash failed. Check the output above.');
+          }
         }
       }
 

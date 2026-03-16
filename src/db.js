@@ -820,9 +820,9 @@ db.exec(`
     listZonesBySite,
 
     renameZone: (id, name) => renameZone.run(name, id),
-    deleteZone: (id, reassign_zone_id=null) => {
-      const tx = db.transaction(()=>{
-        if (reassign_zone_id && Number.isFinite(reassign_zone_id)) {
+    deleteZone: (id, reassign_zone_id = null) => {
+      const tx = db.transaction(() => {
+        if (reassign_zone_id != null && Number.isFinite(reassign_zone_id)) {
           moveIOZone.run(reassign_zone_id, id);
         } else {
           clearIOZone.run(id);
@@ -830,8 +830,7 @@ db.exec(`
         deleteZoneStmt.run(id);
       });
       tx();
-    
-  return { ok:true };
+      return { ok: true };
     },
     countIOByZone,
 
