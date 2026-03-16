@@ -147,7 +147,49 @@ sudo journalctl -u elaris -f
 
 ---
 
-## 8. ESPHome (for flashing ESP devices)
+## 8. Run with PM2 (recommended alternative to systemd)
+
+PM2 is a process manager for Node.js that keeps ELARIS running, restarts it on crash, and starts it automatically on boot. Easier to use than systemd for most setups.
+
+### Install PM2
+
+```bash
+sudo npm install -g pm2
+```
+
+### Start ELARIS with PM2
+
+```bash
+cd ~/elaris/elaris-core
+pm2 start src/index.js --name elaris
+```
+
+### Auto-start on boot
+
+```bash
+pm2 startup
+# Copy and run the command it prints, then:
+pm2 save
+```
+
+### Common PM2 commands
+
+| What | Command |
+|------|---------|
+| Start | `pm2 start src/index.js --name elaris` |
+| Stop | `pm2 stop elaris` |
+| Restart | `pm2 restart elaris` |
+| View logs (live) | `pm2 logs elaris` |
+| View logs (last 100 lines) | `pm2 logs elaris --lines 100` |
+| Status / overview | `pm2 status` |
+| Remove from PM2 | `pm2 delete elaris` |
+| Save current process list | `pm2 save` |
+
+> If you use PM2, you don't need the systemd service in step 7 — pick one or the other.
+
+---
+
+## 9. ESPHome (for flashing ESP devices)
 
 Only needed if you want to use the ESPHome Installer page to flash firmware directly from ELARIS.
 
@@ -185,7 +227,7 @@ Then open: `http://<PI_IP>:8080/esphome.html`
 
 ---
 
-## 9. Mosquitto — Allow LAN devices
+## 10. Mosquitto — Allow LAN devices
 
 For ESPHome boards on the LAN (like the KC868-A16) Mosquitto must accept connections from other devices on the network.
 
@@ -206,7 +248,7 @@ and restarts Mosquitto.
 
 ---
 
-## 10. Find Your Pi's IP Address
+## 11. Find Your Pi's IP Address
 
 ```bash
 hostname -I
@@ -225,8 +267,11 @@ Use this IP to open the app from any device on the same network:
 | Start (dev mode) | `npm run dev` |
 | Recover admin account | `npm run recover-admin` |
 | MQTT broker status | `sudo systemctl status mosquitto` |
-| Elaris service logs | `sudo journalctl -u elaris -f` |
-| Restart service | `sudo systemctl restart elaris` |
+| Elaris service logs (systemd) | `sudo journalctl -u elaris -f` |
+| Restart service (systemd) | `sudo systemctl restart elaris` |
+| PM2 status | `pm2 status` |
+| PM2 logs (live) | `pm2 logs elaris` |
+| PM2 restart | `pm2 restart elaris` |
 | ESPHome version | `data/esphome_venv/bin/esphome version` |
 | View DB (interactive) | `sqlite3 data/elaris.db` |
 | List all tables | `sqlite3 data/elaris.db ".tables"` |
