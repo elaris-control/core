@@ -37,7 +37,7 @@ function initNotificationsRoutes({ notifyApi, requireEngineerAccess }) {
       if (!name || !type || !config) return res.status(400).json({ ok: false, error: 'missing_fields' });
       const id = notifyApi.createChannel(name, type, config);
       res.json({ ok: true, id });
-    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.put('/channels/:id', requireEngineerAccess, (req, res) => {
@@ -45,12 +45,12 @@ function initNotificationsRoutes({ notifyApi, requireEngineerAccess }) {
       const { name, type, config, enabled } = req.body;
       notifyApi.updateChannel(Number(req.params.id), name, type, config, enabled);
       res.json({ ok: true });
-    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.delete('/channels/:id', requireEngineerAccess, (req, res) => {
     try { notifyApi.deleteChannel(Number(req.params.id)); res.json({ ok: true }); }
-    catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+    catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.post('/test/:id', requireEngineerAccess, async (req, res) => {
@@ -60,7 +60,7 @@ function initNotificationsRoutes({ notifyApi, requireEngineerAccess }) {
       });
       res.json({ ok: !!result.ok, result });
     } catch (e) {
-      res.status(e.message === 'not_found' ? 404 : 400).json({ ok: false, error: e.message });
+      const _em = String(e?.message || e); res.status(_em === 'not_found' ? 404 : 400).json({ ok: false, error: _em });
     }
   });
 
@@ -70,7 +70,7 @@ function initNotificationsRoutes({ notifyApi, requireEngineerAccess }) {
       const results = await notifyApi.notify({ title, body, level: level || 'info', tag: 'manual', cooldown_s: 0 });
       const ok = results.length > 0 && results.every(r => r.ok);
       res.json({ ok, results, success_count: results.filter(r => r.ok).length, fail_count: results.filter(r => !r.ok).length });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.get('/log', requireEngineerAccess, (req, res) => {

@@ -1,0 +1,400 @@
+// ── Installer devices / saved configs ─────────────────────────────────────
+var savedConfigs = [];
+var installerDevices = [];
+var installerDevicesRaw = [];
+if (typeof window.selectedInstallerDeviceId === 'undefined') window.selectedInstallerDeviceId = null;
+
+
+function updateBoardSelectionUX() {
+  var sel = document.getElementById('boardSelect');
+  var help = document.getElementById('boardSelectHelp');
+  if (!sel || !help) return;
+  var reflash = !!(typeof window !== 'undefined' && window.selectedInstallerDeviceId);
+  sel.disabled = reflash;
+  sel.style.opacity = reflash ? '.85' : '1';
+  if (reflash) {
+    help.innerHTML = 'Reflash mode uses the board profile already attached to the selected installer card. To change board family, clear the reflash target first. Use <strong>Browse ESPHome Catalog</strong> or <strong>Import YAML</strong> to install more board profiles into the ELARIS catalog.';
+  } else {
+    help.innerHTML = 'This list shows board profiles already installed in the ELARIS catalog. It is not the full live devices.esphome.io list — use <strong>Browse ESPHome Catalog</strong> or <strong>Import YAML</strong> to add more profiles.';
+  }
+}
+
+function installerDeviceIdentityKeys(d) {
+  if (!d) return [];
+  var keys = [];
+  function push(kind, value) {
+    var v = String(value || '').trim().toLowerCase();
+    if (v) keys.push(kind + ':' + v);
+  }
+  push('ip', d.ip_address);
+  push('ip', d.target_ip);
+  push('serial', d.serial_port);
+  push('serial', d.target_port);
+  push('host', d.hostname);
+  push('mqtt', d.mqtt_topic_root);
+  push('mac', d.mac_address);
+  var strongCount = keys.length;
+  if (!strongCount) {
+    push('name', d.name);
+    push('friendly', d.friendly_name);
+  }
+  return Array.from(new Set(keys));
+}
+
+function installerDeviceFingerprint(d) {
+  var keys = installerDeviceIdentityKeys(d);
+  return keys[0] || ('row:' + String((d && d.id) || ''));
+}
+
+function installerDeviceIsStale(row) {
+  if (!row || !row.last_seen_at) return false;
+  var ts = new Date(row.last_seen_at).getTime();
+  if (!Number.isFinite(ts)) return false;
+  return (Date.now() - ts) > 3 * 60 * 1000;
+}
+
+function installerRecencyBonus(ts) {
+  var ms = new Date(ts || '').getTime();
+  if (!Number.isFinite(ms)) return 0;
+  var ageMin = (Date.now() - ms) / 60000;
+  if (ageMin <= 2) return 18;
+  if (ageMin <= 10) return 12;
+  if (ageMin <= 60) return 6;
+  if (ageMin <= 360) return 2;
+  return 0;
+}
+
+function pickBetterInstallerDevice(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  function score(x) {
+    var s = 0;
+    var status = String(x.status || '').toLowerCase();
+    var stale = installerDeviceIsStale(x);
+    if (status === 'online') s += stale ? 8 : 72;
+    else if (status === 'flashed') s += 52;
+    else if (status === 'generated' || status === 'queued' || status === 'running') s += 40;
+    else if (status === 'error') s -= 6;
+    if (String(x.job_status || '').toLowerCase() === 'running') s += 12;
+    else if (String(x.job_status || '').toLowerCase() === 'queued') s += 8;
+    else if (String(x.job_status || '').toLowerCase() === 'success') s += 4;
+    if (x.ip_address || x.target_ip) s += 10;
+    if (x.serial_port || x.target_port) s += 8;
+    if (x.hostname) s += 6;
+    if (x.mac_address) s += 12;
+    if (x.mqtt_topic_root) s += 6;
+    if (x.last_seen_at) s += stale ? 1 : 14;
+    s += installerRecencyBonus(x.updated_at || x.job_finished_at || x.created_at);
+    return s;
+  }
+  var sa = score(a), sb = score(b);
+  if (sb > sa) return b;
+  if (sa > sb) return a;
+  var aFresh = new Date(a.updated_at || a.created_at || 0).getTime() || 0;
+  var bFresh = new Date(b.updated_at || b.created_at || 0).getTime() || 0;
+  if (bFresh > aFresh) return b;
+  if (aFresh > bFresh) return a;
+  return Number(b.id || 0) > Number(a.id || 0) ? b : a;
+}
+
+function mergeInstallerDeviceRows(rows) {
+  var merged = [];
+  var groups = [];
+  (rows || []).forEach(function(row) {
+    var keys = installerDeviceIdentityKeys(row);
+    var groupIndexes = [];
+    groups.forEach(function(group, idx) {
+      for (var i = 0; i < keys.length; i++) {
+        if (group.keySet.has(keys[i])) { groupIndexes.push(idx); break; }
+      }
+    });
+    if (!groupIndexes.length) {
+      var keySet = new Set(keys.length ? keys : [installerDeviceFingerprint(row)]);
+      groups.push({ rows: [Object.assign({}, row)], keySet: keySet });
+      return;
+    }
+    var base = groups[groupIndexes[0]];
+    base.rows.push(Object.assign({}, row));
+    keys.forEach(function(k) { base.keySet.add(k); });
+    for (var gi = groupIndexes.length - 1; gi >= 1; gi--) {
+      var other = groups[groupIndexes[gi]];
+      other.rows.forEach(function(r) { base.rows.push(r); });
+      other.keySet.forEach(function(k) { base.keySet.add(k); });
+      groups.splice(groupIndexes[gi], 1);
+    }
+  });
+  groups.forEach(function(group) {
+    var out = null;
+    group.rows.forEach(function(row) {
+      if (!out) { out = Object.assign({}, row); return; }
+      var keep = pickBetterInstallerDevice(out, row);
+      var other = keep === out ? row : out;
+      out = Object.assign({}, other, keep);
+      if (!out.friendly_name) out.friendly_name = other.friendly_name;
+      if (!out.name) out.name = other.name;
+      if (!out.board_profile_id) out.board_profile_id = other.board_profile_id;
+      if (!out.ip_address) out.ip_address = other.ip_address || other.target_ip || '';
+      if (!out.target_ip) out.target_ip = other.target_ip || other.ip_address || '';
+      if (!out.serial_port) out.serial_port = other.serial_port || other.target_port || '';
+      if (!out.target_port) out.target_port = other.target_port || other.serial_port || '';
+      if (!out.hostname) out.hostname = other.hostname || '';
+      if (!out.mqtt_topic_root) out.mqtt_topic_root = other.mqtt_topic_root || '';
+      if (!out.mac_address) out.mac_address = other.mac_address || '';
+    });
+    if (out) {
+      out._mergedCount = group.rows.length;
+      out._mergedNames = Array.from(new Set(group.rows.map(function(r) { return String(r.friendly_name || r.name || '').trim(); }).filter(Boolean)));
+      merged.push(out);
+    }
+  });
+  merged.sort(function(a, b) { return Number(b.id || 0) - Number(a.id || 0); });
+  return merged;
+}
+
+function statusChip(status, row) {
+  var s = String(status || '').toLowerCase();
+  if (s === 'online') {
+    // Auto-expire: if last_seen_at > 3 minutes ago → show as offline
+    var stale = true;
+    if (row.last_seen_at) {
+      var diff = Date.now() - new Date(row.last_seen_at).getTime();
+      stale = diff > 3 * 60 * 1000;
+    }
+    return stale
+      ? '<span class="pill" style="color:#f59e0b;border-color:rgba(245,158,11,.35)">Offline (stale)</span>'
+      : '<span class="pill pill-ok">Online</span>';
+  }
+  if (s === 'running' || s === 'queued') return '<span class="pill pill-info">Running</span>';
+  if (s === 'error') return '<span class="pill pill-err">Error</span>';
+  if (s === 'flashed' && !row.last_seen_at) return '<span class="pill pill-warn">Waiting for first announce</span>';
+  if (s === 'flashed') return '<span class="pill pill-info">Flashed</span>';
+  return '<span class="pill">' + escHtml(status || 'new') + '</span>';
+}
+
+
+function formatInstallerSeenText(row) {
+  if (!row) return 'No activity yet';
+  if (String(row.status || '').toLowerCase() === 'running') return 'Flash job running…';
+  if (row.last_seen_at) return 'Last seen ' + String(row.last_seen_at).replace('T',' ').slice(0,19);
+  if (row.updated_at) return 'Updated ' + String(row.updated_at).replace('T',' ').slice(0,19);
+  return 'Waiting for MQTT/config announce';
+}
+
+function showSelectedCardBanner(d) {
+  var el = document.getElementById('selectedCardBanner');
+  if (!el) return;
+  if (!d) { el.style.display = 'none'; el.innerHTML = ''; renderEspModeBanner(); return; }
+  el.style.display = '';
+  el.innerHTML = '<strong>Reflash target:</strong> ' + escHtml(d.friendly_name || d.name || ('Device #' + d.id))
+    + ' &nbsp;•&nbsp; ' + escHtml(d.board_profile_id || '—')
+    + ((d.ip_address || d.target_ip) ? ' &nbsp;•&nbsp; ' + escHtml(d.ip_address || d.target_ip) : '')
+    + '<div style="margin-top:6px;font-size:11px">This wizard overwrites the generated YAML/config for the selected card. Auxiliary panels do nothing until you click their own Import/Add buttons.</div>';
+  renderEspModeBanner();
+}
+
+function clearSelectedInstallerDevice() {
+  try { window.selectedInstallerDeviceId = null; } catch (e) {}
+  showSelectedCardBanner(null);
+  updateBoardSelectionUX();
+  renderEspModeBanner();
+}
+
+function optimisticUpdateInstallerDevice(payload, jobId) {
+  var id = Number(payload && payload.existing_device_id || 0);
+  if (!id || !Array.isArray(installerDevicesRaw)) return;
+  var now = new Date().toISOString();
+  installerDevicesRaw = installerDevicesRaw.map(function(row) {
+    if (Number(row.id) !== id) return row;
+    return Object.assign({}, row, {
+      name: payload.device_name || row.name,
+      friendly_name: payload.device_name || row.friendly_name || row.name,
+      hostname: (payload.device_name || row.hostname || row.name || '').toLowerCase().replace(/[^a-z0-9_-]/g, '-'),
+      board_profile_id: payload.board_profile_id || row.board_profile_id,
+      target_ip: payload.port && /^\/dev\//.test(payload.port) ? row.target_ip : (payload.port || row.target_ip),
+      ip_address: payload.port && /^\/dev\//.test(payload.port) ? row.ip_address : (payload.port || row.ip_address),
+      serial_port: payload.port && /^\/dev\//.test(payload.port) ? payload.port : row.serial_port,
+      target_port: payload.port && /^\/dev\//.test(payload.port) ? payload.port : row.target_port,
+      status: 'running',
+      updated_at: now,
+      job_status: 'running',
+      _flashJobId: jobId || row._flashJobId || null
+    });
+  });
+  installerDevices = mergeInstallerDeviceRows(installerDevicesRaw);
+  renderSavedPanel();
+}
+
+async function forgetInstallerDevice(id) {
+  if (!id) return;
+  var ok = confirm('Delete this ESPHome card from the registry? This forgets the card, generated YAML history and install jobs for that card.');
+  if (!ok) return;
+  try {
+    await api('/esphome/devices/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (Number(window.selectedInstallerDeviceId || 0) === Number(id)) {
+      window.selectedInstallerDeviceId = null;
+      showSelectedCardBanner(null);
+    }
+    await loadInstallerDevices();
+    renderEspModeBanner();
+  } catch (e) {
+    alert('Delete failed: ' + e.message);
+  }
+}
+async function loadInstallerDevices() {
+  try {
+    var r = await api('/esphome/devices');
+    installerDevicesRaw = r.devices || [];
+    installerDevices = mergeInstallerDeviceRows(installerDevicesRaw);
+    renderSavedPanel();
+    updateBoardSelectionUX();
+    renderEspModeBanner();
+  } catch {
+    installerDevicesRaw = [];
+    installerDevices = [];
+    renderSavedPanel();
+    updateBoardSelectionUX();
+    renderEspModeBanner();
+  }
+}
+
+async function loadSavedConfigs() {
+  try {
+    var r = await api('/esphome/configs');
+    savedConfigs = r.configs || [];
+    renderSavedPanel();
+    renderEspModeBanner();
+  } catch {
+    savedConfigs = [];
+    renderSavedPanel();
+    renderEspModeBanner();
+  }
+}
+
+function renderSavedPanel() {
+  var panel = document.getElementById('savedPanel');
+  var deviceList = document.getElementById('deviceList');
+  var configWrap = document.getElementById('savedConfigsWrap');
+  var list = document.getElementById('savedList');
+
+  if (!installerDevices.length && !savedConfigs.length) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+
+  if (installerDevices.length) {
+    deviceList.innerHTML = installerDevices.map(function(d) {
+      var subtitle = [];
+      if (d.board_profile_id) subtitle.push(d.board_profile_id);
+      if (d.ip_address) subtitle.push(d.ip_address);
+      else if (d.target_ip) subtitle.push(d.target_ip);
+      if (d.serial_port) subtitle.push(d.serial_port);
+      else if (d.target_port) subtitle.push(d.target_port);
+      if (d.hostname) subtitle.push(d.hostname);
+      var title = d.friendly_name || d.name || ('Device #' + d.id);
+      return '<div style="min-width:280px;display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)">' +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">' +
+          '<div style="min-width:0">' +
+            '<div style="font-weight:800;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(title) + '</div>' +
+            '<div style="color:var(--muted);font-size:10px;margin-top:2px">' + escHtml(subtitle.join(' • ') || 'No announce yet') + '</div>' +
+          '</div>' +
+          statusChip(d.status, d) +
+        '</div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+          '<div style="font-size:10px;color:var(--muted2)">' + escHtml(formatInstallerSeenText(d)) + (d._mergedCount > 1 ? (' • merged ' + d._mergedCount + ' records') : '') + '</div>' +
+          '<div style="display:flex;gap:6px;align-items:center">' +
+            '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="loadDeviceRecord(' + Number(d.id) + ')">Use</button>' +
+            '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="forgetInstallerDevice(' + Number(d.id) + ')">Delete</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } else {
+    deviceList.innerHTML = '';
+  }
+
+  if (savedConfigs.length) {
+    configWrap.style.display = '';
+    list.innerHTML = savedConfigs.map(function(c, i) {
+      return '<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-size:12px">' +
+        '<span style="font-weight:700">' + escHtml(c.device_name) + '</span>' +
+        '<span style="color:var(--muted);font-size:10px">' + escHtml(c.board_profile_id || c.board_id || '') + '</span>' +
+        '<button class="btn" style="padding:2px 8px;font-size:10px" onclick="loadConfig(' + i + ')">Load</button>' +
+        '<button class="entity-remove" onclick="deleteConfig(' + i + ')" title="Delete">&#215;</button>' +
+      '</div>';
+    }).join('');
+  } else {
+    configWrap.style.display = 'none';
+    list.innerHTML = '';
+  }
+}
+
+function loadDeviceRecord(id) {
+  closeEspPanels();
+  var d = installerDevices.find(function(x) { return Number(x.id) === Number(id); });
+  if (!d) return;
+  try {
+    window.selectedInstallerDeviceId = Number(d.id) || null;
+    localStorage.setItem('elaris_installer_board_profile_id', d.board_profile_id || '');
+    localStorage.setItem('elaris_installer_device_name', d.name || d.friendly_name || '');
+  } catch(e) {}
+  if (d.name) { document.getElementById('deviceName').value = d.name; updateSafeName(); }
+  if (d.board_profile_id) {
+    var sel = document.getElementById('boardSelect');
+    for (var j = 0; j < sel.options.length; j++) {
+      if (sel.options[j].value === d.board_profile_id) { sel.selectedIndex = j; break; }
+    }
+    onBoardChange();
+  }
+  document.getElementById('useOTA').checked = !d.serial_port && !!(d.ip_address || d.target_ip);
+  onFlashModeChange();
+  if (d.ip_address || d.target_ip) document.getElementById('otaIp').value = d.ip_address || d.target_ip || '';
+  if (d.serial_port || d.target_port) document.getElementById('portSelect').value = d.serial_port || d.target_port || '';
+  if (String(d.network_mode || '').toLowerCase() === 'ethernet') {
+    document.getElementById('useEthernet').checked = true;
+    onNetChange();
+  }
+  showSelectedCardBanner(d);
+  renderEspModeBanner();
+  goStep(2);
+}
+
+function loadConfig(i) {
+  var c = savedConfigs[i];
+  if (!c) return;
+  try { window.selectedInstallerDeviceId = null; } catch(e) {}
+  updateBoardSelectionUX();
+  renderEspModeBanner();
+  if (c.device_name) { document.getElementById('deviceName').value = c.device_name; updateSafeName(); }
+  if (c.board_profile_id || c.board_id) {
+    var sel = document.getElementById('boardSelect');
+    for (var j = 0; j < sel.options.length; j++) {
+      if (sel.options[j].value === (c.board_profile_id || c.board_id)) { sel.selectedIndex = j; break; }
+    }
+    onBoardChange();
+  }
+  if (c.wifi_ssid) document.getElementById('wifiSsid').value = c.wifi_ssid;
+  if (c.wifi_pass) document.getElementById('wifiPass').value = c.wifi_pass;
+  if (c.mqtt_host) document.getElementById('mqttHost').value = c.mqtt_host;
+  if (c.use_ethernet) { document.getElementById('useEthernet').checked = true; onNetChange(); }
+  goStep(2);
+}
+
+async function deleteConfig(i) {
+  var c = savedConfigs[i];
+  if (!c) return;
+  try { await api('/esphome/configs/' + encodeURIComponent(c.device_name), { method: 'DELETE' }); }
+  catch {}
+  savedConfigs.splice(i, 1);
+  renderSavedPanel();
+}
+
+async function saveCurrentConfig() {
+  try {
+    if (!lastValidation || !lastValidation.ok) await buildYamlPreview();
+    if (!lastValidation || !lastValidation.ok) throw new Error('Validation failed. Fix the errors before flashing.');
+    var payload = buildPayload();
+    await api('/esphome/configs', { method: 'POST', body: JSON.stringify(payload) });
+    await loadSavedConfigs();
+  } catch(e) { alert('Save failed: ' + e.message); }
+}

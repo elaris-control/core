@@ -90,6 +90,10 @@ MQTT_URL=mqtt://localhost:1883
 > APP_SECRET=your_app_secret
 > ```
 
+> **Running behind nginx / Cloudflare / a reverse proxy?**
+> Add `TRUST_PROXY=1` so rate-limiting uses the real client IP instead of the proxy IP.
+> Leave it out (or blank) if Elaris is exposed directly.
+
 ---
 
 ## 6. Start Elaris

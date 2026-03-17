@@ -6,6 +6,16 @@
   <script>try{document.documentElement.dataset.theme=localStorage.getItem('elaris_theme')||'dark';}catch(e){document.documentElement.dataset.theme='dark';}</script>
   <script src="/csrf.js?v=1"></script>
   <script src="/js/core.js?v=1"></script>
+  <script src="/js/esphome/utils.js?v=1"></script>
+  <script src="/js/esphome/setup.js?v=1"></script>
+  <script src="/js/esphome/flash.js?v=1"></script>
+  <script src="/js/esphome/entities.js?v=1"></script>
+  <script src="/js/esphome/devices.js?v=1"></script>
+  <script src="/js/esphome/browser.js?v=1"></script>
+  <script src="/js/esphome/yaml_import.js?v=1"></script>
+<script src="/js/esphome/profiles.js?v=1"></script>
+  <script src="/js/esphome/use_my_yaml.js?v=1"></script>
+  <script src="/js/esphome/peripheral.js?v=1"></script>
   <title>ELARIS — ESPHome Installer</title>
   <link rel="icon" href="/favicon.ico">
   <link rel="manifest" href="/manifest.json">
@@ -246,15 +256,16 @@
         </div>
       </div>
 
-      <!-- ── YAML Import / Device Browser buttons ── -->
+      <div id="esphomeModeBanner" style="display:none;margin:12px 0 14px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03)"></div>
+
+      <!-- ── Tools toolbar ── -->
       <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;align-items:center">
-        <span style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-right:4px">Board from catalog</span>
+        <span style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-right:4px">Tools</span>
         <button class="btn" onclick="togglePeripheralLibrary()" style="font-size:12px">&#128268; Peripheral Library</button>
-        <button class="btn" onclick="toggleAddPeripheral()" style="font-size:12px">&#10133; Add to Device</button>
-        <button class="btn" onclick="toggleDeviceBrowser()" style="font-size:12px">&#127760; Browse ESPHome Devices</button>
-        <button class="btn" onclick="toggleYamlImporter()" style="font-size:12px">&#128196; Import Board from YAML</button>
-        <span style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-left:12px;margin-right:4px">Use my YAML</span>
-        <button class="btn btnPrimary" onclick="toggleUseMyYaml()" style="font-size:12px">&#128196; Paste &amp; Flash</button>
+        <button class="btn" onclick="toggleAddPeripheral()" style="font-size:12px">&#10133; Add Sensor to Device</button>
+        <button class="btn" onclick="toggleProfileManager()" style="font-size:12px">&#128736; Board Profiles</button>
+        <span style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-left:12px;margin-right:4px">Flash</span>
+        <button class="btn btnPrimary" onclick="toggleUseMyYaml()" style="font-size:12px">&#128196; Paste &amp; Flash YAML</button>
       </div>
 
       <!-- ── Add Peripheral to Existing Device ── -->
@@ -279,15 +290,19 @@
             <input type="text" id="apIp" placeholder="192.168.1.x" oninput="apClearPreview()">
             <span class="form-hint">Device must be online and reachable</span>
           </div>
+          <div class="form-row" id="apEditBanner" style="display:none;grid-column:1/-1">
+            <div style="padding:10px 12px;border:1px solid rgba(29,140,255,.35);border-radius:10px;background:rgba(29,140,255,.08);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+              <div>
+                <div style="font-size:11px;font-weight:800;color:#8ec5ff;text-transform:uppercase;letter-spacing:.08em">Edit Peripheral</div>
+                <div id="apEditText" style="font-size:12px;color:var(--text)">Editing existing peripheral</div>
+              </div>
+              <button type="button" class="btn" style="font-size:11px;padding:5px 10px" onclick="apCancelEdit()">Cancel Edit</button>
+            </div>
+          </div>
           <div class="form-row">
             <label>Peripheral Type</label>
-            <select id="apType" onchange="apLoadPinOptions()">
-              <option value="ds18b20">DS18B20 Temperature (1-Wire)</option>
-              <option value="dht11">DHT11 Temp + Humidity</option>
-              <option value="dht">DHT22 Temp + Humidity</option>
-              <option value="analog">Analog Input (ADC)</option>
-              <option value="pulse_counter">Pulse Counter (flow / anemometer)</option>
-            </select>
+            <select id="apType" onchange="apLoadPinOptions()"></select>
+            <span class="form-hint">Library-driven quick add — compatible options depend on the selected device.</span>
           </div>
           <div class="form-row">
             <label>Pin</label>
@@ -295,8 +310,19 @@
               <option value="">Quick board label (optional)</option>
             </select>
             <input type="text" id="apPin" placeholder="e.g. GPIO32" oninput="apOnPinInput()">
-            <span class="form-hint" id="apPinHint">Type a GPIO pin. Board labels are optional shortcuts.</span>
+            <span class="form-hint" id="apPinHint">Select a board port when available. Generic boards still allow manual GPIO.</span>
             <div id="apPinValidation" class="apNoticeBox"></div>
+          </div>
+          <div class="form-row" id="apI2cRow" style="display:none">
+            <label>I²C Bus</label>
+            <select id="apBusSelect" style="display:none" onchange="apOnBusChange()"></select>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+              <input type="text" id="apSda" placeholder="SDA e.g. GPIO21" oninput="apOnI2cInput()">
+              <input type="text" id="apScl" placeholder="SCL e.g. GPIO22" oninput="apOnI2cInput()">
+              <input type="text" id="apAddress" placeholder="Address e.g. 0x23" oninput="apOnI2cInput()">
+            </div>
+            <span class="form-hint" id="apI2cHint">Select a board bus when available. Shared SDA/SCL stays the same; only the address should change per sensor.</span>
+            <div id="apI2cValidation" class="apNoticeBox"></div>
           </div>
           <div class="form-row" id="apScaleRow" style="display:none">
             <label>Scaling</label>
@@ -323,7 +349,11 @@
             <span class="form-hint">Auto-generated from name. Used in MQTT topic.</span>
           </div>
         </div>
-        <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">
+        <div id="apCurrentWrap" style="margin-top:14px;display:none">
+          <div style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:0 0 8px">Current Peripherals on Device</div>
+          <div id="apCurrentList" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
           <button class="btn" id="apPreviewBtn" onclick="apPreview()" style="font-size:12px">&#128196; Preview YAML</button>
           <button class="btn btnPrimary" id="apFlashBtn" onclick="apFlash()" style="font-size:12px;display:none">&#9889; Add &amp; Flash OTA</button>
           <button class="btn" id="apCancelBtn" onclick="apCancel()" style="display:none;font-size:12px">&#9632; Cancel</button>
@@ -363,7 +393,10 @@
           <div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:8px">
             <div style="display:flex;align-items:center;justify-content:space-between">
               <span style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em" id="browserSelectedLabel">No device selected</span>
-              <button class="btn btn-primary btn-sm" id="browserImportBtn" style="display:none" onclick="importBrowserDevice()">&#8659; Import to Catalog</button>
+              <div style="display:flex;gap:6px;align-items:center">
+                <button class="btn btnPrimary btn-sm" id="browserFlashBtn" style="display:none" onclick="browserFlashDevice()">&#128197; Flash this device &rsaquo;</button>
+                <button class="btn btn-sm" id="browserImportBtn" style="display:none" onclick="importBrowserDevice()">&#8659; Save to Catalog</button>
+              </div>
             </div>
             <textarea id="browserYamlPreview" class="inp" readonly
               style="flex:1;min-height:320px;font-family:monospace;font-size:11px;resize:vertical;white-space:pre;overflow:auto"
@@ -455,11 +488,35 @@
             <div class="form-row">
               <label>Type</label>
               <select id="umyAddType">
-                <option value="ds18b20">DS18B20</option>
-                <option value="dht11">DHT11</option>
-                <option value="dht">DHT22</option>
-                <option value="analog">Analog</option>
-                <option value="pulse_counter">Pulse counter</option>
+                <optgroup label="Temperature / Humidity">
+                  <option value="ds18b20">DS18B20 Temperature (1-Wire)</option>
+                  <option value="dht11">DHT11 Temp + Humidity</option>
+                  <option value="dht">DHT22 Temp + Humidity</option>
+                </optgroup>
+                <optgroup label="Analog Inputs">
+                  <option value="analog">Analog Input (ADC)</option>
+                  <option value="soil_moisture">Soil Moisture (capacitive)</option>
+                  <option value="ntc">NTC Thermistor (analog)</option>
+                  <option value="mq2">MQ-2 Smoke / LPG / CO</option>
+                  <option value="mq7">MQ-7 Carbon Monoxide</option>
+                  <option value="mq135">MQ-135 Air Quality</option>
+                  <option value="ct_clamp">CT Clamp AC Current</option>
+                </optgroup>
+                <optgroup label="Digital / Pulse">
+                  <option value="pulse_counter">Pulse Counter (flow / wind)</option>
+                  <option value="anemometer">Wind Speed (WH-SP-WS01)</option>
+                  <option value="yfs201">YF-S201 Water Flow Meter</option>
+                  <option value="rain_digital">Rain Sensor (digital)</option>
+                  <option value="pir">PIR Motion Sensor</option>
+                  <option value="door_contact">Door / Window Contact</option>
+                  <option value="vibration">Vibration Sensor (SW-420)</option>
+                  <option value="water_leak">Water Leak Sensor</option>
+                  <option value="float_switch">Float Switch</option>
+                </optgroup>
+                <optgroup label="I²C Bus">
+                  <option value="bh1750">BH1750 Lux Sensor (I²C)</option>
+                  <option value="sht3x">SHT3x Temp + Humidity (I²C)</option>
+                </optgroup>
               </select>
             </div>
             <div class="form-row">
@@ -510,6 +567,62 @@
         <div class="terminal" id="umyTerminal" style="display:none;margin-top:12px;height:200px"></div>
       </div>
 
+      <!-- ── Board Profile Manager ── -->
+      <div class="card-step" id="profileManagerPanel" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h2 style="margin:0">&#128736; Board Profile Manager</h2>
+          <button class="btn" onclick="document.getElementById('profileManagerPanel').style.display='none'">&#215; Close</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:14px">
+          Manage official, imported, and custom board profiles. Official bundled profiles are read-only here — clone them to create a custom variant.
+        </p>
+        <div style="display:grid;grid-template-columns:minmax(260px,340px) 1fr;gap:16px">
+          <div style="border:1px solid var(--line);border-radius:12px;padding:12px;background:rgba(255,255,255,.02)">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+              <input id="profileSearch" placeholder="Search boards…" style="flex:1" oninput="renderProfileManagerList()">
+              <button class="btn" onclick="profileManagerRefresh()">&#8635;</button>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+              <button class="btn btnPrimary" onclick="newProfileEditor()">New Custom</button>
+              <button class="btn" onclick="cloneProfileEditor()">Clone Selected</button>
+            </div>
+            <div id="profileManagerList" style="max-height:560px;overflow:auto"></div>
+          </div>
+          <div style="border:1px solid var(--line);border-radius:12px;padding:12px;background:rgba(255,255,255,.02)">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div class="form-row"><label>Profile ID</label><input id="peId" placeholder="custom_board_id"></div>
+              <div class="form-row"><label>Label</label><input id="peLabel" placeholder="Custom Board"></div>
+              <div class="form-row"><label>Board</label><input id="peBoard" placeholder="esp32dev"></div>
+              <div class="form-row"><label>Platform</label><input id="pePlatform" placeholder="esp32"></div>
+              <div class="form-row"><label>Framework</label><input id="peFramework" placeholder="arduino"></div>
+              <div class="form-row"><label>Source</label><div id="peSource" style="padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03);font-size:12px;color:var(--muted2)">Custom</div></div>
+            </div>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;margin:8px 0 14px">
+              <label style="font-size:12px"><input type="checkbox" id="peSupportsUsb" checked> USB</label>
+              <label style="font-size:12px"><input type="checkbox" id="peSupportsOta" checked> OTA</label>
+              <label style="font-size:12px"><input type="checkbox" id="peSupportsWifi" checked> WiFi</label>
+              <label style="font-size:12px"><input type="checkbox" id="peSupportsEth"> Ethernet</label>
+            </div>
+            <div class="form-row"><label>Notes (one per line)</label><textarea id="peNotes" style="width:100%;height:86px;font-family:monospace;font-size:11px"></textarea></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+              <div class="form-row"><label>Board Ports (JSON array)</label><textarea id="peBoardPorts" style="width:100%;height:220px;font-family:monospace;font-size:11px"></textarea></div>
+              <div class="form-row"><label>Board Buses (JSON array)</label><textarea id="peBoardBuses" style="width:100%;height:220px;font-family:monospace;font-size:11px"></textarea></div>
+              <div class="form-row"><label>Entity Defaults (JSON array)</label><textarea id="peEntityDefaults" style="width:100%;height:220px;font-family:monospace;font-size:11px"></textarea></div>
+              <div class="form-row"><label>Pin Rules (JSON object)</label><textarea id="pePinRules" style="width:100%;height:220px;font-family:monospace;font-size:11px"></textarea></div>
+              <div class="form-row"><label>Ethernet (JSON object, optional)</label><textarea id="peEthernet" style="width:100%;height:120px;font-family:monospace;font-size:11px"></textarea></div>
+              <div class="form-row"><label>PCF8574 / expanders (JSON array, optional)</label><textarea id="pePcf8574" style="width:100%;height:120px;font-family:monospace;font-size:11px"></textarea></div>
+            </div>
+            <div class="form-row" style="margin-top:12px"><label>Legacy I²C block (JSON object/array, optional)</label><textarea id="peI2c" style="width:100%;height:90px;font-family:monospace;font-size:11px"></textarea></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">
+              <button class="btn btnAccent" onclick="saveProfileEditor()">&#10003; Save Profile</button>
+              <button class="btn" onclick="exportProfileEditor()">&#128190; Export JSON</button>
+              <button class="btn" id="peDeleteBtn" onclick="deleteProfileEditor()">&#128465; Delete</button>
+              <span id="peMsg" style="font-size:12px;color:var(--muted)"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ── YAML Board Importer ── -->
       <div class="card-step" id="yamlImportPanel" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -533,8 +646,8 @@
         <div id="yamlPreview" style="display:none;margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:14px">
           <div style="font-weight:800;margin-bottom:10px">Preview — found entities</div>
           <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-            <input id="yamlProfileId" placeholder="profile-id (e.g. kincony_a32)" style="flex:1;min-width:180px" />
-            <input id="yamlProfileLabel" placeholder="Label (e.g. KinCony KC868-A32)" style="flex:1;min-width:220px" />
+            <input id="yamlProfileId" placeholder="profile-id (e.g. my_esp32_relay)" style="flex:1;min-width:180px" />
+            <input id="yamlProfileLabel" placeholder="Label (e.g. My ESP32 Relay Board)" style="flex:1;min-width:220px" />
           </div>
           <div id="yamlEntityList" style="font-size:12px;font-family:monospace;max-height:260px;overflow-y:auto;background:rgba(0,0,0,.12);border-radius:8px;padding:10px;margin-bottom:10px"></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -547,7 +660,7 @@
 
       <!-- ── Step 1: Setup ── -->
       <div class="card-step" id="step1">
-        <h2>&#128376; Step 1 — Check & Connect</h2>
+        <h2>&#128376; Step 1 — Check &amp; Connect</h2>
         <div id="esphomeStatus" style="margin-bottom:16px">
           <span style="color:var(--muted);font-size:12px">Checking ESPHome…</span>
         </div>
@@ -577,7 +690,7 @@
             </select>
             <button class="btn" onclick="refreshPorts()">&#8635; Refresh</button>
           </div>
-          <span class="form-hint">Connect the ESP board via USB-C to the Raspberry Pi. Required for first-time flash.</span>
+          <span class="form-hint" id="usbPortHint">Connect the ESP board via USB-C to the Raspberry Pi. Required for first-time flash.</span>
         </div>
         <div id="otaRow" class="form-row" style="display:none">
           <label>Device IP Address</label>
@@ -599,11 +712,25 @@
           <input type="text" id="deviceName" placeholder="e.g. boiler_node" oninput="updateSafeName()">
           <span class="form-hint">Safe name: <code id="safeNamePreview">—</code></span>
         </div>
+        <div id="selectedCardBanner" style="display:none;padding:10px 12px;border:1px solid rgba(34,217,122,.25);border-radius:10px;background:rgba(34,217,122,.08);font-size:12px;color:var(--muted2);margin-bottom:14px"></div>
+
+        <!-- Primary: GitHub device browser -->
+        <div style="background:rgba(29,140,255,.06);border:1px solid rgba(29,140,255,.22);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+          <div style="font-size:11px;font-weight:800;color:#8ec5ff;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">&#127760; Find your board on esphome.io</div>
+          <div style="font-size:12px;color:var(--muted2);margin-bottom:10px">Browse 75,000+ community device profiles. Select your board, preview the YAML, and import it — then continue below.</div>
+          <button class="btn btnPrimary" type="button" onclick="toggleDeviceBrowser(); loadDeviceBrowser();" style="font-size:12px">&#127760; Browse ESPHome Device Catalog</button>
+        </div>
+
+        <!-- Secondary: installed catalog dropdown -->
         <div class="form-row">
-          <label>Board</label>
-          <select id="boardSelect" onchange="onBoardChange()">
-            <option value="">— select board —</option>
-          </select>
+          <label>Board Profile <span style="font-weight:400;color:var(--muted);font-size:10px">— from installed catalog</span></label>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select id="boardSelect" onchange="onBoardChange()" style="flex:1;min-width:220px">
+              <option value="">— select board —</option>
+            </select>
+            <button class="btn" type="button" onclick="toggleYamlImporter()" style="font-size:12px">Import YAML</button>
+          </div>
+          <span class="form-hint" id="boardSelectHelp">Shows board profiles already imported into ELARIS. Use the catalog browser above to add new boards.</span>
         </div>
         <div class="form-row" id="customBoardRow" style="display:none">
           <label>Custom Board ID</label>
@@ -652,7 +779,15 @@
       <!-- ── Step 4: Entities ── -->
       <div class="card-step" id="step4" style="display:none">
         <h2>&#128268; Step 4 — Entities (optional)</h2>
-        <p style="font-size:12px;color:var(--muted2);margin-bottom:14px">Add sensors and relays. For board profiles like A16 use logical channels such as OUT1 / IN1 instead of raw GPIO. Leave empty to flash a minimal device.</p>
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:14px">Add the core channels you want baked into the main flash. For board profiles like A16 use logical board channels and board buses instead of raw GPIO. Non-shared channels are hidden from the next rows after you use them; shared DS18B20 / I²C paths stay available when sharing is allowed.</p>
+        <div id="step4CatalogGuide" style="margin-bottom:14px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03);font-size:12px;color:var(--muted2)">
+          <div style="font-weight:800;color:var(--text);margin-bottom:6px">Core channels vs advanced peripherals</div>
+          <div>The main entity rows below are for the core board channels you want in the base flash: <strong>DO / DI / AI / HT / simple I²C</strong>. The rows below now cover the core board channels plus the common I²C / UART sensor families. Complex multi-pin or non-telemetry peripherals like <strong>HX711, HC-SR04, SSD1306, MCP4725</strong> still belong in <strong>Modify existing device → Add to Device / Peripheral Library</strong>.</div>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" type="button" onclick="togglePeripheralLibrary()">Open Peripheral Library</button>
+            <button class="btn" type="button" onclick="toggleAddPeripheral()">Modify existing device</button>
+          </div>
+        </div>
         <div class="entity-header">
           <span>Type</span><span>Name</span><span>Source / Channel</span><span></span>
         </div>
@@ -666,8 +801,9 @@
 
       <!-- ── Step 5: Flash ── -->
       <div class="card-step" id="step5" style="display:none">
-        <h2>&#9889; Step 5 — Review & Flash</h2>
+        <h2>&#9889; Step 5 — Review &amp; Flash</h2>
         <div id="flashStatus" style="margin-bottom:12px"></div>
+        <div id="flashReflashNotice" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid rgba(29,140,255,.28);border-radius:10px;background:rgba(29,140,255,.08);font-size:12px;color:var(--muted2)"></div>
         <div id="validationBox" style="display:none;margin-bottom:12px;padding:12px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03)"></div>
 
         <details style="margin-bottom:14px">
@@ -707,6 +843,7 @@
 
 <script src="/theme.js"></script>
 <script>
+// ── Global state ────────────────────────────────────────────────────────────
 var currentStep = 1;
 var boards      = [];
 var presets     = {};
@@ -716,1299 +853,6 @@ var ws          = null;
 var generatedYaml = '';
 var lastValidation = null;
 var esphomeClientId = 'esph_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-
-// ── Stepper ────────────────────────────────────────────────────────────────
-function goStep(n) {
-  if (n === currentStep) return;
-  if (!validateStep(currentStep)) return;
-  document.getElementById('step' + currentStep).style.display = 'none';
-  currentStep = n;
-  document.getElementById('step' + n).style.display = '';
-
-  for (var i = 1; i <= 5; i++) {
-    var dot = document.getElementById('sd' + i);
-    var lbl = document.getElementById('sl' + i);
-    dot.className = 'step-dot' + (i < n ? ' done' : i === n ? ' active' : '');
-    lbl.className = 'step-label' + (i === n ? ' active' : '');
-  }
-
-  if (n === 5) buildYamlPreview();
-}
-
-function validateStep(n) {
-  if (n === 1) {
-    var useOTA = document.getElementById('useOTA').checked;
-    var usb = document.getElementById('portSelect').value;
-    var otaIp = document.getElementById('otaIp').value.trim();
-
-    if (useOTA) {
-      if (!otaIp) { alert('Enter the device IP address for OTA flashing.'); return false; }
-    } else {
-      if (!usb) { alert('Select a USB port first.'); return false; }
-    }
-  }
-
-  if (n === 2) {
-    var nm = document.getElementById('deviceName').value.trim();
-    if (!nm) { alert('Enter a device name.'); return false; }
-    var brd = document.getElementById('boardSelect').value;
-    if (!brd) { alert('Select a board.'); return false; }
-    if (brd === '__custom__' && !document.getElementById('customBoard').value.trim()) {
-      alert('Enter a custom board ID.'); return false;
-    }
-  }
-  if (n === 3) {
-    var eth = document.getElementById('useEthernet').checked;
-    if (!eth) {
-      if (!document.getElementById('wifiSsid').value.trim()) { alert('Enter WiFi SSID.'); return false; }
-      if (!document.getElementById('wifiPass').value.trim()) { alert('Enter WiFi password.'); return false; }
-    }
-    if (!document.getElementById('mqttHost').value.trim()) { alert('Enter MQTT broker IP.'); return false; }
-  }
-  return true;
-}
-
-function summaryPill(text, color, border) {
-  return '<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:800;background:rgba(255,255,255,.04);color:' + (color || 'var(--muted2)') + ';border:1px solid ' + (border || 'var(--line)') + '">' + escHtml(text) + '</span>';
-}
-
-function updateStep1UI() {
-  var useOTA = document.getElementById('useOTA').checked;
-  var usb = document.getElementById('portSelect').value;
-  var otaIp = document.getElementById('otaIp').value.trim();
-  var hasInstall = document.getElementById('installPanel').style.display === 'none';
-  var ready = useOTA ? !!otaIp : !!usb;
-  var summary = document.getElementById('step1Summary');
-  var note = document.getElementById('step1Note');
-  var btn = document.getElementById('btn1Next');
-
-  if (btn) {
-    btn.disabled = !ready;
-    btn.style.opacity = ready ? '1' : '.65';
-    btn.style.cursor = ready ? 'pointer' : 'not-allowed';
-  }
-
-  var parts = [];
-  parts.push(summaryPill(useOTA ? 'Mode: OTA' : 'Mode: USB', useOTA ? '#1d8cff' : '#22d97a', useOTA ? 'rgba(29,140,255,.28)' : 'rgba(34,217,122,.28)'));
-  parts.push(summaryPill(useOTA ? ('Target: ' + (otaIp || 'missing IP')) : ('Port: ' + (usb || 'not selected')), ready ? '#22d97a' : '#f59e0b', ready ? 'rgba(34,217,122,.28)' : 'rgba(245,158,11,.35)'));
-  parts.push(summaryPill(hasInstall ? 'ESPHome ready' : 'ESPHome not installed', hasInstall ? '#22d97a' : '#f59e0b', hasInstall ? 'rgba(34,217,122,.28)' : 'rgba(245,158,11,.35)'));
-
-  if (summary) summary.innerHTML = parts.join('');
-  if (note) {
-    note.textContent = useOTA
-      ? (ready ? 'OTA mode selected. Use this only for devices already flashed with ESPHome.' : 'Enter the current device IP address to continue with OTA flashing.')
-      : (ready ? 'USB target selected. This is the recommended path for first-time flashing.' : 'Connect a board via USB-C and select the detected serial port to continue.');
-  }
-}
-
-function renderFlashReviewSummary(mode) {
-  var payload = buildPayload();
-  var boardSel = document.getElementById('boardSelect');
-  var boardLabel = boardSel && boardSel.selectedIndex >= 0 ? boardSel.options[boardSel.selectedIndex].text : (payload.board_profile_id || '—');
-  var transport = document.getElementById('useOTA').checked
-    ? ('OTA → ' + (document.getElementById('otaIp').value.trim() || 'missing IP'))
-    : ('USB → ' + (document.getElementById('portSelect').value || 'not selected'));
-  var entityCount = (payload.entities || []).length;
-  var html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">';
-  html += summaryPill('Device: ' + (payload.device_name || '—'), '#22d97a', 'rgba(34,217,122,.28)');
-  html += summaryPill('Board: ' + boardLabel, '#1d8cff', 'rgba(29,140,255,.28)');
-  html += summaryPill(transport, '#f59e0b', 'rgba(245,158,11,.35)');
-  html += summaryPill('Entities: ' + entityCount, 'var(--text)', 'var(--line)');
-  html += '</div>';
-  if (mode === 'running') {
-    html += '<div style="font-size:11px;color:var(--muted2)">Compilation and flashing started. Keep this page open while the Raspberry Pi builds the firmware.</div>';
-  } else if (mode === 'done') {
-    html += '<div style="font-size:11px;color:var(--good)">Flash finished successfully. The device should appear in Installer after it boots and connects.</div>';
-  } else if (mode === 'error') {
-    html += '<div style="font-size:11px;color:var(--bad)">Flash finished with an error. Review the terminal output below.</div>';
-  } else {
-    html += '<div style="font-size:11px;color:var(--muted2)">Review the target and config below before starting the first compile/flash.</div>';
-  }
-  document.getElementById('flashStatus').innerHTML = html;
-}
-
-// ── Step 1: check & ports ──────────────────────────────────────────────────
-async function checkSetup() {
-  try {
-    var r = await api('/esphome/check');
-    var el = document.getElementById('esphomeStatus');
-    if (r.ok) {
-      el.innerHTML = '<span class="pill-ok">&#10003; ESPHome ' + escHtml(r.version) + '</span>';
-      document.getElementById('installPanel').style.display = 'none';
-    } else {
-      el.innerHTML = '<span class="pill-err">&#10007; ESPHome not found</span>';
-      document.getElementById('installPanel').style.display = '';
-    }
-    populatePorts(r.ports || []);
-    boards = r.boards || [];
-    presets = r.presets || {};
-    populateBoards();
-  } catch (e) {
-    document.getElementById('esphomeStatus').innerHTML = '<span class="pill-warn">Could not check: ' + escHtml(e.message) + '</span>';
-  }
-}
-
-async function installEsphome() {
-  document.getElementById('btnInstall').disabled = true;
-  document.getElementById('setupTerminal').style.display = '';
-  document.getElementById('setupTerminal').innerHTML = '';
-  setupTermLine('info', 'Starting installation…');
-  try {
-    await api('/esphome/setup', { method: 'POST', body: JSON.stringify({ client_id: esphomeClientId }) });
-  } catch (e) {
-    setupTermLine('error', 'Error: ' + e.message);
-    document.getElementById('btnInstall').disabled = false;
-  }
-}
-
-function setupTermLine(level, text) {
-  var term = document.getElementById('setupTerminal');
-  var d = document.createElement('div');
-  d.innerHTML = '<span class="tl-' + level + '">' + escHtml(text) + '</span>';
-  term.appendChild(d);
-  term.scrollTop = term.scrollHeight;
-}
-
-function populatePorts(ports) {
-  var sel = document.getElementById('portSelect');
-  var previous = sel.value;
-  sel.innerHTML = '';
-  if (!ports.length) {
-    sel.innerHTML = '<option value="">— no USB devices found —</option>';
-    updateStep1UI();
-    return;
-  }
-  sel.innerHTML = '<option value="">— select port —</option>';
-  ports.forEach(function(p) {
-    var opt = document.createElement('option');
-    opt.value = p; opt.textContent = p;
-    sel.appendChild(opt);
-  });
-  if (previous && ports.indexOf(previous) !== -1) sel.value = previous;
-  else if (ports.length === 1) sel.value = ports[0];
-  updateStep1UI();
-}
-
-async function refreshPorts() {
-  var sel = document.getElementById('portSelect');
-  if (sel) sel.innerHTML = '<option value=>— scanning… —</option>';
-  try {
-    var r = await api('/esphome/ports');
-    populatePorts(r.ports || []);
-  } catch (e) {
-    populatePorts([]);
-  }
-}
-
-// ── Step 2: board ──────────────────────────────────────────────────────────
-function populateBoards() {
-  var sel = document.getElementById('boardSelect');
-  sel.innerHTML = '<option value="">— select board —</option>';
-  boards.forEach(function(b) {
-    var opt = document.createElement('option');
-    opt.value = b.id; opt.textContent = b.label;
-    sel.appendChild(opt);
-  });
-}
-
-function onBoardChange() {
-  var sel = document.getElementById('boardSelect');
-  var v = sel.value;
-  document.getElementById('customBoardRow').style.display = v === '__custom__' ? '' : 'none';
-
-  var boardInfo = boards.find(function(b) { return b.id === v; }) || {};
-  var notesBox = document.getElementById('boardNotes');
-  if (notesBox) {
-    var notes = boardInfo.notes || [];
-    notesBox.style.display = notes.length ? '' : 'none';
-    notesBox.innerHTML = notes.map(function(n){ return '&#8226; ' + escHtml(n); }).join('<br>');
-  }
-
-  if (boardInfo.supports && boardInfo.supports.ethernet) document.getElementById('useEthernet').checked = true;
-  if (boardInfo.supports && boardInfo.supports.wifi === false) document.getElementById('useEthernet').checked = true;
-  onNetChange();
-  applyPreset(v);
-}
-
-function applyPreset(profileId) {
-  var preset = presets[profileId] || {};
-  var items = preset.entities || [];
-  document.getElementById('entityList').innerHTML = '';
-  entityCount = 0;
-  items.forEach(function(e) {
-    addEntityWithValues(e.type, e.name, e.source || e.pin || '');
-  });
-}
-
-function addEntityWithValues(type, name, pin) {
-  entityCount++;
-  var id = 'entity_' + entityCount;
-  var div = document.createElement('div');
-  div.className = 'entity-item';
-  div.id = id;
-  var num = entityCount;
-  var typeOpts = ENTITY_TYPES.map(function(t) {
-    return '<option value="' + t.v + '"' + (t.v === type ? ' selected' : '') + '>' + t.l + '</option>';
-  }).join('');
-  div.innerHTML =
-    '<select onchange="onEntityTypeChange(' + num + ')">' + typeOpts + '</select>' +
-    '<input type="text" placeholder="Name" id="ename_' + num + '" value="' + escHtml(name) + '">' +
-    '<input type="text" placeholder="OUT1 / GPIO26" id="epin_' + num + '" value="' + escHtml(pin) + '">' +
-    '<button class="entity-remove" onclick="removeEntity(\'' + id + '\')">&#215;</button>';
-  document.getElementById('entityList').appendChild(div);
-}
-
-function updateSafeName() {
-  var v = document.getElementById('deviceName').value.trim()
-    .toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
-  document.getElementById('safeNamePreview').textContent = v || '—';
-}
-
-// ── Step 1: flash mode ─────────────────────────────────────────────────────
-function onFlashModeChange() {
-  var ota = document.getElementById('useOTA').checked;
-  document.getElementById('usbPortRow').style.display = ota ? 'none' : '';
-  document.getElementById('otaRow').style.display    = ota ? '' : 'none';
-  updateStep1UI();
-}
-
-// ── Step 3: network ────────────────────────────────────────────────────────
-function onNetChange() {
-  var eth = document.getElementById('useEthernet').checked;
-  document.getElementById('wifiFields').style.display = eth ? 'none' : '';
-  document.getElementById('ethInfo').style.display    = eth ? '' : 'none';
-}
-
-// ── Step 4: entities ───────────────────────────────────────────────────────
-var entityCount = 0;
-var ENTITY_TYPES = [
-  { v:'relay',   l:'Relay (GPIO out)' },
-  { v:'di',      l:'Digital Input'    },
-  { v:'ds18b20', l:'DS18B20 Temp'     },
-  { v:'dht',     l:'DHT22 Temp+Hum'   },
-  { v:'dht11',   l:'DHT11 Temp+Hum'   },
-  { v:'analog',  l:'Analog (ADC)'     },
-];
-
-function addEntity() {
-  entityCount++;
-  var id = 'entity_' + entityCount;
-  var div = document.createElement('div');
-  div.className = 'entity-item';
-  div.id = id;
-
-  var typeOpts = ENTITY_TYPES.map(function(t) {
-    return '<option value="' + t.v + '">' + t.l + '</option>';
-  }).join('');
-
-  var num = entityCount;
-  div.innerHTML =
-    '<select onchange="onEntityTypeChange(' + num + ')">' + typeOpts + '</select>' +
-    '<input type="text" placeholder="Name" id="ename_' + num + '" value="Entity ' + num + '">' +
-    '<input type="text" placeholder="OUT1 / GPIO26" id="epin_' + num + '">' +
-    '<button class="entity-remove" onclick="removeEntity(\'' + id + '\')">&#215;</button>';
-
-  document.getElementById('entityList').appendChild(div);
-}
-
-function removeEntity(id) {
-  var el = document.getElementById(id);
-  if (el) el.remove();
-}
-
-function onEntityTypeChange(num) {
-  // could show/hide extra options per type - kept simple for now
-}
-
-function collectEntities() {
-  var list = document.querySelectorAll('.entity-item');
-  var result = [];
-  var idx = 0;
-  list.forEach(function(item) {
-    idx++;
-    var sel  = item.querySelector('select');
-    var name = item.querySelector('input[placeholder="Name"]');
-    var pin  = item.querySelector('input[placeholder="OUT1 / GPIO26"]');
-    if (!sel || !pin) return;
-    var type  = sel.value;
-    var nval  = (name ? name.value.trim() : '') || ('Entity ' + idx);
-    var pval  = pin.value.trim();
-    var key   = nval.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || ('entity_' + idx);
-    var unit  = type === 'ds18b20' || type === 'dht' || type === 'dht11' ? '°C' : type === 'analog' ? 'V' : null;
-    var dc    = type === 'ds18b20' || type === 'dht' || type === 'dht11' ? 'temperature' : null;
-    result.push({ type, name: nval, key, pin: pval, source: pval, unit, device_class: dc });
-  });
-  return result;
-}
-
-// ── Step 5: flash ──────────────────────────────────────────────────────────
-function buildPayload() {
-  var boardId   = document.getElementById('boardSelect').value;
-  var boardInfo = boards.find(function(b) { return b.id === boardId; }) || {};
-  return {
-    device_name: document.getElementById('deviceName').value.trim(),
-    board_profile_id: boardId,
-    board_custom:document.getElementById('customBoard').value.trim(),
-    platform:    boardInfo.platform || 'esp32',
-    variant:     boardInfo.variant  || null,
-    wifi_ssid:   document.getElementById('wifiSsid').value.trim(),
-    wifi_pass:   document.getElementById('wifiPass').value,
-    use_ethernet:document.getElementById('useEthernet').checked,
-    mqtt_host:   document.getElementById('mqttHost').value.trim(),
-    port: document.getElementById('useOTA').checked
-      ? (document.getElementById('otaIp').value.trim() || null)
-      : (document.getElementById('portSelect').value || null),
-    entities:    collectEntities(),
-  };
-}
-
-function setFlashButtonState(mode) {
-  var btn = document.getElementById('btnFlash');
-  if (!btn) return;
-  if (mode === 'running') {
-    btn.innerHTML = '&#9203; Flashing…';
-    btn.disabled = true;
-    btn.onclick = function(){};
-  } else if (mode === 'done') {
-    btn.innerHTML = '&#10003; Open Installer';
-    btn.disabled = false;
-    btn.onclick = function(){ window.location.href = '/installer.html'; };
-  } else if (mode === 'error') {
-    btn.innerHTML = '&#8635; Flash Again';
-    btn.disabled = false;
-    btn.onclick = startFlash;
-  } else {
-    btn.innerHTML = '&#9889; Flash Device';
-    btn.disabled = false;
-    btn.onclick = startFlash;
-  }
-}
-
-async function buildYamlPreview() {
-  var payload = buildPayload();
-  document.getElementById('flashDone').style.display = 'none';
-  document.getElementById('flashTerminal').innerHTML = '<span style="color:#484f58">Validating configuration…</span>';
-  renderFlashReviewSummary('ready');
-  try {
-    var r = await api('/esphome/validate', { method: 'POST', body: JSON.stringify(payload) });
-    generatedYaml = r.yaml || '';
-    lastValidation = r.validation || null;
-    document.getElementById('yamlPreview').textContent = generatedYaml || '# No YAML generated';
-    renderValidationBox(r.validation || { ok:false, errors:['Unknown validation error'], warnings:[] });
-    document.getElementById('flashTerminal').innerHTML = '<span style="color:#484f58">Ready. Click Flash Device to start.</span>';
-    if (r.validation && r.validation.ok) setFlashButtonState('ready');
-    else {
-      setFlashButtonState('error');
-      document.getElementById('btnFlash').disabled = true;
-    }
-  } catch (e) {
-    lastValidation = null;
-    generatedYaml = '';
-    document.getElementById('yamlPreview').textContent = '# Validation failed\n# ' + e.message;
-    renderValidationBox({ ok:false, errors:[e.message], warnings:[] });
-    document.getElementById('flashTerminal').innerHTML = '<span class="tl-error">Validation failed. Fix the config before flashing.</span>';
-    setFlashButtonState('error');
-    document.getElementById('btnFlash').disabled = true;
-  }
-}
-
-function renderValidationBox(v) {
-  var box = document.getElementById('validationBox');
-  if (!box) return;
-  var errors = (v && v.errors) || [];
-  var warnings = (v && v.warnings) || [];
-  box.style.display = '';
-  var html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">';
-  html += summaryPill(v && v.ok ? 'Validation: OK' : 'Validation: BLOCKED', v && v.ok ? '#22d97a' : '#ff6b6b', v && v.ok ? 'rgba(34,217,122,.28)' : 'rgba(255,107,107,.35)');
-  html += summaryPill('Errors: ' + errors.length, errors.length ? '#ff6b6b' : 'var(--text)', errors.length ? 'rgba(255,107,107,.35)' : 'var(--line)');
-  html += summaryPill('Warnings: ' + warnings.length, warnings.length ? '#f59e0b' : 'var(--text)', warnings.length ? 'rgba(245,158,11,.35)' : 'var(--line)');
-  html += '</div>';
-  if (errors.length) html += '<div style="font-size:11px;color:var(--bad);margin-bottom:6px">' + errors.map(function(x){ return '&#8226; ' + escHtml(x); }).join('<br>') + '</div>';
-  if (warnings.length) html += '<div style="font-size:11px;color:var(--warn)">' + warnings.map(function(x){ return '&#8226; ' + escHtml(x); }).join('<br>') + '</div>';
-  if (!errors.length && !warnings.length) html += '<div style="font-size:11px;color:var(--muted2)">No validation issues.</div>';
-  box.innerHTML = html;
-}
-
-async function startFlash() {
-  if (flashing) return;
-  var useOTA = document.getElementById('useOTA').checked;
-  var port = useOTA
-    ? document.getElementById('otaIp').value.trim()
-    : document.getElementById('portSelect').value;
-  if (!port) {
-    alert(useOTA ? 'Enter the device IP address.' : 'Select a USB port first (Step 1).');
-    return;
-  }
-
-  flashing = true;
-  setFlashButtonState('running');
-  document.getElementById('btnBack5').disabled = true;
-  document.getElementById('btnCancel').style.display = '';
-  document.getElementById('flashDone').style.display = 'none';
-  document.getElementById('flashTerminal').innerHTML = '';
-
-  try {
-    if (!lastValidation || !lastValidation.ok) await buildYamlPreview();
-    if (!lastValidation || !lastValidation.ok) throw new Error('Validation failed. Fix the errors before flashing.');
-    var payload = buildPayload();
-    payload.client_id = esphomeClientId;
-    var r = await api('/esphome/flash', { method: 'POST', body: JSON.stringify(payload) });
-    if (r.yaml) {
-      document.getElementById('yamlPreview').textContent = r.yaml;
-    }
-    renderFlashReviewSummary('running');
-    termLine('info', 'Flash started — compiling firmware (first time can take 5-15 min)…');
-  } catch (e) {
-    termLine('error', 'Error: ' + e.message);
-    resetFlashUI('error');
-  }
-}
-
-async function cancelFlash() {
-  try { await api('/esphome/flash', { method: 'DELETE' }); } catch {}
-  termLine('warn', '— Cancelled —');
-  resetFlashUI('error');
-}
-
-function resetFlashUI(mode) {
-  flashing = false;
-  setFlashButtonState(mode || 'ready');
-  document.getElementById('btnBack5').disabled = false;
-  document.getElementById('btnCancel').style.display = 'none';
-}
-
-function termLine(level, text) {
-  var term = document.getElementById('flashTerminal');
-  var d = document.createElement('div');
-  var now = new Date();
-  var ts = pad2(now.getHours()) + ':' + pad2(now.getMinutes()) + ':' + pad2(now.getSeconds());
-  d.innerHTML = '<span class="tl-ts">' + ts + '</span><span class="tl-' + level + '">' + escHtml(text) + '</span>';
-  term.appendChild(d);
-  term.scrollTop = term.scrollHeight;
-}
-
-function pad2(n) { return String(n).padStart(2,'0'); }
-function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-
-// ── YAML Board Importer ────────────────────────────────────────────────────
-var _parsedYamlProfile = null;
-
-// ── Device Browser ────────────────────────────────────────────────────────
-var _browserDevices = [];
-var _browserCurrentSlug = null;
-var _browserCurrentYaml = null;
-
-function toggleDeviceBrowser() {
-  var p = document.getElementById('deviceBrowserPanel');
-  p.style.display = p.style.display === 'none' ? '' : 'none';
-}
-
-async function loadDeviceBrowser() {
-  var btn = document.getElementById('browserLoadBtn');
-  var status = document.getElementById('browserStatus');
-  btn.disabled = true;
-  btn.textContent = 'Loading...';
-  status.textContent = 'Fetching device list from GitHub...';
-  try {
-    var r = await fetch('/api/esphome/device-browser/list', { credentials: 'include' });
-    var d = await r.json();
-    if (!d.ok) throw new Error(d.error);
-    _browserDevices = d.devices || [];
-    status.textContent = _browserDevices.length + ' devices loaded' + (d.cached ? ' (cached)' : '') + '. Click a device to preview its YAML.';
-    filterBrowserList();
-  } catch(e) {
-    status.style.color = 'var(--bad)';
-    status.textContent = 'Error: ' + e.message;
-  }
-  btn.disabled = false;
-  btn.textContent = 'Reload';
-}
-
-function filterBrowserList() {
-  var q = (document.getElementById('browserSearch').value || '').toLowerCase().trim();
-  var filtered = q ? _browserDevices.filter(d => d.slug.includes(q)) : _browserDevices;
-  var list = document.getElementById('browserList');
-  if (!filtered.length) {
-    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No devices match.</div>';
-    return;
-  }
-  list.innerHTML = filtered.map(d => {
-    var slug = String(d.slug || '');
-    var safeId = slug.replace(/[^a-zA-Z0-9_-]/g, '_');
-    return '<div onclick="selectBrowserDevice(' + escHtml(JSON.stringify(slug)) + ')" style="padding:9px 12px;cursor:pointer;font-size:12px;font-family:monospace;border-bottom:1px solid var(--line);transition:background .1s" ' +
-    'onmouseover="this.style.background=\'rgba(29,140,255,.08)\'" onmouseout="this.style.background=\'\'" ' +
-    'id="brow-' + safeId + '">' + escHtml(slug) + '</div>';
-  }).join('');
-}
-
-async function selectBrowserDevice(slug) {
-  _browserCurrentSlug = slug;
-  _browserCurrentYaml = null;
-  document.getElementById('browserSelectedLabel').textContent = slug;
-  document.getElementById('browserImportBtn').style.display = 'none';
-  var preview = document.getElementById('browserYamlPreview');
-  preview.value = 'Fetching YAML...';
-  // Highlight selected
-  document.querySelectorAll('#browserList div').forEach(el => el.style.background = '');
-  var el = document.getElementById('brow-' + slug.replace(/[^a-zA-Z0-9_-]/g, '_'));
-  if (el) el.style.background = 'rgba(29,140,255,.15)';
-  try {
-    var r = await fetch('/api/esphome/device-browser/yaml?device=' + encodeURIComponent(slug), { credentials: 'include' });
-    var d = await r.json();
-    if (!d.ok) throw new Error(d.error);
-    _browserCurrentYaml = d.yaml;
-    preview.value = d.yaml;
-    document.getElementById('browserImportBtn').style.display = '';
-  } catch(e) {
-    preview.value = 'Error: ' + e.message;
-  }
-}
-
-async function importBrowserDevice() {
-  if (!_browserCurrentYaml) return;
-  var btn = document.getElementById('browserImportBtn');
-  btn.disabled = true;
-  btn.textContent = 'Parsing...';
-  try {
-    // Parse
-    var r1 = await fetch('/api/esphome/catalog/parse-yaml', {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ yaml: _browserCurrentYaml })
-    });
-    var d1 = await r1.json();
-    if (!d1.ok) throw new Error(d1.error);
-    // Use slug as id if parsed id is empty
-    if (!d1.parsed.id) d1.parsed.id = _browserCurrentSlug.replace(/[^a-z0-9]+/g, '_');
-    if (!d1.parsed.label) d1.parsed.label = _browserCurrentSlug;
-    // Save
-    var r2 = await fetch('/api/esphome/catalog/save-parsed', {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile: d1.parsed, source_url: 'https://devices.esphome.io/devices/' + _browserCurrentSlug + '/' })
-    });
-    var d2 = await r2.json();
-    if (!d2.ok) throw new Error(d2.error);
-    showToast('Imported: ' + d2.label, 'ok');
-    btn.textContent = '&#10003; Imported!';
-    setTimeout(() => { btn.disabled = false; btn.innerHTML = '&#8659; Import to Catalog'; }, 2000);
-  } catch(e) {
-    showToast('Import error: ' + e.message, 'err');
-    btn.disabled = false;
-    btn.innerHTML = '&#8659; Import to Catalog';
-  }
-}
-
-function toggleYamlImporter() {
-  var p = document.getElementById('yamlImportPanel');
-  p.style.display = p.style.display === 'none' ? '' : 'none';
-}
-
-// ── Use my YAML flow ─────────────────────────────────────────────────────
-var _umyCurrentYaml = '';
-var _umyAddedPeripherals = [];
-
-function toggleUseMyYaml() {
-  var p = document.getElementById('useMyYamlPanel');
-  if (p.style.display === 'none') {
-    p.style.display = '';
-    _umyCurrentYaml = '';
-    _umyAddedPeripherals = [];
-    document.getElementById('umyYamlText').value = '';
-    document.getElementById('umyParseMsg').textContent = '';
-    document.getElementById('umyPreview').style.display = 'none';
-    document.getElementById('umyStep2').style.display = 'none';
-    document.getElementById('umyStep3').style.display = 'none';
-    document.getElementById('umyStep4').style.display = 'none';
-    document.getElementById('umyTerminal').style.display = 'none';
-  } else {
-    p.style.display = 'none';
-  }
-}
-
-async function umyParse() {
-  var text = document.getElementById('umyYamlText').value.trim();
-  if (!text) { document.getElementById('umyParseMsg').textContent = 'Paste YAML first.'; return; }
-  document.getElementById('umyParseMsg').textContent = 'Parsing…';
-  try {
-    var r = await api('/esphome/catalog/parse-yaml', { method: 'POST', body: JSON.stringify({ yaml: text }) });
-    if (!r.ok) throw new Error(r.error);
-    _umyCurrentYaml = text;
-    _umyAddedPeripherals = [];
-    document.getElementById('umyParsedName').textContent = (r.parsed.label || r.parsed.id || 'device');
-    document.getElementById('umyParsedEntities').textContent = (r.parsed.entityDefaults || []).length;
-    document.getElementById('umyPreview').style.display = 'block';
-    document.getElementById('umyStep2').style.display = 'block';
-    document.getElementById('umyStep3').style.display = 'block';
-    document.getElementById('umyStep4').style.display = 'block';
-    document.getElementById('umyDeviceName').value = (r.parsed.id || r.parsed.label || '').replace(/[^a-z0-9_-]/gi, '-').toLowerCase() || 'my-device';
-    document.getElementById('umyParseMsg').textContent = 'Parsed. You can add peripherals below or go to Step 3.';
-  } catch(e) {
-    document.getElementById('umyParseMsg').textContent = 'Error: ' + e.message;
-  }
-}
-
-async function umyAddPeripheral() {
-  if (!_umyCurrentYaml) { alert('Parse YAML first.'); return; }
-  var type = document.getElementById('umyAddType').value;
-  var pin = document.getElementById('umyAddPin').value.trim();
-  var name = document.getElementById('umyAddName').value.trim() || type;
-  var key = document.getElementById('umyAddKey').value.trim().replace(/[^a-z0-9_]/g, '_') || name.toLowerCase().replace(/\s+/g, '_');
-  if (!pin) { alert('Enter pin (e.g. GPIO32).'); return; }
-  document.getElementById('umyFlashMsg').textContent = 'Adding…';
-  try {
-    var r = await api('/esphome/add-peripheral-to-draft', {
-      method: 'POST',
-      body: JSON.stringify({ yaml_text: _umyCurrentYaml, entity: { type: type, pin: pin, name: name, key: key } }),
-    });
-    if (!r.ok) throw new Error(r.error);
-    _umyCurrentYaml = r.yaml;
-    _umyAddedPeripherals.push({ type: type, name: name, key: key });
-    var listEl = document.getElementById('umyAddedList');
-    listEl.innerHTML = _umyAddedPeripherals.map(function(p) { return '<span class="pill-info" style="margin-right:6px">' + escHtml(p.type) + ': ' + escHtml(p.name) + '</span>'; }).join('');
-    document.getElementById('umyFlashMsg').textContent = 'Added. You can add more or go to Step 3 and Flash.';
-  } catch(e) {
-    document.getElementById('umyFlashMsg').textContent = 'Error: ' + e.message;
-  }
-}
-
-async function umyFlash() {
-  if (!_umyCurrentYaml) { alert('Parse YAML first.'); return; }
-  var device_name = document.getElementById('umyDeviceName').value.trim();
-  var wifi_ssid = document.getElementById('umyWifiSsid').value.trim();
-  var wifi_pass = document.getElementById('umyWifiPass').value;
-  var mqtt_host = document.getElementById('umyMqttHost').value.trim();
-  var port = document.getElementById('umyPort').value.trim();
-  if (!device_name) { alert('Enter device name.'); return; }
-  if (!port) { alert('Enter USB port or OTA IP.'); return; }
-  document.getElementById('umyFlashBtn').disabled = true;
-  document.getElementById('umyFlashMsg').textContent = 'Flashing…';
-  document.getElementById('umyTerminal').style.display = 'block';
-  document.getElementById('umyTerminal').innerHTML = '<span class="tl-info">Starting flash…</span>\n';
-  try {
-    var r = await api('/esphome/flash-from-yaml', {
-      method: 'POST',
-      body: JSON.stringify({
-        yaml_text: _umyCurrentYaml,
-        device_name: device_name,
-        wifi_ssid: wifi_ssid,
-        wifi_pass: wifi_pass,
-        mqtt_host: mqtt_host,
-        port: port,
-        client_id: window.__elarisWsClientId || null,
-      }),
-    });
-    if (!r.ok) throw new Error(r.error);
-    document.getElementById('umyFlashMsg').textContent = 'Flash started. Watch the log below.';
-  } catch(e) {
-    document.getElementById('umyFlashBtn').disabled = false;
-    document.getElementById('umyFlashMsg').textContent = 'Error: ' + e.message;
-    document.getElementById('umyTerminal').innerHTML += '<span class="tl-error">' + escHtml(e.message) + '</span>\n';
-  }
-}
-
-function onEsphomeDoneFromUseMyYaml(ok, code) {
-  document.getElementById('umyFlashBtn').disabled = false;
-  document.getElementById('umyFlashMsg').textContent = ok ? 'Flash complete. Device will appear in Installer.' : 'Flash failed (exit ' + code + ').';
-}
-
-async function fetchYamlFromUrl() {
-  var url = document.getElementById('yamlUrl').value.trim();
-  if (!url) return;
-  document.getElementById('yamlParseMsg').textContent = 'Fetching…';
-  try {
-    var r = await api('/esphome/catalog/parse-yaml', {
-      method: 'POST',
-      body: JSON.stringify({ url }),
-    });
-    if (!r.ok) throw new Error(r.error);
-    document.getElementById('yamlText').value = '(fetched from URL — parsed directly)';
-    showYamlPreview(r.parsed, url);
-  } catch(e) {
-    document.getElementById('yamlParseMsg').textContent = 'Error: ' + e.message;
-  }
-}
-
-async function parseYaml() {
-  var text = document.getElementById('yamlText').value.trim();
-  var url  = document.getElementById('yamlUrl').value.trim();
-  if (!text && !url) { document.getElementById('yamlParseMsg').textContent = 'Paste YAML or enter a URL.'; return; }
-  document.getElementById('yamlParseMsg').textContent = 'Parsing…';
-  try {
-    var r = await api('/esphome/catalog/parse-yaml', {
-      method: 'POST',
-      body: JSON.stringify({ yaml: text, url: url }),
-    });
-    if (!r.ok) throw new Error(r.error);
-    showYamlPreview(r.parsed, url);
-  } catch(e) {
-    document.getElementById('yamlParseMsg').textContent = 'Error: ' + e.message;
-  }
-}
-
-function showYamlPreview(parsed, sourceUrl) {
-  _parsedYamlProfile = parsed;
-  document.getElementById('yamlParseMsg').textContent =
-    (parsed.entityDefaults || []).length + ' entities found.';
-  document.getElementById('yamlProfileId').value    = parsed.id || '';
-  document.getElementById('yamlProfileLabel').value = parsed.label || '';
-
-  var counts = {};
-  (parsed.entityDefaults || []).forEach(function(e) { counts[e.type] = (counts[e.type]||0)+1; });
-  var summary = Object.entries(counts).map(function(kv){ return kv[1]+'× '+kv[0]; }).join('  |  ');
-
-  var list = document.getElementById('yamlEntityList');
-  list.innerHTML =
-    '<div style="margin-bottom:6px;color:var(--muted)">' + escHtml(summary || 'No entities') + '</div>' +
-    (parsed.entityDefaults || []).map(function(e) {
-      return '<div>' + escHtml(e.type.padEnd(10)) + ' ' +
-        escHtml((e.source||e.pin||'').padEnd(10)) + ' ' +
-        escHtml(e.name||'') + '</div>';
-    }).join('');
-
-  document.getElementById('yamlPreview').style.display = '';
-  document.getElementById('yamlSaveMsg').textContent = '';
-}
-
-async function saveYamlProfile() {
-  if (!_parsedYamlProfile) return;
-  var id    = document.getElementById('yamlProfileId').value.trim();
-  var label = document.getElementById('yamlProfileLabel').value.trim();
-  if (!id || !label) { document.getElementById('yamlSaveMsg').textContent = 'Fill in ID and Label.'; return; }
-  _parsedYamlProfile.id = id;
-  _parsedYamlProfile.label = label;
-  document.getElementById('yamlSaveMsg').textContent = 'Saving…';
-  try {
-    var r = await api('/esphome/catalog/save-parsed', {
-      method: 'POST',
-      body: JSON.stringify({ profile: _parsedYamlProfile, source_url: document.getElementById('yamlUrl').value.trim() }),
-    });
-    if (!r.ok) throw new Error(r.error);
-    document.getElementById('yamlSaveMsg').textContent = 'Saved! Refreshing boards…';
-    var status = await api('/esphome/check');
-    boards = status.boards || [];
-    presets = status.presets || {};
-    populateBoards();
-    document.getElementById('yamlSaveMsg').textContent = 'Board "' + escHtml(label) + '" saved.';
-    // Show "Continue to Flash" CTA
-    var cta = document.getElementById('yamlContinueFlashCta');
-    if (cta) {
-      cta.style.display = 'block';
-      cta.onclick = function() {
-        document.getElementById('yamlImportPanel').style.display = 'none';
-        var sel = document.getElementById('boardSelect');
-        for (var i = 0; i < sel.options.length; i++) {
-          if (sel.options[i].value === id) { sel.selectedIndex = i; onBoardChange(); break; }
-        }
-        goStep(2);
-      };
-    }
-  } catch(e) {
-    document.getElementById('yamlSaveMsg').textContent = 'Error: ' + e.message;
-  }
-}
-
-// ── Installer devices / saved configs ─────────────────────────────────────
-var savedConfigs = [];
-var installerDevices = [];
-
-function statusChip(status, row) {
-  var s = String(status || '').toLowerCase();
-  if (s === 'online') {
-    // Auto-expire: if last_seen_at > 3 minutes ago → show as offline
-    var stale = true;
-    if (row.last_seen_at) {
-      var diff = Date.now() - new Date(row.last_seen_at).getTime();
-      stale = diff > 3 * 60 * 1000;
-    }
-    return stale
-      ? '<span class="pill" style="color:#f59e0b;border-color:rgba(245,158,11,.35)">Offline (stale)</span>'
-      : '<span class="pill pill-ok">Online</span>';
-  }
-  if (s === 'error') return '<span class="pill pill-err">Error</span>';
-  if (s === 'flashed' && !row.last_seen_at) return '<span class="pill pill-warn">Waiting for first announce</span>';
-  if (s === 'flashed') return '<span class="pill pill-info">Flashed</span>';
-  return '<span class="pill">' + escHtml(status || 'new') + '</span>';
-}
-
-async function loadInstallerDevices() {
-  try {
-    var r = await api('/esphome/devices');
-    installerDevices = r.devices || [];
-    renderSavedPanel();
-  } catch {
-    installerDevices = [];
-    renderSavedPanel();
-  }
-}
-
-async function loadSavedConfigs() {
-  try {
-    var r = await api('/esphome/configs');
-    savedConfigs = r.configs || [];
-    renderSavedPanel();
-  } catch {
-    savedConfigs = [];
-    renderSavedPanel();
-  }
-}
-
-function renderSavedPanel() {
-  var panel = document.getElementById('savedPanel');
-  var deviceList = document.getElementById('deviceList');
-  var configWrap = document.getElementById('savedConfigsWrap');
-  var list = document.getElementById('savedList');
-
-  if (!installerDevices.length && !savedConfigs.length) {
-    panel.style.display = 'none';
-    return;
-  }
-  panel.style.display = '';
-
-  if (installerDevices.length) {
-    deviceList.innerHTML = installerDevices.map(function(d) {
-      var subtitle = [];
-      if (d.board_profile_id) subtitle.push(d.board_profile_id);
-      if (d.ip_address) subtitle.push(d.ip_address);
-      else if (d.target_ip) subtitle.push(d.target_ip);
-      if (d.serial_port) subtitle.push(d.serial_port);
-      else if (d.target_port) subtitle.push(d.target_port);
-      if (d.hostname) subtitle.push(d.hostname);
-      var title = d.friendly_name || d.name || ('Device #' + d.id);
-      return '<div style="min-width:260px;display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)">' +
-        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">' +
-          '<div style="min-width:0">' +
-            '<div style="font-weight:800;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(title) + '</div>' +
-            '<div style="color:var(--muted);font-size:10px;margin-top:2px">' + escHtml(subtitle.join(' • ') || 'No announce yet') + '</div>' +
-          '</div>' +
-          statusChip(d.status, d) +
-        '</div>' +
-        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-          '<div style="font-size:10px;color:var(--muted2)">' + escHtml(d.last_seen_at ? ('Last seen ' + d.last_seen_at.replace('T',' ').slice(0,19)) : 'Waiting for MQTT/config announce') + '</div>' +
-          '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="loadDeviceRecord(' + Number(d.id) + ')">Use</button>' +
-        '</div>' +
-      '</div>';
-    }).join('');
-  } else {
-    deviceList.innerHTML = '';
-  }
-
-  if (savedConfigs.length) {
-    configWrap.style.display = '';
-    list.innerHTML = savedConfigs.map(function(c, i) {
-      return '<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-size:12px">' +
-        '<span style="font-weight:700">' + escHtml(c.device_name) + '</span>' +
-        '<span style="color:var(--muted);font-size:10px">' + escHtml(c.board_profile_id || c.board_id || '') + '</span>' +
-        '<button class="btn" style="padding:2px 8px;font-size:10px" onclick="loadConfig(' + i + ')">Load</button>' +
-        '<button class="entity-remove" onclick="deleteConfig(' + i + ')" title="Delete">&#215;</button>' +
-      '</div>';
-    }).join('');
-  } else {
-    configWrap.style.display = 'none';
-    list.innerHTML = '';
-  }
-}
-
-function loadDeviceRecord(id) {
-  var d = installerDevices.find(function(x) { return Number(x.id) === Number(id); });
-  if (!d) return;
-  if (d.name) { document.getElementById('deviceName').value = d.name; updateSafeName(); }
-  if (d.board_profile_id) {
-    var sel = document.getElementById('boardSelect');
-    for (var j = 0; j < sel.options.length; j++) {
-      if (sel.options[j].value === d.board_profile_id) { sel.selectedIndex = j; break; }
-    }
-    onBoardChange();
-  }
-  document.getElementById('useOTA').checked = !d.serial_port && !!(d.ip_address || d.target_ip);
-  onFlashModeChange();
-  if (d.ip_address || d.target_ip) document.getElementById('otaIp').value = d.ip_address || d.target_ip || '';
-  if (d.serial_port || d.target_port) document.getElementById('portSelect').value = d.serial_port || d.target_port || '';
-  if (String(d.network_mode || '').toLowerCase() === 'ethernet') {
-    document.getElementById('useEthernet').checked = true;
-    onNetChange();
-  }
-  goStep(2);
-}
-
-function loadConfig(i) {
-  var c = savedConfigs[i];
-  if (!c) return;
-  if (c.device_name) { document.getElementById('deviceName').value = c.device_name; updateSafeName(); }
-  if (c.board_profile_id || c.board_id) {
-    var sel = document.getElementById('boardSelect');
-    for (var j = 0; j < sel.options.length; j++) {
-      if (sel.options[j].value === (c.board_profile_id || c.board_id)) { sel.selectedIndex = j; break; }
-    }
-    onBoardChange();
-  }
-  if (c.wifi_ssid) document.getElementById('wifiSsid').value = c.wifi_ssid;
-  if (c.wifi_pass) document.getElementById('wifiPass').value = c.wifi_pass;
-  if (c.mqtt_host) document.getElementById('mqttHost').value = c.mqtt_host;
-  if (c.use_ethernet) { document.getElementById('useEthernet').checked = true; onNetChange(); }
-  goStep(2);
-}
-
-async function deleteConfig(i) {
-  var c = savedConfigs[i];
-  if (!c) return;
-  try { await api('/esphome/configs/' + encodeURIComponent(c.device_name), { method: 'DELETE' }); }
-  catch {}
-  savedConfigs.splice(i, 1);
-  renderSavedPanel();
-}
-
-async function saveCurrentConfig() {
-  try {
-    if (!lastValidation || !lastValidation.ok) await buildYamlPreview();
-    if (!lastValidation || !lastValidation.ok) throw new Error('Validation failed. Fix the errors before flashing.');
-    var payload = buildPayload();
-    await api('/esphome/configs', { method: 'POST', body: JSON.stringify(payload) });
-    await loadSavedConfigs();
-  } catch(e) { alert('Save failed: ' + e.message); }
-}
-
-// ── Add Peripheral to Existing Device ─────────────────────────────────────
-var _apFlashing = false;
-var _apPreviewYaml = null;
-var _apPinOptions = null;
-
-function toggleAddPeripheral() {
-  var p = document.getElementById('addPeripheralPanel');
-  p.style.display = p.style.display === 'none' ? '' : 'none';
-  if (p.style.display !== 'none') apPopulateDevices();
-}
-
-function apPopulateDevices() {
-  var sel = document.getElementById('apDeviceSelect');
-  sel.innerHTML = '<option value="">— select device —</option>';
-  var flashed = installerDevices.filter(function(d) { return d.status === 'flashed' || d.status === 'online'; });
-  if (!flashed.length) flashed = installerDevices;
-  flashed.forEach(function(d) {
-    var opt = document.createElement('option');
-    opt.value = String(d.id);
-    opt.textContent = (d.friendly_name || d.name) + (d.ip_address ? ' (' + d.ip_address + ')' : '');
-    sel.appendChild(opt);
-  });
-  if (!installerDevices.length)
-    sel.innerHTML += '<option value="" disabled>No devices found — flash a device first</option>';
-}
-
-function onApDeviceChange() {
-  var id = Number(document.getElementById('apDeviceSelect').value);
-  var d = installerDevices.find(function(x) { return Number(x.id) === id; });
-  var hint = document.getElementById('apDeviceHint');
-  if (d) {
-    var ip = d.ip_address || d.target_ip || '';
-    if (ip) document.getElementById('apIp').value = ip;
-    hint.textContent = (d.board_profile_id || '') + (d.hostname ? ' · ' + d.hostname : '');
-  } else {
-    hint.textContent = 'Select a flashed device from the list';
-  }
-  apLoadPinOptions();
-}
-
-function apAutoKey() {
-  var name = document.getElementById('apName').value;
-  var key = name.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
-  document.getElementById('apKey').value = key || '';
-}
-
-function apClearPreview() {
-  _apPreviewYaml = null;
-  document.getElementById('apFlashBtn').style.display = 'none';
-  document.getElementById('apYamlDetails').style.display = 'none';
-  document.getElementById('apDone').style.display = 'none';
-  apRenderNoticeBox('apPreviewWarnings', '', []);
-}
-
-function apRenderNoticeBox(boxId, title, items) {
-  var box = document.getElementById(boxId);
-  if (!box) return;
-  items = Array.isArray(items) ? items.filter(Boolean) : [];
-  if (!items.length) {
-    box.style.display = 'none';
-    box.innerHTML = '';
-    return;
-  }
-  box.style.display = '';
-  box.innerHTML = '<div class="apNoticeTitle">' + escHtml(title || 'Info') + '</div><div class="apNoticeList">'
-    + items.map(function(item) {
-      var level = ['err', 'warn', 'info', 'ok'].indexOf(item.level) >= 0 ? item.level : 'info';
-      var icon = item.icon || (level === 'err' ? '&#10060;' : level === 'warn' ? '&#9888;' : level === 'ok' ? '&#10003;' : '&#8505;');
-      return '<div class="apNoticeItem ' + level + '"><span class="ico">' + icon + '</span><span>' + escHtml(item.text || '') + '</span></div>';
-    }).join('') + '</div>';
-}
-
-function apRenderPreviewWarnings(warnings) {
-  var list = (warnings || []).map(function(w) {
-    return typeof w === 'string' ? { level: 'warn', text: w } : { level: w.level || 'warn', text: w.text || '' };
-  }).filter(function(x) { return x.text; });
-  if (!list.length) list.push({ level: 'ok', text: 'Preview looks clean — no extra warnings from the generator.' });
-  apRenderNoticeBox('apPreviewWarnings', 'Preview checks', list);
-}
-
-function apFindPortByValue(pinValue) {
-  var pin = String(pinValue || '').trim().toUpperCase();
-  return ((_apPinOptions && _apPinOptions.sensorPorts) || []).find(function(p) { return String(p.value || '').toUpperCase() === pin; }) || null;
-}
-
-function apRenderPinValidation() {
-  var pinText = String(document.getElementById('apPin').value || '').trim().toUpperCase();
-  var type = document.getElementById('apType').value;
-  var hint = document.getElementById('apPinHint');
-  var messages = [];
-  if (!pinText) {
-    hint.textContent = 'Type a GPIO pin. Board labels are optional shortcuts.';
-    hint.style.color = '';
-    apRenderNoticeBox('apPinValidation', '', []);
-    return;
-  }
-  var m = pinText.match(/^GPIO(\d+)$/i);
-  if (!m) {
-    hint.textContent = 'Use GPIO<number> format, for example GPIO14 or GPIO32.';
-    hint.style.color = '#f5a623';
-    apRenderNoticeBox('apPinValidation', 'Pin checks', [{ level: 'warn', text: 'Pin format should be GPIO<number>.' }]);
-    return;
-  }
-  var gpio = Number(m[1]);
-  var rules = _apPinOptions || {};
-  var port = apFindPortByValue(pinText);
-  var hasPortList = Array.isArray(rules.sensorPorts) && rules.sensorPorts.length;
-  if (port && !port.generic && port.label) {
-    hint.textContent = 'Matched board label: ' + port.label + ' (' + pinText + ')' + (port.hint ? ' · ' + port.hint : '');
-  } else if (hasPortList) {
-    hint.textContent = 'Using ' + pinText + ' on ' + (rules.boardLabel || 'this board') + '.';
-  } else {
-    hint.textContent = 'Manual GPIO entry for this board.';
-  }
-  hint.style.color = '';
-
-  if ((rules.flashPins || []).indexOf(gpio) >= 0) messages.push({ level: 'err', text: pinText + ' is a flash pin and should not be used.' });
-  if ((rules.reservedPins || []).indexOf(gpio) >= 0) messages.push({ level: 'err', text: pinText + ' is reserved by the board/profile.' });
-  if ((rules.inputOnlyPins || []).indexOf(gpio) >= 0 && ['dht', 'dht11', 'ds18b20'].indexOf(type) >= 0)
-    messages.push({ level: 'err', text: pinText + ' is input-only and is not suitable for this sensor type.' });
-  if ((rules.strappingPins || []).indexOf(gpio) >= 0) messages.push({ level: 'warn', text: pinText + ' is a strapping pin — use with care during boot.' });
-  if ((rules.noPullupPins || []).indexOf(gpio) >= 0 && type === 'pulse_counter')
-    messages.push({ level: 'warn', text: pinText + ' has no internal pull-up. Use an external pull-up if your sensor needs one.' });
-
-  if (port) {
-    if (Array.isArray(port.supports) && port.supports.indexOf(type) < 0) {
-      messages.push({ level: 'err', text: (port.label || pinText) + ' is not compatible with ' + type + ' on this board.' });
-    }
-    if (port.inUse) {
-      var sharedDs = type === 'ds18b20' && Array.isArray(port.usageKinds) && port.usageKinds.every(function(k) { return k === 'one_wire:gpio' || k === 'sensor:dallas_temp'; });
-      if (sharedDs) messages.push({ level: 'warn', text: pinText + ' is already used for 1-Wire. Sharing the bus for another DS18B20 is allowed.' });
-      else messages.push({ level: 'err', text: pinText + ' is already in use in this device YAML and will be rejected on save.' });
-    }
-  } else if (hasPortList) {
-    messages.push({ level: 'info', text: pinText + ' is not listed as a labeled port on this board. It may still work if the board supports it.' });
-  }
-
-  if (!messages.length) messages.push({ level: 'ok', text: pinText + ' looks valid for this peripheral based on the current board profile.' });
-  apRenderNoticeBox('apPinValidation', 'Pin checks', messages);
-}
-
-// Called when device or type changes — loads board pin metadata from server
-async function apLoadPinOptions() {
-  apClearPreview();
-  var deviceId = Number(document.getElementById('apDeviceSelect').value);
-  var type = document.getElementById('apType').value;
-
-  var isPulse = type === 'pulse_counter';
-  document.getElementById('apScaleRow').style.display = isPulse ? '' : 'none';
-  if (!isPulse) document.getElementById('apScaleCustomRow').style.display = 'none';
-
-  document.getElementById('apPinDropdown').style.display = 'none';
-  document.getElementById('apPinHint').textContent = 'Type a GPIO pin. Board labels are optional shortcuts.';
-  document.getElementById('apPinHint').style.color = '';
-  apRenderNoticeBox('apPinValidation', '', []);
-
-  if (!deviceId) { _apPinOptions = null; apRenderPinValidation(); return; }
-
-  try {
-    var r = await api('/esphome/device/' + deviceId + '/pin-options');
-    _apPinOptions = r;
-    apBuildPinDropdown(type);
-  } catch(e) {
-    _apPinOptions = null;
-  }
-  apRenderPinValidation();
-}
-
-// Build the optional labeled pin dropdown from profile data
-function apBuildPinDropdown(type) {
-  var dropdown = document.getElementById('apPinDropdown');
-  if (!_apPinOptions) { dropdown.style.display = 'none'; return; }
-
-  var ports = (_apPinOptions.sensorPorts || []).filter(function(p) {
-    return !p.generic && (Array.isArray(p.supports) ? p.supports.indexOf(type) >= 0 : true);
-  });
-
-  if (ports.length > 0) {
-    dropdown.innerHTML = '<option value="">Quick board label (optional)</option>';
-    ports.forEach(function(p) {
-      var opt = document.createElement('option');
-      opt.value = p.value;
-      var titleBits = [];
-      if (p.hint) titleBits.push(p.hint);
-      if (p.noPullup && type === 'pulse_counter') titleBits.push('No internal pull-up — external pull-up may be required');
-      if (p.inUse) titleBits.push(type === 'ds18b20' ? 'Already used — shared 1-Wire bus may be okay' : 'Already in use');
-      var label = p.label === p.value ? p.label : (p.label + '  (' + p.value + ')');
-      opt.textContent = label
-        + (p.inUse ? (type === 'ds18b20' ? '  ⚠ shared bus' : '  ⚠ in use') : '')
-        + (p.noPullup && type === 'pulse_counter' ? '  · ext pull-up' : '');
-      if (p.inUse) opt.style.color = '#f5a623';
-      opt.title = titleBits.join(' · ');
-      dropdown.appendChild(opt);
-    });
-    dropdown.style.display = '';
-  } else {
-    dropdown.style.display = 'none';
-  }
-}
-
-function apOnPinInput() {
-  var dropdown = document.getElementById('apPinDropdown');
-  if (dropdown && dropdown.style.display !== 'none') {
-    var typed = String(document.getElementById('apPin').value || '').trim().toUpperCase();
-    if (!typed || String(dropdown.value || '').toUpperCase() !== typed) dropdown.value = '';
-  }
-  apClearPreview();
-  apRenderPinValidation();
-}
-
-// Called when board port dropdown changes
-function apOnPinDropdownChange() {
-  var val = document.getElementById('apPinDropdown').value;
-  var textInput = document.getElementById('apPin');
-  if (val) {
-    textInput.value = val;
-  }
-  apOnPinInput();
-}
-
-function apOnScaleChange() {
-  var scale = document.getElementById('apScale').value;
-  document.getElementById('apScaleCustomRow').style.display = scale === 'custom' ? '' : 'none';
-}
-
-// Returns the effective GPIO pin value (from dropdown or text input)
-function apGetPin() {
-  var typed = document.getElementById('apPin').value.trim();
-  if (typed) return typed;
-  var dropdown = document.getElementById('apPinDropdown');
-  return dropdown && dropdown.style.display !== 'none' ? String(dropdown.value || '').trim() : '';
-}
-
-// Returns scale fields if type is pulse_counter
-function apGetScaleEntity(type) {
-  if (type !== 'pulse_counter') return {};
-  var scale = document.getElementById('apScale').value;
-  var factor = parseFloat(document.getElementById('apScaleFactor').value) || 1;
-  return { scale: scale, scale_factor: factor };
-}
-
-async function apPreview() {
-  var deviceId = document.getElementById('apDeviceSelect').value;
-  var type = document.getElementById('apType').value;
-  var name = document.getElementById('apName').value.trim();
-  var pin  = apGetPin();
-  var key  = document.getElementById('apKey').value.trim();
-
-  if (!deviceId) { alert('Select a device.'); return; }
-  if (!name) { alert('Enter a sensor name.'); return; }
-  if (!pin)  { alert('Select or enter a GPIO pin.'); return; }
-  if (!key)  { alert('Key is required.'); return; }
-
-  var btn = document.getElementById('apPreviewBtn');
-  btn.disabled = true; btn.textContent = 'Loading…';
-  try {
-    var entity = Object.assign({ type: type, name: name, key: key, pin: pin }, apGetScaleEntity(type));
-    var r = await api('/esphome/add-peripheral/preview', {
-      method: 'POST',
-      body: JSON.stringify({ device_id: Number(deviceId), entity: entity }),
-    });
-    _apPreviewYaml = r.yaml;
-    document.getElementById('apYamlPreview').textContent = r.yaml;
-    document.getElementById('apYamlDetails').style.display = '';
-    document.getElementById('apYamlDetails').open = true;
-    document.getElementById('apFlashBtn').style.display = '';
-    document.getElementById('apDone').style.display = 'none';
-    apRenderPreviewWarnings(r.warnings || []);
-  } catch(e) {
-    apRenderPreviewWarnings([{ text: 'Preview failed: ' + e.message, level: 'err' }]);
-    alert('Preview failed: ' + e.message);
-  }
-  btn.disabled = false; btn.textContent = '📄 Preview YAML';
-}
-
-async function apFlash() {
-  if (_apFlashing) return;
-  if (!_apPreviewYaml) { alert('Click Preview YAML first.'); return; }
-
-  var deviceId = document.getElementById('apDeviceSelect').value;
-  var ip   = document.getElementById('apIp').value.trim();
-  var type = document.getElementById('apType').value;
-  var name = document.getElementById('apName').value.trim();
-  var pin  = apGetPin();
-  var key  = document.getElementById('apKey').value.trim();
-
-  if (!ip) { alert('Enter the device IP address for OTA.'); return; }
-
-  _apFlashing = true;
-  var flashBtn = document.getElementById('apFlashBtn');
-  var cancelBtn = document.getElementById('apCancelBtn');
-  var term = document.getElementById('apTerminal');
-  flashBtn.disabled = true; flashBtn.innerHTML = '&#9203; Flashing…';
-  cancelBtn.style.display = '';
-  term.style.display = '';
-  term.innerHTML = '';
-  document.getElementById('apDone').style.display = 'none';
-  apTermLine('info', 'Starting OTA flash…');
-
-  try {
-    var entity = Object.assign({ type: type, name: name, key: key, pin: pin }, apGetScaleEntity(type));
-    await api('/esphome/add-peripheral', {
-      method: 'POST',
-      body: JSON.stringify({
-        device_id: Number(deviceId),
-        ip, client_id: esphomeClientId,
-        entity: entity,
-      }),
-    });
-    apTermLine('info', 'Flash started — compiling firmware…');
-  } catch(e) {
-    apTermLine('error', 'Error: ' + e.message);
-    apResetFlashUI(false);
-  }
-}
-
-function apCancel() {
-  fetch('/api/esphome/flash', { method: 'DELETE', credentials: 'include' }).catch(function(){});
-  apTermLine('warn', '— Cancelled —');
-  apResetFlashUI(false);
-}
-
-function apResetFlashUI(ok) {
-  _apFlashing = false;
-  var flashBtn = document.getElementById('apFlashBtn');
-  var cancelBtn = document.getElementById('apCancelBtn');
-  flashBtn.disabled = false;
-  flashBtn.innerHTML = ok ? '&#10003; Done' : '&#9889; Add &amp; Flash OTA';
-  cancelBtn.style.display = 'none';
-}
-
-function apTermLine(level, text) {
-  var term = document.getElementById('apTerminal');
-  if (!term) return;
-  var d = document.createElement('div');
-  var now = new Date();
-  var ts = pad2(now.getHours()) + ':' + pad2(now.getMinutes()) + ':' + pad2(now.getSeconds());
-  d.innerHTML = '<span class="tl-ts">' + ts + '</span><span class="tl-' + level + '">' + escHtml(text) + '</span>';
-  term.appendChild(d);
-  term.scrollTop = term.scrollHeight;
-}
 
 // ── WebSocket for flash logs ───────────────────────────────────────────────
 function connectWS() {
@@ -2040,6 +884,7 @@ function connectWS() {
         if (umyPanel && umyPanel.style.display !== 'none') {
           if (typeof onEsphomeDoneFromUseMyYaml === 'function') onEsphomeDoneFromUseMyYaml(msg.ok, msg.code);
         } else {
+          stopFlashPolling();
           resetFlashUI(msg.ok ? 'done' : 'error');
           if (msg.ok) {
             document.getElementById('flashDone').style.display = '';
@@ -2057,12 +902,15 @@ function connectWS() {
         apTermLine(msg.level || 'info', msg.text || '');
       }
 
-      if (msg.type === 'esphome_add_done') {
-        apResetFlashUI(msg.ok);
+      if (msg.type === 'esphome_add_done' || msg.type === 'esphome_peripheral_done') {
+        apResetFlashUI(msg.ok, msg.action);
         if (msg.ok) {
           document.getElementById('apDone').style.display = '';
-          if (msg.awaiting_report) apTermLine('info', 'Waiting for first MQTT report so ELARIS can auto-register the new IO in Installer…');
+          if (msg.action === 'remove_peripheral') apTermLine('info', 'Peripheral removed. Waiting for the device to reconnect and republish config/state…');
+          else if (msg.action === 'edit_peripheral') apTermLine('info', 'Peripheral updated. Waiting for the device to reconnect and republish config/state…');
+          else if (msg.awaiting_report) apTermLine('info', 'Waiting for first MQTT report so ELARIS can auto-register the new IO in Installer…');
           try { await loadInstallerDevices(); } catch {}
+          try { await apLoadPeripherals(); } catch {}
         } else {
           apTermLine('error', 'Flash failed. Check the output above.');
         }
@@ -2853,6 +1701,16 @@ function plCommonHeader(deviceName, wifiSsid, wifiPassword, mqttBroker) {
     '          retain: true\n\n';
 }
 
+
+function plConnectionBadge(t) {
+  var id = String((t && t.id) || '').toLowerCase();
+  if (['analog','ntc','soil_moisture','mq2','mq7','mq135','ct_clamp'].indexOf(id) >= 0) return { label: 'AI', color: '#f59e0b', bg: 'rgba(245,158,11,.15)' };
+  if (['bh1750','bme280','ina219','ccs811','ssd1306','sht3x'].indexOf(id) >= 0) return { label: 'I²C', color: '#38bdf8', bg: 'rgba(56,189,248,.15)' };
+  if (['ds18b20','dht22','dht11'].indexOf(id) >= 0) return { label: 'HT / 1-Wire', color: '#22d97a', bg: 'rgba(34,217,122,.15)' };
+  if (['mh_z19','pzem004t'].indexOf(id) >= 0) return { label: 'UART / BUS', color: '#c084fc', bg: 'rgba(192,132,252,.15)' };
+  return { label: 'GPIO / DI', color: '#94a3b8', bg: 'rgba(148,163,184,.15)' };
+}
+
 function plBuildSensorList() {
   var el = document.getElementById('plSensorList');
   if (!el) return;
@@ -2943,6 +1801,7 @@ window.plDownloadYaml = function() {
 window.togglePeripheralLibrary = function() {
   var panel = document.getElementById('peripheralLibraryPanel');
   var showing = panel.style.display !== 'none';
+  if (!showing) closeEspPanels('peripheralLibraryPanel');
   panel.style.display = showing ? 'none' : '';
   if (!showing) plBuildSensorList();
 };
@@ -2967,6 +1826,7 @@ window.togglePeripheralLibrary = function() {
   try { await refreshPorts(); } catch {}
   await loadInstallerDevices();
   await loadSavedConfigs();
+  renderEspModeBanner();
   setInterval(function() { loadInstallerDevices(); }, 8000);
 })();
 function toggleGuide() {

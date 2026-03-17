@@ -35,16 +35,27 @@ function normalizeEntity(raw, index) {
   const type = String(raw?.type || '').trim().toLowerCase();
   const name = String(raw?.name || `Entity ${index + 1}`).trim() || `Entity ${index + 1}`;
   const key = safeName(raw?.key || name || `entity_${index + 1}`) || `entity_${index + 1}`;
-  const pin = String(raw?.pin || raw?.source || '').trim();
+  const source = String(raw?.source || raw?.pin || raw?.port_id || raw?.bus_id || '').trim();
+  const pin = String(raw?.pin || '').trim();
+  const portId = String(raw?.port_id || '').trim();
+  const busId = String(raw?.bus_id || '').trim();
+  const address = String(raw?.address || '').trim();
   return {
     type,
     name,
     key,
     pin,
-    source: pin,
+    source,
+    port_id: portId || null,
+    bus_id: busId || null,
+    address: address || null,
     unit: raw?.unit || null,
     device_class: raw?.device_class || null,
     subtype: raw?.subtype || null,
+    template_id: raw?.template_id || null,
+    scale: raw?.scale || null,
+    scale_factor: raw?.scale_factor || null,
+    scale_unit: raw?.scale_unit || null,
     metadata: raw?.metadata || null,
   };
 }
@@ -62,6 +73,7 @@ function normalizePayload(body) {
     port: String(body?.port || '').trim(),
     framework: String(body?.framework || '').trim() || null,
     client_id: String(body?.client_id || '').trim() || null,
+    existing_device_id: Number(body?.existing_device_id) || null,
     entities: Array.isArray(body?.entities) ? body.entities.map(normalizeEntity) : [],
   };
 }

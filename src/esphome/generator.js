@@ -1,4 +1,5 @@
 const { safeName } = require('./schema');
+const { findBoardBus } = require('./board_port_registry');
 
 // Escape a string for use inside YAML double-quoted scalars
 function yamlStr(s) {
@@ -9,52 +10,81 @@ function yamlStr(s) {
     .replace(/\r/g, '\\r');
 }
 
-function mqttDiscoveryJson({ deviceName, boardLabel, boardProfileId, entities }) {
-  const entityList = (Array.isArray(entities) ? entities : []).flatMap((e) => {
-    const type = String(e.type || '').toLowerCase();
-    const group = e.group || (type === 'relay' || type === 'switch' ? 'state' : 'tele');
-    if (type === 'dht' || type === 'dht11') {
-      return [
-        {
-          key: e.key,
-          group: 'tele',
-          type: 'sensor',
-          name: `${e.name} Temperature`,
-          unit: '°C',
-          device_class: 'temperature',
-        },
-        {
-          key: `${e.key}_hum`,
-          group: 'tele',
-          type: 'sensor',
-          name: `${e.name} Humidity`,
-          unit: '%',
-          device_class: 'humidity',
-        },
-      ];
-    }
-    if (type === 'relay' || type === 'switch') {
-      return [{ key: e.key, group: 'state', type: 'relay', name: e.name }];
-    }
-    if (type === 'di') {
-      return [{ key: e.key, group: group, type: 'sensor', name: e.name }];
-    }
-    if (type === 'ds18b20') {
-      return [{ key: e.key, group: 'tele', type: 'sensor', name: e.name, unit: '°C', device_class: 'temperature' }];
-    }
-    if (type === 'analog') {
-      return [{ key: e.key, group: 'tele', type: 'sensor', name: e.name }];
-    }
-    if (type === 'pulse_counter') {
-      let unit = 'pulses/min';
-      if (e.scale === 'yfs201') unit = 'L/min';
-      else if (e.scale === 'anemometer') unit = 'Hz';
-      else if (e.scale === 'custom' && e.scale_unit) unit = e.scale_unit;
-      return [{ key: e.key, group: 'tele', type: 'sensor', name: e.name, unit }];
-    }
-    return [{ key: e.key, group, type: type === 'sensor' ? 'sensor' : 'sensor', name: e.name }];
-  });
+const I2C_ENTITY_TYPES = ['bh1750', 'sht3x', 'bme280', 'bmp280', 'veml7700', 'ina219', 'ccs811'];
+const UART_ENTITY_TYPES = ['mhz19', 'pzem004t'];
 
+function discoveryEntries(entity) {
+  const type = String(entity?.type || '').toLowerCase();
+  if (!entity || !entity.key) return [];
+  if (type === 'dht' || type === 'dht11') {
+    return [
+      { key: entity.key, group: 'tele', type: 'sensor', name: `${entity.name} Temperature`, unit: '°C', device_class: 'temperature' },
+      { key: `${entity.key}_hum`, group: 'tele', type: 'sensor', name: `${entity.name} Humidity`, unit: '%', device_class: 'humidity' },
+    ];
+  }
+  if (type === 'sht3x') {
+    return [
+      { key: entity.key, group: 'tele', type: 'sensor', name: `${entity.name} Temperature`, unit: '°C', device_class: 'temperature' },
+      { key: `${entity.key}_hum`, group: 'tele', type: 'sensor', name: `${entity.name} Humidity`, unit: '%', device_class: 'humidity' },
+    ];
+  }
+  if (type === 'bme280') {
+    return [
+      { key: entity.key, group: 'tele', type: 'sensor', name: `${entity.name} Temperature`, unit: '°C', device_class: 'temperature' },
+      { key: `${entity.key}_hum`, group: 'tele', type: 'sensor', name: `${entity.name} Humidity`, unit: '%', device_class: 'humidity' },
+      { key: `${entity.key}_press`, group: 'tele', type: 'sensor', name: `${entity.name} Pressure`, unit: 'hPa', device_class: 'pressure' },
+    ];
+  }
+  if (type === 'bmp280') {
+    return [
+      { key: entity.key, group: 'tele', type: 'sensor', name: `${entity.name} Temperature`, unit: '°C', device_class: 'temperature' },
+      { key: `${entity.key}_press`, group: 'tele', type: 'sensor', name: `${entity.name} Pressure`, unit: 'hPa', device_class: 'pressure' },
+    ];
+  }
+  if (type === 'ina219') {
+    return [
+      { key: entity.key, group: 'tele', type: 'sensor', name: `${entity.name} Current`, unit: 'A', device_class: 'current' },
+      { key: `${entity.key}_power`, group: 'tele', type: 'sensor', name: `${entity.name} Power`, unit: 'W', device_class: 'power' },
+      { key: `${entity.key}_voltage`, group: 'tele', type: 'sensor', name: `${entity.name} Voltage`, unit: 'V', device_class: 'voltage' },
+    ];
+  }
+  if (type === 'ccs811') {
+    return [
+      { key: entity.key, group: 'tele', type: 'sensor', name: `${entity.name} eCO2`, unit: 'ppm', device_class: 'carbon_dioxide' },
+      { key: `${entity.key}_tvoc`, group: 'tele', type: 'sensor', name: `${entity.name} TVOC`, unit: 'ppb' },
+    ];
+  }
+  if (type === 'mhz19') {
+    return [
+      { key: entity.key, group: 'tele', type: 'sensor', name: `${entity.name} CO2`, unit: 'ppm', device_class: 'carbon_dioxide' },
+      { key: `${entity.key}_temp`, group: 'tele', type: 'sensor', name: `${entity.name} Temperature`, unit: '°C', device_class: 'temperature' },
+    ];
+  }
+  if (type === 'pzem004t') {
+    return [
+      { key: entity.key, group: 'tele', type: 'sensor', name: `${entity.name} Power`, unit: 'W', device_class: 'power' },
+      { key: `${entity.key}_voltage`, group: 'tele', type: 'sensor', name: `${entity.name} Voltage`, unit: 'V', device_class: 'voltage' },
+      { key: `${entity.key}_current`, group: 'tele', type: 'sensor', name: `${entity.name} Current`, unit: 'A', device_class: 'current' },
+      { key: `${entity.key}_energy`, group: 'tele', type: 'sensor', name: `${entity.name} Energy`, unit: 'kWh', device_class: 'energy' },
+    ];
+  }
+  if (type === 'ds18b20') return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name, unit: '°C', device_class: 'temperature' }];
+  if (type === 'di') return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name }];
+  if (type === 'analog') return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name }];
+  if (type === 'bh1750' || type === 'veml7700') return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name, unit: 'lx', device_class: 'illuminance' }];
+  if (type === 'pulse_counter') {
+    let unit = 'pulses/min';
+    if (entity.scale === 'yfs201') unit = 'L/min';
+    else if (entity.scale === 'anemometer') unit = 'Hz';
+    else if (entity.scale === 'custom' && entity.scale_unit) unit = entity.scale_unit;
+    return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name, unit }];
+  }
+  if (type === 'relay' || type === 'switch') return [{ key: entity.key, group: 'state', type: 'relay', name: entity.name }];
+  return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name }];
+}
+
+function mqttDiscoveryJson({ deviceName, boardLabel, boardProfileId, entities }) {
+  const entityList = (Array.isArray(entities) ? entities : []).flatMap((e) => discoveryEntries(e));
   const counts = entityList.reduce((acc, e) => {
     const t = String(e.type || '').toLowerCase();
     acc[t] = (acc[t] || 0) + 1;
@@ -74,42 +104,82 @@ function mqttDiscoveryJson({ deviceName, boardLabel, boardProfileId, entities })
 }
 
 function peripheralDiscoveryEntities(entity) {
-  const type = String(entity?.type || '').toLowerCase();
-  if (!entity || !entity.key) return [];
-  if (type === 'dht' || type === 'dht11') {
-    return [
-      {
-        key: entity.key,
-        group: 'tele',
-        type: 'sensor',
-        name: `${entity.name} Temperature`,
-        unit: '°C',
-        device_class: 'temperature',
-      },
-      {
-        key: `${entity.key}_hum`,
-        group: 'tele',
-        type: 'sensor',
-        name: `${entity.name} Humidity`,
-        unit: '%',
-        device_class: 'humidity',
-      },
-    ];
+  return discoveryEntries(entity);
+}
+
+function buildI2cBusDefs(profile, entities) {
+  const defs = [];
+  const seen = new Set();
+  const useIds = new Set((entities || []).filter((e) => I2C_ENTITY_TYPES.includes(String(e.type || '').toLowerCase())).map((e) => String(e.bus_id || '').trim()).filter(Boolean));
+  const push = (id, sda, scl) => {
+    const key = `${id || ''}|${sda || ''}|${scl || ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    defs.push({ id, sda, scl });
+  };
+  const rawI2c = profile?.i2c;
+  const arr = Array.isArray(rawI2c) ? rawI2c : (rawI2c ? [rawI2c] : []);
+  for (const raw of arr) push(raw.id || null, raw.sda || null, raw.scl || null);
+  for (const id of useIds) {
+    const bus = findBoardBus(profile, id);
+    if (bus && String(bus.protocol || '').toLowerCase() === 'i2c') push(bus.id || id, bus.sda || null, bus.scl || null);
   }
-  if (type === 'ds18b20') {
-    return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name, unit: '°C', device_class: 'temperature' }];
+  return defs.filter((d) => d.sda && d.scl);
+}
+
+function renderI2cSection(busDefs) {
+  if (!busDefs.length) return [];
+  const lines = ['i2c:'];
+  if (busDefs.length === 1) {
+    const bus = busDefs[0];
+    lines.push(`  sda: ${bus.sda}`);
+    lines.push(`  scl: ${bus.scl}`);
+    if (bus.id) lines.push(`  id: ${bus.id}`);
+    return lines.concat(['']);
   }
-  if (type === 'analog') {
-    return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name }];
+  busDefs.forEach((bus) => {
+    lines.push(`  - id: ${bus.id || 'bus'}`);
+    lines.push(`    sda: ${bus.sda}`);
+    lines.push(`    scl: ${bus.scl}`);
+  });
+  return lines.concat(['']);
+}
+
+function buildUartBusDefs(profile, entities) {
+  const defs = [];
+  const seen = new Set();
+  const useIds = new Set((entities || []).filter((e) => UART_ENTITY_TYPES.includes(String(e.type || '').toLowerCase())).map((e) => String(e.bus_id || '').trim()).filter(Boolean));
+  for (const id of useIds) {
+    const bus = findBoardBus(profile, id);
+    if (!bus) continue;
+    const proto = String(bus.protocol || '').toLowerCase();
+    if (proto !== 'uart' && proto !== 'rs485') continue;
+    const key = `${bus.id || id}|${bus.tx || ''}|${bus.rx || ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    defs.push({ id: bus.id || id, tx: bus.tx || null, rx: bus.rx || null, baud: 9600 });
   }
-  if (type === 'pulse_counter') {
-    let unit = 'pulses/min';
-    if (entity.scale === 'yfs201') unit = 'L/min';
-    else if (entity.scale === 'anemometer') unit = 'Hz';
-    else if (entity.scale === 'custom' && entity.scale_unit) unit = entity.scale_unit;
-    return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name, unit }];
+  return defs.filter((d) => d.tx && d.rx);
+}
+
+function renderUartSection(busDefs) {
+  if (!busDefs.length) return [];
+  const lines = ['uart:'];
+  if (busDefs.length === 1) {
+    const bus = busDefs[0];
+    if (bus.id) lines.push(`  id: ${bus.id}`);
+    lines.push(`  tx_pin: ${bus.tx}`);
+    lines.push(`  rx_pin: ${bus.rx}`);
+    lines.push(`  baud_rate: ${bus.baud || 9600}`);
+    return lines.concat(['']);
   }
-  return [{ key: entity.key, group: 'tele', type: 'sensor', name: entity.name }];
+  busDefs.forEach((bus) => {
+    lines.push(`  - id: ${bus.id || 'uart_bus'}`);
+    lines.push(`    tx_pin: ${bus.tx}`);
+    lines.push(`    rx_pin: ${bus.rx}`);
+    lines.push(`    baud_rate: ${bus.baud || 9600}`);
+  });
+  return lines.concat(['']);
 }
 
 function _findOneWireBlock(yamlText, pin) {
@@ -247,6 +317,96 @@ function _refreshDiscoveryPayload(yamlText, deviceSafeName, deviceName, boardLab
   lines[payloadIdx] = `${m[1]}'${payload}'`;
   return lines.join('\n');
 }
+
+function _hasTopLevelBlock(yamlText, blockName) {
+  return new RegExp('^' + blockName + ':\\s*$', 'mi').test(String(yamlText || ''));
+}
+
+function _parseI2cBlock(yamlText) {
+  const lines = String(yamlText || '').split(/\r?\n/);
+  const start = lines.findIndex((line) => /^i2c:\s*$/i.test(line));
+  if (start < 0) return null;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^[^\s#][^:]*:\s*$/.test(lines[i]) && !lines[i].startsWith(' ')) { end = i; break; }
+  }
+  const blockLines = lines.slice(start + 1, end);
+  const buses = [];
+  let current = null;
+  let listMode = false;
+  function flush() {
+    if (!current) return;
+    buses.push({ id: current.id || null, sda: current.sda || null, scl: current.scl || null });
+    current = null;
+  }
+  for (const line of blockLines) {
+    const busStart = line.match(/^\s*-\s*(.*)$/);
+    if (busStart) {
+      if (listMode || current?.id || current?.sda || current?.scl) flush();
+      listMode = true;
+      current = { id: null, sda: null, scl: null };
+      const rest = String(busStart[1] || '').trim();
+      if (!rest) continue;
+      const idMatch = rest.match(/^id:\s*(.+)$/i);
+      const sdaMatch = rest.match(/^sda:\s*(.+)$/i);
+      const sclMatch = rest.match(/^scl:\s*(.+)$/i);
+      if (idMatch) current.id = idMatch[1].trim().replace(/^['"]|['"]$/g, '');
+      if (sdaMatch) current.sda = sdaMatch[1].trim().replace(/^['"]|['"]$/g, '');
+      if (sclMatch) current.scl = sclMatch[1].trim().replace(/^['"]|['"]$/g, '');
+      continue;
+    }
+    if (!current) current = { id: null, sda: null, scl: null };
+    const idMatch = line.match(/^\s*id:\s*(.+)$/i);
+    if (idMatch) current.id = idMatch[1].trim().replace(/^['"]|['"]$/g, '');
+    const sdaMatch = line.match(/^\s*sda:\s*(.+)$/i);
+    if (sdaMatch) current.sda = sdaMatch[1].trim().replace(/^['"]|['"]$/g, '');
+    const sclMatch = line.match(/^\s*scl:\s*(.+)$/i);
+    if (sclMatch) current.scl = sclMatch[1].trim().replace(/^['"]|['"]$/g, '');
+  }
+  flush();
+  return { start, end, buses: buses.filter((b) => b.id || b.sda || b.scl) };
+}
+
+function _busMatches(bus, wantedId, wantedSda, wantedScl) {
+  const bid = String(bus?.id || '').trim();
+  const bsda = String(bus?.sda || '').trim().toUpperCase();
+  const bscl = String(bus?.scl || '').trim().toUpperCase();
+  const idMatch = wantedId && bid && bid === wantedId;
+  const pinMatch = wantedSda && wantedScl && bsda === String(wantedSda).trim().toUpperCase() && bscl === String(wantedScl).trim().toUpperCase();
+  return !!(idMatch || pinMatch);
+}
+
+function _ensureI2cBlock(yamlText, sda, scl, preferredId) {
+  const wantedId = String(preferredId || '').trim() || null;
+  const wantedSda = String(sda || 'GPIO21').trim().toUpperCase();
+  const wantedScl = String(scl || 'GPIO22').trim().toUpperCase();
+  const parsed = _parseI2cBlock(yamlText);
+  if (!parsed) {
+    const busId = wantedId || 'bus_a';
+    const block = `i2c:\n  - id: ${busId}\n    sda: ${wantedSda}\n    scl: ${wantedScl}`;
+    if (/^sensor:\s*$/m.test(yamlText)) {
+      return { yamlText: yamlText.replace(/^(sensor:\s*)$/m, block + '\n\n$1'), busId };
+    }
+    return { yamlText: yamlText.trimEnd() + '\n\n' + block + '\n', busId };
+  }
+
+  const existing = parsed.buses.find((bus) => _busMatches(bus, wantedId, wantedSda, wantedScl));
+  if (existing) return { yamlText, busId: existing.id || wantedId || null };
+
+  const lines = String(yamlText || '').split(/\r?\n/);
+  const existingBuses = parsed.buses.length ? parsed.buses.slice() : [{ id: null, sda: wantedSda, scl: wantedScl }];
+  const nextId = wantedId || `bus_${existingBuses.length + 1}`;
+  const allBuses = existingBuses.concat([{ id: nextId, sda: wantedSda, scl: wantedScl }]);
+  const rendered = ['i2c:'];
+  allBuses.forEach((bus, idx) => {
+    rendered.push(`  - id: ${bus.id || `bus_${idx + 1}`}`);
+    rendered.push(`    sda: ${bus.sda || wantedSda}`);
+    rendered.push(`    scl: ${bus.scl || wantedScl}`);
+  });
+  lines.splice(parsed.start, parsed.end - parsed.start, ...rendered);
+  return { yamlText: lines.join('\n'), busId: nextId };
+}
+
 function pinLines(entity) {
   if (entity._resolvedExpander) {
     const x = entity._resolvedExpander;
@@ -275,6 +435,15 @@ function generateYAML({ profile, payload }) {
   const ds18s = entities.filter(e => e.type === 'ds18b20');
   const dhts = entities.filter(e => e.type === 'dht' || e.type === 'dht11');
   const analogs = entities.filter(e => e.type === 'analog');
+  const bhs = entities.filter(e => e.type === 'bh1750');
+  const shts = entities.filter(e => e.type === 'sht3x');
+  const bmes = entities.filter(e => e.type === 'bme280');
+  const bmps = entities.filter(e => e.type === 'bmp280');
+  const vemls = entities.filter(e => e.type === 'veml7700');
+  const ina219s = entities.filter(e => e.type === 'ina219');
+  const ccs811s = entities.filter(e => e.type === 'ccs811');
+  const mhz19s = entities.filter(e => e.type === 'mhz19');
+  const pzems = entities.filter(e => e.type === 'pzem004t');
   const lines = [];
 
   const discoveryPayload = mqttDiscoveryJson({ deviceName: payload.device_name, boardLabel: profile.label, boardProfileId: profile.id, entities }).replace(/'/g, "''");
@@ -321,14 +490,11 @@ function generateYAML({ profile, payload }) {
     lines.push('');
   }
 
-  if (profile.i2c) {
-    lines.push('i2c:');
-    lines.push(`  sda: ${profile.i2c.sda}`);
-    lines.push(`  scl: ${profile.i2c.scl}`);
-    if (profile.i2c.scan) lines.push('  scan: true');
-    if (profile.i2c.id) lines.push(`  id: ${profile.i2c.id}`);
-    lines.push('');
-  }
+  const i2cBusDefs = buildI2cBusDefs(profile, entities);
+  renderI2cSection(i2cBusDefs).forEach((ln) => lines.push(ln));
+
+  const uartBusDefs = buildUartBusDefs(profile, entities);
+  renderUartSection(uartBusDefs).forEach((ln) => lines.push(ln));
 
   if (Array.isArray(profile.pcf8574) && profile.pcf8574.length) {
     lines.push('pcf8574:');
@@ -359,6 +525,14 @@ function generateYAML({ profile, payload }) {
       lines.push(`            else id(${r.key}).turn_off();`);
     }
   }
+  lines.push('');
+
+  lines.push('text_sensor:');
+  lines.push(`  - platform: ${payload.use_ethernet && profile.ethernet ? 'ethernet_info' : 'wifi_info'}`);
+  lines.push('    ip_address:');
+  lines.push('      name: "IP Address"');
+  lines.push('    mac_address:');
+  lines.push('      name: "MAC Address"');
   lines.push('');
 
   if (relays.length) {
@@ -407,7 +581,7 @@ function generateYAML({ profile, payload }) {
     lines.push('');
   }
 
-  if (ds18s.length || dhts.length || analogs.length) {
+  if (ds18s.length || dhts.length || analogs.length || bmes.length || bmps.length || bhs.length || shts.length || vemls.length || ina219s.length || ccs811s.length || mhz19s.length || pzems.length) {
     lines.push('sensor:');
     ds18s.forEach((s, i) => {
       lines.push('  - platform: dallas_temp');
@@ -460,6 +634,214 @@ function generateYAML({ profile, payload }) {
       lines.push('          payload: !lambda |-');
       lines.push('            return str_sprintf("%.3f", x);');
     });
+    bhs.forEach((e) => {
+      lines.push('  - platform: bh1750');
+      if (e.bus_id) lines.push(`    i2c_id: ${e.bus_id}`);
+      lines.push(`    address: ${e.address || '0x23'}`);
+      lines.push(`    name: "${e.name}"`);
+      lines.push(`    id: ${e.key}`);
+      lines.push('    update_interval: 30s');
+      lines.push('    on_value:');
+      lines.push('      - mqtt.publish:');
+      lines.push(`          topic: "elaris/${sname}/tele/${e.key}"`);
+      lines.push('          payload: !lambda |-');
+      lines.push('            return str_sprintf("%.0f", x);');
+    });
+    shts.forEach((e) => {
+      lines.push('  - platform: sht3xd');
+      if (e.bus_id) lines.push(`    i2c_id: ${e.bus_id}`);
+      lines.push(`    address: ${e.address || '0x44'}`);
+      lines.push('    update_interval: 30s');
+      lines.push('    temperature:');
+      lines.push(`      name: "${e.name} Temperature"`);
+      lines.push(`      id: ${e.key}`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.1f", x);');
+      lines.push('    humidity:');
+      lines.push(`      name: "${e.name} Humidity"`);
+      lines.push(`      id: ${e.key}_hum`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}_hum"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.1f", x);');
+    });
+    bmes.forEach((e) => {
+      lines.push('  - platform: bme280_i2c');
+      if (e.bus_id) lines.push(`    i2c_id: ${e.bus_id}`);
+      lines.push(`    address: ${e.address || '0x76'}`);
+      lines.push('    update_interval: 60s');
+      lines.push('    temperature:');
+      lines.push(`      name: "${e.name} Temperature"`);
+      lines.push(`      id: ${e.key}`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.1f", x);');
+      lines.push('    humidity:');
+      lines.push(`      name: "${e.name} Humidity"`);
+      lines.push(`      id: ${e.key}_hum`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}_hum"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.1f", x);');
+      lines.push('    pressure:');
+      lines.push(`      name: "${e.name} Pressure"`);
+      lines.push(`      id: ${e.key}_press`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}_press"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.1f", x);');
+    });
+    bmps.forEach((e) => {
+      lines.push('  - platform: bmp280_i2c');
+      if (e.bus_id) lines.push(`    i2c_id: ${e.bus_id}`);
+      lines.push(`    address: ${e.address || '0x76'}`);
+      lines.push('    update_interval: 60s');
+      lines.push('    temperature:');
+      lines.push(`      name: "${e.name} Temperature"`);
+      lines.push(`      id: ${e.key}`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.1f", x);');
+      lines.push('    pressure:');
+      lines.push(`      name: "${e.name} Pressure"`);
+      lines.push(`      id: ${e.key}_press`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}_press"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.1f", x);');
+    });
+    vemls.forEach((e) => {
+      lines.push('  - platform: veml7700');
+      if (e.bus_id) lines.push(`    i2c_id: ${e.bus_id}`);
+      lines.push(`    address: ${e.address || '0x10'}`);
+      lines.push(`    name: "${e.name}"`);
+      lines.push(`    id: ${e.key}`);
+      lines.push('    update_interval: 30s');
+      lines.push('    on_value:');
+      lines.push('      - mqtt.publish:');
+      lines.push(`          topic: "elaris/${sname}/tele/${e.key}"`);
+      lines.push('          payload: !lambda |-');
+      lines.push('            return str_sprintf("%.0f", x);');
+    });
+    ina219s.forEach((e) => {
+      lines.push('  - platform: ina219');
+      if (e.bus_id) lines.push(`    i2c_id: ${e.bus_id}`);
+      lines.push(`    address: ${e.address || '0x40'}`);
+      lines.push('    current:');
+      lines.push(`      name: "${e.name} Current"`);
+      lines.push(`      id: ${e.key}`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.3f", x);');
+      lines.push('    power:');
+      lines.push(`      name: "${e.name} Power"`);
+      lines.push(`      id: ${e.key}_power`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}_power"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.3f", x);');
+      lines.push('    bus_voltage:');
+      lines.push(`      name: "${e.name} Voltage"`);
+      lines.push(`      id: ${e.key}_voltage`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}_voltage"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.3f", x);');
+    });
+    ccs811s.forEach((e) => {
+      lines.push('  - platform: ccs811');
+      if (e.bus_id) lines.push(`    i2c_id: ${e.bus_id}`);
+      lines.push(`    address: ${e.address || '0x5A'}`);
+      lines.push('    eco2:');
+      lines.push(`      name: "${e.name} eCO2"`);
+      lines.push(`      id: ${e.key}`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.0f", x);');
+      lines.push('    tvoc:');
+      lines.push(`      name: "${e.name} TVOC"`);
+      lines.push(`      id: ${e.key}_tvoc`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}_tvoc"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.0f", x);');
+    });
+    mhz19s.forEach((e) => {
+      lines.push('  - platform: mhz19');
+      if (e.bus_id) lines.push(`    uart_id: ${e.bus_id}`);
+      lines.push('    update_interval: 60s');
+      lines.push('    automatic_baseline_calibration: false');
+      lines.push('    co2:');
+      lines.push(`      name: "${e.name} CO2"`);
+      lines.push(`      id: ${e.key}`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.0f", x);');
+      lines.push('    temperature:');
+      lines.push(`      name: "${e.name} Temperature"`);
+      lines.push(`      id: ${e.key}_temp`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}_temp"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.1f", x);');
+    });
+    pzems.forEach((e) => {
+      lines.push('  - platform: pzemac');
+      if (e.bus_id) lines.push(`    uart_id: ${e.bus_id}`);
+      lines.push('    current:');
+      lines.push(`      name: "${e.name} Current"`);
+      lines.push(`      id: ${e.key}_current`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}_current"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.3f", x);');
+      lines.push('    voltage:');
+      lines.push(`      name: "${e.name} Voltage"`);
+      lines.push(`      id: ${e.key}_voltage`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}_voltage"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.1f", x);');
+      lines.push('    power:');
+      lines.push(`      name: "${e.name} Power"`);
+      lines.push(`      id: ${e.key}`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.1f", x);');
+      lines.push('    energy:');
+      lines.push(`      name: "${e.name} Energy"`);
+      lines.push(`      id: ${e.key}_energy`);
+      lines.push('      on_value:');
+      lines.push('        - mqtt.publish:');
+      lines.push(`            topic: "elaris/${sname}/tele/${e.key}_energy"`);
+      lines.push('            payload: !lambda |-');
+      lines.push('              return str_sprintf("%.3f", x);');
+    });
     lines.push('');
   }
 
@@ -478,7 +860,7 @@ function generateYAML({ profile, payload }) {
  * @returns {string} updated YAML text
  */
 function addPeripheralToYaml(yamlText, deviceSafeName, entity, opts = {}) {
-  const { type, name, key, pin } = entity;
+  const { type, name, key, pin, sda, scl, address } = entity;
   const deviceName = opts.deviceName || deviceSafeName;
   const boardLabel = opts.boardLabel || 'ELARIS Board';
   const boardProfileId = opts.boardProfileId || null;
@@ -553,13 +935,80 @@ function addPeripheralToYaml(yamlText, deviceSafeName, entity, opts = {}) {
 
     result = _insertSensorItem(result, sensorItem);
 
-  } else if (type === 'pulse_counter') {
-    const updateInterval = entity.update_interval || '10s';
-    const scale = entity.scale || 'none';
-    const scaleFactor = Number(entity.scale_factor) || 1;
-    const pinMode = entity.pin_mode || 'INPUT_PULLUP';
+  } else if (type === 'di') {
+    const sensorItem = [
+      'binary_sensor:',
+      '  - platform: gpio',
+      `    pin: ${pin}` ,
+      `    name: "${yamlStr(name)}"`,
+      `    id: ${key}`,
+      '    on_state:',
+      '      - mqtt.publish:',
+      `          topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '          payload: !lambda |-',
+      '            return x ? "ON" : "OFF";',
+    ].join('\n');
 
-    let unit, filterLines;
+    if (/^binary_sensor:\s*$/m.test(result)) {
+      const lines = result.split('\n');
+      const start = lines.findIndex((line) => /^binary_sensor:\s*$/.test(line));
+      let insertAt = lines.length;
+      for (let i = start + 1; i < lines.length; i++) {
+        if (/^[^\s#][^:]*:\s*$/.test(lines[i]) && !lines[i].startsWith(' ')) { insertAt = i; break; }
+      }
+      lines.splice(insertAt, 0, ...sensorItem.split('\n').slice(1));
+      result = lines.join('\n');
+    } else {
+      result = result.trimEnd() + '\n\n' + sensorItem + '\n';
+    }
+
+  } else if (type === 'bh1750') {
+    const ensured = _ensureI2cBlock(result, sda || 'GPIO21', scl || 'GPIO22', entity.bus_id);
+    result = ensured.yamlText;
+    const sensorItem = [
+      '  - platform: bh1750',
+      ...(ensured.busId ? [`    i2c_id: ${ensured.busId}`] : []),
+      `    address: ${address || '0x23'}`,
+      `    name: "${yamlStr(name)}"`,
+      `    id: ${key}`,
+      '    update_interval: 30s',
+      '    on_value:',
+      '      - mqtt.publish:',
+      `          topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '          payload: !lambda |-',
+      '            return str_sprintf("%.0f", x);',
+    ].join('\n');
+    result = _insertSensorItem(result, sensorItem);
+
+  } else if (type === 'sht3x') {
+    const ensured = _ensureI2cBlock(result, sda || 'GPIO21', scl || 'GPIO22', entity.bus_id);
+    result = ensured.yamlText;
+    const humKey = key + '_hum';
+    const sensorItem = [
+      '  - platform: sht3xd',
+      ...(ensured.busId ? [`    i2c_id: ${ensured.busId}`] : []),
+      `    address: ${address || '0x44'}`,
+      '    update_interval: 30s',
+      '    temperature:',
+      `      name: "${yamlStr(name)} Temperature"`,
+      `      id: ${key}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.1f", x);',
+      '    humidity:',
+      `      name: "${yamlStr(name)} Humidity"`,
+      `      id: ${humKey}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${humKey}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.1f", x);',
+    ].join('\n');
+    result = _insertSensorItem(result, sensorItem);
+
+  } else if (type === 'pulse_counter') {
     if (scale === 'yfs201') {
       unit = 'L/min';
       filterLines = ['    filters:', '      - lambda: return x / 450.0;  # YF-S201: 450 pulses/min = 1 L/min'];

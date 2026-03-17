@@ -39,6 +39,18 @@ module.exports = {
     { id: 'pcf8574_hub_in_3', address: '0x21', i2c_id: 'bus_b' },
     { id: 'pcf8574_hub_in_4', address: '0x22', i2c_id: 'bus_b' },
   ],
+  boardPorts: [
+    ...Array.from({ length: 32 }, (_, i) => ({ id: `DI${i + 1}`, label: `DI${i + 1}`, group: 'di', protocols: ['di'], supports: ['pulse_counter'], aliases: [`IN${i + 1}`], hint: 'Digital input / dry contact channel.' })),
+    ...Array.from({ length: 32 }, (_, i) => ({ id: `DO${i + 1}`, label: `DO${i + 1}`, group: 'do', protocols: ['do'], supports: [], aliases: [`OUT${i + 1}`], hint: 'Relay output channel.' })),
+    { id: 'AI1', label: 'AI1', group: 'ai', aliases: ['AN1'], pin: 'GPIO39', protocols: ['adc', 'gpio'], supports: ['analog'], hint: 'Analog input 1.' },
+    { id: 'AI2', label: 'AI2', group: 'ai', aliases: ['AN2'], pin: 'GPIO34', protocols: ['adc', 'gpio'], supports: ['analog'], hint: 'Analog input 2.' },
+    { id: 'AI3', label: 'AI3', group: 'ai', aliases: ['AN3'], pin: 'GPIO36', protocols: ['adc', 'gpio'], supports: ['analog'], hint: 'Analog input 3.' },
+    { id: 'AI4', label: 'AI4', group: 'ai', aliases: ['AN4'], pin: 'GPIO35', protocols: ['adc', 'gpio'], supports: ['analog'], hint: 'Analog input 4.' },
+  ],
+  boardBuses: [
+    { id: 'bus_a', label: 'I²C Bus A', protocol: 'i2c', aliases: ['I2C', 'I2C_A'], sda: 15, scl: 13, supports: ['bh1750', 'sht3x', 'bme280', 'bmp280', 'veml7700', 'ina219', 'ccs811'], addresses: ['0x23', '0x5c', '0x44', '0x45'], hint: 'Relay-side I²C bus.' },
+    { id: 'bus_b', label: 'I²C Bus B', protocol: 'i2c', aliases: ['I2C_B'], sda: 4, scl: 5, supports: ['bh1750', 'sht3x', 'bme280', 'bmp280', 'veml7700', 'ina219', 'ccs811'], addresses: ['0x23', '0x5c', '0x44', '0x45'], hint: 'Input / sensor-side I²C bus.' },
+  ],
   pinRules: {
     reserved: [4, 5, 13, 15, 17, 18, 23],
     inputOnly: [34, 35, 36, 39],

@@ -16,7 +16,7 @@ function mountMiscRoutes(app, { db, access, requireLogin, requireEngineerAccess 
         return res.status(400).json({ ok: false, error: 'no_location', hint: 'Set site location in Settings' });
       const weather = await getWeather(site.lat, site.lon);
       res.json({ ok: true, weather });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   // ── IP Geolocation ───────────────────────────────────────────────────────
@@ -34,9 +34,9 @@ function mountMiscRoutes(app, { db, access, requireLogin, requireEngineerAccess 
           } else {
             res.status(400).json({ ok: false, error: 'geolocate_failed' });
           }
-        } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+        } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
       });
-    }).on('error', e => res.status(500).json({ ok: false, error: e.message }));
+    }).on('error', e => res.status(500).json({ ok: false, error: String(e?.message || e) }));
   });
 
   // ── Automation log ───────────────────────────────────────────────────────

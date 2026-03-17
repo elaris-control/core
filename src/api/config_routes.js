@@ -16,7 +16,8 @@ function initConfigRoutes({ dbApi, requireEngineerAccess }) {
       const entities = db.prepare(`
         SELECT io.device_id, io.group_name, io.key, io.type, io.name, io.zone_id,
                z.name AS zone_name, COALESCE(io.enabled,1) AS enabled,
-               io.hw_type, io.kind, io.unit, io.device_class
+               io.hw_type, io.kind, io.unit, io.device_class,
+               io.source, io.port_id, io.bus_id, io.board_profile_id
         FROM io LEFT JOIN zones z ON z.id=io.zone_id
         ORDER BY io.device_id, io.group_name, io.key
       `).all();
@@ -62,7 +63,7 @@ function initConfigRoutes({ dbApi, requireEngineerAccess }) {
       const fn = `elaris_config_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${fn}"`);
-      res.send(JSON.stringify({ version: 2, exported_ts: Date.now(), sites, zones, device_sites, entities, blocked, module_instances, module_mappings, scenes, scene_schedules }, null, 2));
+      res.send(JSON.stringify({ version: 3, exported_ts: Date.now(), sites, zones, device_sites, entities, blocked, module_instances, module_mappings, scenes, scene_schedules }, null, 2));
     } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
@@ -100,14 +101,14 @@ function initConfigRoutes({ dbApi, requireEngineerAccess }) {
         (cfg.device_sites || []).forEach(ds => { const dId = String(ds?.device_id || '').trim(); const sName = String(ds?.site_name || '').trim(); if (!dId || !sName) return; const sid = getSiteByName.get(sName)?.id ?? null; if (sid) deviceSiteMap.set(dId, sid); });
 
         const upsertDev = db.prepare(`INSERT OR IGNORE INTO devices(id,name,last_seen) VALUES(?,?,?)`);
-        const upsertIO  = db.prepare(`INSERT INTO io(device_id,key,group_name,type,name,zone_id,created_ts,enabled,hw_type,kind,unit,device_class) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(device_id,group_name,key) DO UPDATE SET type=excluded.type,name=excluded.name,zone_id=excluded.zone_id,enabled=excluded.enabled,hw_type=excluded.hw_type,kind=excluded.kind,unit=excluded.unit,device_class=excluded.device_class`);
+        const upsertIO  = db.prepare(`INSERT INTO io(device_id,key,group_name,type,name,zone_id,created_ts,enabled,hw_type,kind,unit,device_class,source,port_id,bus_id,board_profile_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(device_id,group_name,key) DO UPDATE SET type=excluded.type,name=excluded.name,zone_id=excluded.zone_id,enabled=excluded.enabled,hw_type=excluded.hw_type,kind=excluded.kind,unit=excluded.unit,device_class=excluded.device_class,source=excluded.source,port_id=excluded.port_id,bus_id=excluded.bus_id,board_profile_id=excluded.board_profile_id`);
         (cfg.entities || []).forEach(e => {
           const device_id = String(e?.device_id || '').trim(); const group_name = String(e?.group_name || '').trim(); const key = String(e?.key || '').trim();
           if (!device_id || !group_name || !key) return;
           upsertDev.run(device_id, null, 0);
           let zid = null; const zone_name = String(e?.zone_name || '').trim();
           if (zone_name) { const deviceSid = deviceSiteMap.get(device_id) ?? null; createZone.run(zone_name, deviceSid); zid = getZoneBySiteKey.get(zone_name, deviceSid)?.id ?? getZoneBySiteKey.get(zone_name, null)?.id ?? null; }
-          upsertIO.run(device_id, key, group_name, e?.type || 'sensor', e?.name || key, zid, e?.created_ts ?? Date.now(), (e?.enabled === 0 || e?.enabled === false) ? 0 : 1, e?.hw_type ?? null, e?.kind ?? null, e?.unit ?? null, e?.device_class ?? null);
+          upsertIO.run(device_id, key, group_name, e?.type || 'sensor', e?.name || key, zid, e?.created_ts ?? Date.now(), (e?.enabled === 0 || e?.enabled === false) ? 0 : 1, e?.hw_type ?? null, e?.kind ?? null, e?.unit ?? null, e?.device_class ?? null, e?.source ?? null, e?.port_id ?? null, e?.bus_id ?? null, e?.board_profile_id ?? null);
         });
 
         const upsertBlocked = db.prepare(`INSERT OR REPLACE INTO blocked_io(device_id,group_name,key,created_ts,reason) VALUES(?,?,?,?,?)`);

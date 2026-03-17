@@ -106,7 +106,7 @@ function initModuleRoutes({ db, requireLogin, requireEngineer, access }) {
 
   const listIOForSite = db.prepare(`
         SELECT io.id, io.device_id, io.key, io.name, io.type, io.group_name, io.unit,
-           io.zone_id, z.name AS zone_name
+           io.zone_id, z.name AS zone_name, io.source, io.port_id, io.bus_id, io.board_profile_id
     FROM io
     LEFT JOIN zones z ON z.id = io.zone_id
     JOIN device_site ds ON ds.device_id = io.device_id

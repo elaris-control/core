@@ -64,6 +64,207 @@ const state = {
   ioOverrides: {},   // io_id -> {value, active, ts}
 };
 
+const sourceMetaState = { boards: null, profiles: {}, devices: null };
+
+function entitySourceClass(e){
+  const token = String(e.port_id || e.source || '').trim().toUpperCase();
+  if (/^DO\d+/.test(token) || String(e.type||'').toLowerCase() === 'relay' || String(e.group_name||'').toLowerCase() === 'state') return 'DO';
+  if (/^DI\d+/.test(token)) return 'DI';
+  if (/^AO\d+/.test(token)) return 'AO';
+  if (/^(AI|HT)\d+/.test(token) || e.bus_id) return 'AI';
+  return String(e.type||'').toLowerCase() === 'relay' ? 'DO' : 'AI';
+}
+
+async function loadBoardCatalog(){
+  if (Array.isArray(sourceMetaState.boards)) return sourceMetaState.boards;
+  const out = await api('/esphome/boards');
+  sourceMetaState.boards = Array.isArray(out.boards) ? out.boards : [];
+  return sourceMetaState.boards;
+}
+
+async function loadEsphomeDevicesForSource(){
+  if (Array.isArray(sourceMetaState.devices)) return sourceMetaState.devices;
+  const out = await api('/esphome/devices');
+  sourceMetaState.devices = Array.isArray(out.devices) ? out.devices : [];
+  return sourceMetaState.devices;
+}
+
+async function loadBoardProfileDefinition(id){
+  const key = String(id || '').trim();
+  if (!key) return null;
+  if (sourceMetaState.profiles[key]) return sourceMetaState.profiles[key];
+  const out = await api('/esphome/catalog/export/' + encodeURIComponent(key));
+  const profile = out && out.profile ? out.profile : null;
+  sourceMetaState.profiles[key] = profile;
+  return profile;
+}
+
+async function resolveEntityBoardProfileId(entity){
+  if (entity && entity.board_profile_id) return String(entity.board_profile_id);
+  const devices = await loadEsphomeDevicesForSource();
+  const want = String(entity && entity.device_id || '').trim().toLowerCase();
+  const row = devices.find(function(d){
+    return [d.name, d.friendly_name, d.hostname].some(function(v){ return String(v || '').trim().toLowerCase() === want; });
+  });
+  return row && row.board_profile_id ? String(row.board_profile_id) : '';
+}
+
+function buildEntitySourceOptions(profileDef, klass){
+  const out = [];
+  const def = profileDef && profileDef.definition ? profileDef.definition : profileDef;
+  const ports = Array.isArray(def && def.boardPorts) ? def.boardPorts : [];
+  const buses = Array.isArray(def && def.boardBuses) ? def.boardBuses : [];
+  const want = String(klass || '').toUpperCase();
+  ports.forEach(function(port){
+    const group = String(port.group || '').toLowerCase();
+    if (want === 'DO' && group !== 'do') return;
+    if (want === 'DI' && group !== 'di') return;
+    if (want === 'AO' && group !== 'ao') return;
+    if (want === 'AI' && ['ai','ht','onewire'].indexOf(group) < 0) return;
+    const label = String(port.label || port.id || '');
+    const value = String(port.id || label || '');
+    const detail = [Array.isArray(port.aliases) && port.aliases.length ? port.aliases.join(', ') : null, port.pin || null, port.range || null, port.hint || null].filter(Boolean).join(' • ');
+    out.push({ kind: 'port', value: value, label: label || value, group: String(port.group || '').toUpperCase(), detail: detail });
+  });
+  if (want === 'AI') {
+    buses.forEach(function(bus){
+      const proto = String(bus.protocol || '').toLowerCase();
+      if (['i2c','rs485','uart'].indexOf(proto) < 0) return;
+      const detail = [proto.toUpperCase(), bus.sda != null && bus.scl != null ? ('SDA ' + bus.sda + ' / SCL ' + bus.scl) : null, bus.tx != null && bus.rx != null ? ('TX ' + bus.tx + ' / RX ' + bus.rx) : null, Array.isArray(bus.addresses) && bus.addresses.length ? ('Addresses ' + bus.addresses.join(', ')) : null, bus.hint || null].filter(Boolean).join(' • ');
+      out.push({ kind: 'bus', value: String(bus.id || bus.label || ''), label: String(bus.label || bus.id || ''), group: String(bus.protocol || 'BUS').toUpperCase(), detail: detail });
+    });
+  }
+  return out;
+}
+
+function sourceMetaSelectionPayload(profileDef, selection){
+  const value = String(selection || '').trim();
+  const def = profileDef && profileDef.definition ? profileDef.definition : profileDef;
+  const ports = Array.isArray(def && def.boardPorts) ? def.boardPorts : [];
+  const buses = Array.isArray(def && def.boardBuses) ? def.boardBuses : [];
+  const port = ports.find(function(p){ return String(p.id || p.label || '').trim() === value; });
+  if (port) return { source: String(port.id || value), port_id: String(port.id || value), bus_id: null };
+  const bus = buses.find(function(b){ return String(b.id || b.label || '').trim() === value; });
+  if (bus) return { source: String(bus.id || value), port_id: null, bus_id: String(bus.id || value) };
+  return { source: null, port_id: null, bus_id: null };
+}
+
+function closeSourceMeta(){
+  var m = document.getElementById('srcMetaModal');
+  if (m) m.style.display = 'none';
+}
+
+async function openSourceMeta(entity){
+  var m = document.getElementById('srcMetaModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'srcMetaModal';
+    m.className = 'modal';
+    m.style.display = 'none';
+    m.innerHTML = '<div class="modalCard" style="max-width:620px">'
+      + '<div class="modalHead"><div class="modalTitle" id="srcMetaTitle">Source metadata</div><button class="iconBtn" onclick="closeSourceMeta()">✕</button></div>'
+      + '<div class="modalBody" style="display:flex;flex-direction:column;gap:14px">'
+      + '<div id="srcMetaEntity" style="font-size:12px;color:var(--muted2)"></div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+      + '<div><div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;margin-bottom:6px">Board profile</div><select class="sel" id="srcMetaProfile"></select></div>'
+      + '<div><div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;margin-bottom:6px">Entity class</div><input class="txt" id="srcMetaClass" readonly></div>'
+      + '</div>'
+      + '<div><div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;margin-bottom:6px">Board port / bus</div><select class="sel" id="srcMetaSource"></select><div id="srcMetaDetail" style="font-size:11px;color:var(--muted2);margin-top:6px"></div></div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">'
+      + '<div><div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;margin-bottom:6px">Stored source</div><input class="txt" id="srcMetaStoredSource" readonly></div>'
+      + '<div><div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;margin-bottom:6px">Port ID</div><input class="txt" id="srcMetaPortId" readonly></div>'
+      + '<div><div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;margin-bottom:6px">Bus ID</div><input class="txt" id="srcMetaBusId" readonly></div>'
+      + '</div>'
+      + '<div style="padding:10px 12px;border:1px solid var(--line2);border-radius:12px;background:rgba(29,140,255,.08);font-size:12px;color:var(--text)" id="srcMetaHelp"></div>'
+      + '</div>'
+      + '<div class="modalActions">'
+      + '<button class="btn" onclick="window._srcMetaSave(null, true)">Clear metadata</button>'
+      + '<button class="btn" onclick="closeSourceMeta()">Cancel</button>'
+      + '<button class="btn primary" onclick="window._srcMetaSave()">Save source</button>'
+      + '</div></div>';
+    m.addEventListener('click', function(ev){ if (ev.target === m) closeSourceMeta(); });
+    document.body.appendChild(m);
+  }
+  const boards = await loadBoardCatalog();
+  const profileSel = document.getElementById('srcMetaProfile');
+  const sourceSel = document.getElementById('srcMetaSource');
+  const klass = entitySourceClass(entity);
+  document.getElementById('srcMetaTitle').textContent = 'Source metadata: ' + (entity.name || entity.key || ('IO #' + entity.id));
+  document.getElementById('srcMetaEntity').textContent = [entity.device_id, (entity.group_name || '') + '.' + (entity.key || '')].filter(Boolean).join(' • ');
+  document.getElementById('srcMetaClass').value = klass;
+  document.getElementById('srcMetaStoredSource').value = entity.source || '';
+  document.getElementById('srcMetaPortId').value = entity.port_id || '';
+  document.getElementById('srcMetaBusId').value = entity.bus_id || '';
+  document.getElementById('srcMetaHelp').textContent = 'Choose the real board port or bus that this entity comes from. This updates persisted source metadata used by Installer, Entities and future reassign flows.';
+  const resolvedProfileId = await resolveEntityBoardProfileId(entity);
+  profileSel.innerHTML = '<option value="">— no board profile —</option>' + boards.map(function(b){ return '<option value="' + escapeHTML(String(b.id || '')) + '">' + escapeHTML(String(b.label || b.id || '')) + '</option>'; }).join('');
+  profileSel.value = entity.board_profile_id || resolvedProfileId || '';
+  async function renderSourceOptions(selectedValue){
+    const profileId = String(profileSel.value || '').trim();
+    if (!profileId) {
+      sourceSel.innerHTML = '<option value="">— no board profile selected —</option>';
+      document.getElementById('srcMetaDetail').textContent = 'Pick a board profile first if you want board-aware source metadata.';
+      return;
+    }
+    const profile = await loadBoardProfileDefinition(profileId);
+    const opts = buildEntitySourceOptions(profile, klass);
+    if (!opts.length) {
+      sourceSel.innerHTML = '<option value="">— no compatible board paths —</option>';
+      document.getElementById('srcMetaDetail').textContent = 'This profile has no compatible ports/buses for ' + klass + '.';
+      return;
+    }
+    const groups = {};
+    opts.forEach(function(opt){ if (!groups[opt.group]) groups[opt.group] = []; groups[opt.group].push(opt); });
+    sourceSel.innerHTML = '<option value="">— choose board path —</option>';
+    Object.keys(groups).forEach(function(groupKey){
+      const og = document.createElement('optgroup');
+      og.label = groupKey;
+      groups[groupKey].forEach(function(opt){
+        const el = document.createElement('option');
+        el.value = opt.value;
+        el.textContent = opt.label + (opt.kind === 'bus' ? ' · bus' : '');
+        el.dataset.detail = opt.detail || '';
+        og.appendChild(el);
+      });
+      sourceSel.appendChild(og);
+    });
+    sourceSel.value = selectedValue || entity.port_id || entity.bus_id || entity.source || '';
+    const selected = sourceSel.options[sourceSel.selectedIndex];
+    document.getElementById('srcMetaDetail').textContent = (selected && selected.dataset && selected.dataset.detail) ? selected.dataset.detail : 'Board-aware source on ' + (profile.label || profileId) + '.';
+  }
+  profileSel.onchange = function(){ renderSourceOptions(''); };
+  sourceSel.onchange = function(){
+    const selected = sourceSel.options[sourceSel.selectedIndex];
+    document.getElementById('srcMetaDetail').textContent = (selected && selected.dataset && selected.dataset.detail) ? selected.dataset.detail : '';
+  };
+  await renderSourceOptions(entity.port_id || entity.bus_id || entity.source || '');
+  window._srcMetaSave = async function(_, clearOnly){
+    try {
+      const profileId = String(profileSel.value || '').trim() || null;
+      let payload = { id: entity.id, board_profile_id: profileId };
+      if (clearOnly) {
+        payload.source = null; payload.port_id = null; payload.bus_id = null;
+      } else {
+        const profile = profileId ? await loadBoardProfileDefinition(profileId) : null;
+        const resolved = profile ? sourceMetaSelectionPayload(profile, sourceSel.value) : { source: null, port_id: null, bus_id: null };
+        payload = Object.assign(payload, resolved);
+      }
+      await api('/io/update', { method:'POST', body: JSON.stringify(payload) });
+      entity.source = payload.source || null;
+      entity.port_id = payload.port_id || null;
+      entity.bus_id = payload.bus_id || null;
+      entity.board_profile_id = payload.board_profile_id || null;
+      closeSourceMeta();
+      applyFilterAndRender();
+      toast(clearOnly ? 'Source metadata cleared' : 'Source metadata saved');
+    } catch (err) {
+      toast('Source save failed: ' + err.message, false);
+    }
+  };
+  m.style.display = 'flex';
+}
+
+
 function getFilter(){
   return {
     q: $("q").value.trim(),
@@ -142,7 +343,12 @@ tr.appendChild(tdSite);
 
     // device/key
     const td2=document.createElement("td");
-    td2.innerHTML = `<div class="rowName">${escapeHTML(e.device_id || "")}</div><div class="mini">${escapeHTML((e.group_name||"")+"."+ (e.key||""))}</div>`;
+    const sourceBits = [];
+    if (e.source) sourceBits.push(String(e.source));
+    if (e.bus_id && (!e.source || String(e.bus_id) !== String(e.source))) sourceBits.push('bus ' + String(e.bus_id));
+    else if (e.port_id && (!e.source || String(e.port_id) !== String(e.source))) sourceBits.push('port ' + String(e.port_id));
+    if (e.board_profile_id) sourceBits.push(String(e.board_profile_id));
+    td2.innerHTML = `<div class="rowName">${escapeHTML(e.device_id || "")}</div><div class="mini">${escapeHTML((e.group_name||"")+"."+ (e.key||""))}</div>${sourceBits.length ? `<div class="mini">${escapeHTML(sourceBits.join(' • '))}</div>` : ''}`;
     tr.appendChild(td2);
 
     // type
@@ -253,7 +459,16 @@ tr.appendChild(tdSite);
       }catch(err){ toast("Failed: "+err.message,false); }
     });
 
-    actWrap.append(btnPin, btnEn, btnDel);
+    if(state.role === 'ENGINEER' || state.role === 'ADMIN'){
+      const btnSrc=document.createElement('button');
+      btnSrc.className='btn';
+      btnSrc.textContent='Source';
+      btnSrc.title='Edit board-aware source metadata';
+      btnSrc.addEventListener('click', ()=>openSourceMeta(e));
+      actWrap.append(btnPin, btnSrc, btnEn, btnDel);
+    } else {
+      actWrap.append(btnPin, btnEn, btnDel);
+    }
     tr.appendChild(td6);
 
     tbody.appendChild(tr);

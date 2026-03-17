@@ -75,6 +75,7 @@ async function main() {
   const app    = express();
   const server = http.createServer(app);
   app.disable('x-powered-by');
+  if (process.env.TRUST_PROXY) app.set('trust proxy', 1);
   app.use(securityHeaders({ isProd: IS_PROD }));
 
   if (!IS_PROD) {
@@ -114,7 +115,7 @@ async function main() {
     const sess = tok ? users.verifySession(tok) : null;
     if (sess?.role === 'ADMIN')    return 'ADMIN';
     if (sess?.role === 'ENGINEER') return 'ENGINEER';
-    if (auth.getRole(req) === 'ENGINEER') return 'ENGINEER';
+    if (sess && auth.getRole(req) === 'ENGINEER') return 'ENGINEER';
     return sess ? 'USER' : null;
   }});
 

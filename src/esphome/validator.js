@@ -1,4 +1,5 @@
 const { parseGpio, toGpioLabel } = require('./schema');
+const { findBoardPort, findBoardBus } = require('./board_port_registry');
 
 function validateConfig({ profile, payload }) {
   const errors = [];
@@ -22,10 +23,45 @@ function validateConfig({ profile, payload }) {
   for (const entity of entities) {
     if (!entity.type) errors.push(`Entity "${entity.name}" is missing a type.`);
     if (!entity.name) errors.push('Each entity needs a name.');
-    const resolved = profile?.resolveSource ? profile.resolveSource(entity.source) : null;
+
+    let resolved = null;
+    const resolveViaProfile = (token) => {
+      const t = String(token || '').trim();
+      if (!t || !profile?.resolveSource) return null;
+      return profile.resolveSource(t);
+    };
+    resolved = resolveViaProfile(entity.port_id) || resolveViaProfile(entity.source) || null;
+
+    let boardPort = null;
+    if (!resolved) {
+      boardPort = findBoardPort(profile, entity.port_id || entity.source || entity.pin);
+      if (boardPort) {
+        entity._resolvedBoardPort = boardPort;
+        resolved = resolveViaProfile(boardPort.id) || null;
+        if (!resolved && Array.isArray(boardPort.aliases)) {
+          for (const alias of boardPort.aliases) {
+            resolved = resolveViaProfile(alias);
+            if (resolved) break;
+          }
+        }
+        if (!resolved && boardPort.pin) resolved = { pin: boardPort.pin, source: boardPort.id };
+      }
+    }
+
     if (resolved?.pin) entity._resolvedPin = resolved.pin;
     if (resolved?.pcf8574) {
       entity._resolvedExpander = resolved;
+      continue;
+    }
+
+    if (['bh1750','sht3x','bme280','bmp280','veml7700','ina219','ccs811','mhz19','pzem004t'].includes(entity.type)) {
+      const bus = findBoardBus(profile, entity.bus_id || entity.source || entity.pin);
+      if (bus) {
+        entity._resolvedBoardBus = bus;
+        continue;
+      }
+      if (entity.sda && entity.scl) continue;
+      errors.push(`Entity "${entity.name}" uses invalid bus "${entity.bus_id || entity.source || ''}". Pick a valid board I²C bus.`);
       continue;
     }
 

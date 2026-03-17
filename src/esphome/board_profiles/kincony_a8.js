@@ -26,6 +26,16 @@ module.exports = {
     { id: 'pcf8574_hub_out_1', address: '0x24' },
     { id: 'pcf8574_hub_in_1',  address: '0x22' },
   ],
+  boardPorts: [
+    ...Array.from({ length: 10 }, (_, i) => ({ id: `DI${i + 1}`, label: `DI${i + 1}`, group: 'di', protocols: ['di'], supports: ['pulse_counter'], aliases: [`IN${i + 1}`], hint: 'Digital input / dry contact channel.' })),
+    ...Array.from({ length: 8 }, (_, i) => ({ id: `DO${i + 1}`, label: `DO${i + 1}`, group: 'do', protocols: ['do'], supports: [], aliases: [`OUT${i + 1}`], hint: 'Relay output channel.' })),
+    { id: 'DS1', label: 'DS1', group: 'ht', pin: 'GPIO14', protocols: ['onewire', 'gpio'], supports: ['ds18b20', 'dht11', 'dht'], aliases: ['HT1'], shared_bus: true, multi_instance: true, hint: 'Shared 1-Wire / DHT sensor port.' },
+    { id: 'S3', label: 'S3', group: 'di', pin: 'GPIO32', protocols: ['gpio', 'di'], supports: ['pulse_counter'], aliases: ['IN9'], hint: 'Extra direct digital input.' },
+    { id: 'S4', label: 'S4', group: 'di', pin: 'GPIO33', protocols: ['gpio', 'di'], supports: ['pulse_counter'], aliases: ['IN10'], hint: 'Extra direct digital input.' },
+  ],
+  boardBuses: [
+    { id: 'bus_a', label: 'I²C Bus A', protocol: 'i2c', aliases: ['I2C', 'I2C_A'], sda: 4, scl: 5, supports: ['bh1750', 'sht3x', 'bme280', 'bmp280', 'veml7700', 'ina219', 'ccs811'], addresses: ['0x23', '0x5c', '0x44', '0x45'], hint: 'Main expansion / sensor I²C bus.' },
+  ],
   pinRules: {
     reserved: [4, 5, 14, 17, 18, 23],
     inputOnly: [34, 35, 36, 39],

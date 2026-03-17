@@ -57,10 +57,18 @@ function initIoRoutes({ db, engine, access, requireLogin, requireEngineerAccess 
       const name    = req.body?.name    !== undefined ? String(req.body.name).trim() : undefined;
       const zone_id = req.body?.zone_id === '' || req.body?.zone_id === undefined ? undefined : (req.body.zone_id === null ? null : Number(req.body.zone_id));
       const enabled = req.body?.enabled === undefined ? undefined : (Number(req.body.enabled) ? 1 : 0);
+      const source = req.body?.source === undefined ? undefined : ((req.body.source === null || req.body.source === '') ? null : String(req.body.source).trim());
+      const port_id = req.body?.port_id === undefined ? undefined : ((req.body.port_id === null || req.body.port_id === '') ? null : String(req.body.port_id).trim());
+      const bus_id = req.body?.bus_id === undefined ? undefined : ((req.body.bus_id === null || req.body.bus_id === '') ? null : String(req.body.bus_id).trim());
+      const board_profile_id = req.body?.board_profile_id === undefined ? undefined : ((req.body.board_profile_id === null || req.body.board_profile_id === '') ? null : String(req.body.board_profile_id).trim());
       const parts = []; const params = [];
       if (name    !== undefined && name !== '') { parts.push('name=?');    params.push(name); }
       if (zone_id !== undefined)               { parts.push('zone_id=?'); params.push(zone_id); }
       if (enabled !== undefined)               { parts.push('enabled=?'); params.push(enabled); }
+      if (source !== undefined)                { parts.push('source=?'); params.push(source); }
+      if (port_id !== undefined)               { parts.push('port_id=?'); params.push(port_id); }
+      if (bus_id !== undefined)                { parts.push('bus_id=?'); params.push(bus_id); }
+      if (board_profile_id !== undefined)      { parts.push('board_profile_id=?'); params.push(board_profile_id); }
       if (!parts.length) return res.json({ ok: true, changed: 0 });
       params.push(id);
       const info = db.prepare(`UPDATE io SET ${parts.join(', ')} WHERE id=?`).run(...params);
@@ -100,6 +108,10 @@ function initIoRoutes({ db, engine, access, requireLogin, requireEngineerAccess 
       const zone_id = req.body?.zone_id === undefined ? undefined : (req.body.zone_id === null ? null : Number(req.body.zone_id));
       const enabled = req.body?.enabled === undefined ? undefined : (Number(req.body.enabled) ? 1 : 0);
       const pinned  = req.body?.pinned  === undefined ? undefined : (req.body.pinned ? 1 : 0);
+      const source = req.body?.source === undefined ? undefined : ((req.body.source === null || req.body.source === '') ? null : String(req.body.source).trim());
+      const port_id = req.body?.port_id === undefined ? undefined : ((req.body.port_id === null || req.body.port_id === '') ? null : String(req.body.port_id).trim());
+      const bus_id = req.body?.bus_id === undefined ? undefined : ((req.body.bus_id === null || req.body.bus_id === '') ? null : String(req.body.bus_id).trim());
+      const board_profile_id = req.body?.board_profile_id === undefined ? undefined : ((req.body.board_profile_id === null || req.body.board_profile_id === '') ? null : String(req.body.board_profile_id).trim());
       const parts = []; const params = [];
       if (name    !== undefined) { parts.push('name=?');    params.push(name); }
       if (zone_id !== undefined) {
@@ -108,6 +120,10 @@ function initIoRoutes({ db, engine, access, requireLogin, requireEngineerAccess 
       }
       if (enabled !== undefined) { parts.push('enabled=?'); params.push(enabled); }
       if (pinned  !== undefined) { parts.push('pinned=?');  params.push(pinned); }
+      if (source !== undefined) { parts.push('source=?'); params.push(source); }
+      if (port_id !== undefined) { parts.push('port_id=?'); params.push(port_id); }
+      if (bus_id !== undefined) { parts.push('bus_id=?'); params.push(bus_id); }
+      if (board_profile_id !== undefined) { parts.push('board_profile_id=?'); params.push(board_profile_id); }
       if (!parts.length) return res.json({ ok: true, changes: 0 });
       params.push(id);
       const info = db.prepare(`UPDATE io SET ${parts.join(', ')} WHERE id=?`).run(...params);
@@ -138,7 +154,7 @@ function initIoRoutes({ db, engine, access, requireLogin, requireEngineerAccess 
         return { ts: r.ts, v };
       }).filter(Boolean);
       res.json({ ok: true, io: { id: io_id, key: io.key, name: io.name || io.key, type: io.type, unit: io.unit || '' }, points });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   // PATCH /api/io/:io_id/override
@@ -158,7 +174,7 @@ function initIoRoutes({ db, engine, access, requireLogin, requireEngineerAccess 
         duration:         body.duration,
       });
       res.json({ ok: true, io_id, override });
-    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   return router;
@@ -175,14 +191,14 @@ function initHistoryRoutes({ db, access, requireLogin }) {
       if (!siteRef) return res.status(404).json({ ok: false, error: 'site_not_found' });
       if (!access.canAccessSiteRef(req, siteRef)) return res.status(403).json({ ok: false, error: 'forbidden' });
       const ios = db.prepare(`
-        SELECT io.id, io.key, io.name, io.type, io.unit, io.device_id, io.group_name
+        SELECT io.id, io.key, io.name, io.type, io.unit, io.device_id, io.group_name, io.source, io.port_id, io.bus_id, io.board_profile_id
         FROM io
         JOIN device_site ds ON ds.device_id = io.device_id
         WHERE ds.site_id = ? AND io.enabled = 1
         ORDER BY io.type, io.name
       `).all(site_id);
       res.json({ ok: true, ios });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   return router;

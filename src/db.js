@@ -92,6 +92,9 @@ db.exec(`
   `);
 
   // Ensure optional columns exist (safe for older DBs)
+  const blockedCols = db.prepare(`PRAGMA table_info(blocked_io);`).all().map(r => r.name);
+  if(!blockedCols.includes("hidden")) db.exec(`ALTER TABLE blocked_io ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;`);
+
   const ioCols = db.prepare(`PRAGMA table_info(io);`).all().map(r => r.name);
   function ensureIoCol(name, ddl){
     if (!ioCols.includes(name)) {
@@ -104,6 +107,10 @@ db.exec(`
   ensureIoCol("unit", `ALTER TABLE io ADD COLUMN unit TEXT;`);
   ensureIoCol("device_class", `ALTER TABLE io ADD COLUMN device_class TEXT;`);
   ensureIoCol("pinned", `ALTER TABLE io ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;`);
+  ensureIoCol("source", `ALTER TABLE io ADD COLUMN source TEXT;`);
+  ensureIoCol("port_id", `ALTER TABLE io ADD COLUMN port_id TEXT;`);
+  ensureIoCol("bus_id", `ALTER TABLE io ADD COLUMN bus_id TEXT;`);
+  ensureIoCol("board_profile_id", `ALTER TABLE io ADD COLUMN board_profile_id TEXT;`);
   try{
     const zCols = db.prepare(`PRAGMA table_info(zones);`).all().map(r=>r.name);
     if(!zCols.includes("site_id")) db.exec(`ALTER TABLE zones ADD COLUMN site_id INTEGER;`);
@@ -128,6 +135,13 @@ db.exec(`
   seedProfileCatalog(db);
 
   // ── ESPHome registry tables (used by installer + MQTT discovery) ─────
+  // Migrations for columns added after initial deploy
+  try {
+    const esCols = db.prepare('PRAGMA table_info(esphome_devices)').all().map(r => r.name);
+    if (!esCols.includes('deleted_at'))     db.exec(`ALTER TABLE esphome_devices ADD COLUMN deleted_at TEXT`);
+    if (!esCols.includes('deleted_reason')) db.exec(`ALTER TABLE esphome_devices ADD COLUMN deleted_reason TEXT`);
+  } catch (_) {}
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS esphome_devices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,6 +164,8 @@ db.exec(`
       yaml_hash TEXT,
       last_validation_json TEXT,
       last_seen_at TEXT,
+      deleted_at TEXT,
+      deleted_reason TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -158,6 +174,8 @@ db.exec(`
     CREATE INDEX IF NOT EXISTS idx_esphome_devices_name ON esphome_devices(name);
     CREATE INDEX IF NOT EXISTS idx_esphome_devices_status ON esphome_devices(status);
     CREATE INDEX IF NOT EXISTS idx_esphome_devices_mqtt_root ON esphome_devices(mqtt_topic_root);
+    CREATE INDEX IF NOT EXISTS idx_esphome_devices_mac ON esphome_devices(mac_address);
+    CREATE INDEX IF NOT EXISTS idx_esphome_devices_deleted_at ON esphome_devices(deleted_at);
 
     CREATE TABLE IF NOT EXISTS esphome_generated_configs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -201,6 +219,12 @@ db.exec(`
       FOREIGN KEY (esphome_device_id) REFERENCES esphome_devices(id) ON DELETE CASCADE
     );
   `);
+
+  try {
+    const eCols = db.prepare(`PRAGMA table_info(esphome_devices)`).all().map(r => r.name);
+    if (!eCols.includes('deleted_at')) db.exec(`ALTER TABLE esphome_devices ADD COLUMN deleted_at TEXT;`);
+    if (!eCols.includes('deleted_reason')) db.exec(`ALTER TABLE esphome_devices ADD COLUMN deleted_reason TEXT;`);
+  } catch (_) {}
 
   // ── Lightweight migration runner / index hardening ──────────────────
   db.exec(`
@@ -377,11 +401,132 @@ db.exec(`
 
   const getDefaultSite = db.prepare(`SELECT id, name FROM sites ORDER BY id ASC LIMIT 1`);
 
+  // ── Device state ──────────────────────────────────────────────────────────
+  const insertEvent = db.prepare(`INSERT INTO events (device_id, topic, payload, ts) VALUES (@device_id, @topic, @payload, @ts)`);
+  const getDeviceState = db.prepare(`SELECT key, value, ts FROM device_state WHERE device_id=? ORDER BY key`);
+  const listDevicesFromState = db.prepare(`SELECT DISTINCT device_id FROM device_state ORDER BY device_id`);
+  const listIOByDevice = db.prepare(`SELECT * FROM io WHERE device_id=? ORDER BY name`);
+  const listPinnedIOWithState = db.prepare(`
+    SELECT io.*,
+      (SELECT sv.value FROM device_state sv WHERE sv.device_id=io.device_id AND sv.key=io.key LIMIT 1) AS value
+    FROM io WHERE io.pinned=1 AND COALESCE(io.enabled,1)=1 ORDER BY io.name
+  `);
+  const getDeviceSite = db.prepare(`SELECT site_id FROM device_site WHERE device_id=?`);
+
+  // ── Device-site assignment ─────────────────────────────────────────────────
+  const assignDeviceToSiteStmt = db.prepare(`INSERT INTO device_site (device_id, site_id, assigned_ts) VALUES (?,?,?) ON CONFLICT(device_id) DO UPDATE SET site_id=excluded.site_id, assigned_ts=excluded.assigned_ts`);
+  const getDeviceSiteStmt = db.prepare(`SELECT site_id FROM device_site WHERE device_id=?`);
+  const listDevicesForSite = db.prepare(`SELECT device_id FROM device_site WHERE site_id=?`);
+
+  function ensureDeviceAssigned(deviceId) {
+    let row = getDeviceSiteStmt.get(deviceId);
+    if (row) return row;
+    const site = getDefaultSite.get();
+    const siteId = site?.id || 1;
+    assignDeviceToSiteStmt.run(deviceId, siteId, Date.now());
+    return { site_id: siteId };
+  }
+
+  // ── Pending IO ─────────────────────────────────────────────────────────────
+  const listPendingIO = db.prepare(`SELECT * FROM pending_io ORDER BY last_seen DESC`);
+  const isApprovedIO = db.prepare(`SELECT 1 FROM io WHERE device_id=? AND group_name=? AND key=? LIMIT 1`);
+  const isBlockedIO = db.prepare(`SELECT 1 FROM blocked_io WHERE device_id=? AND group_name=? AND key=? LIMIT 1`);
+  const upsertPendingIO = db.prepare(`
+    INSERT INTO pending_io (device_id, key, group_name, first_seen, last_seen, last_value)
+    VALUES (@device_id, @key, @group_name, @ts, @ts, @last_value)
+    ON CONFLICT(device_id, group_name, key) DO UPDATE SET last_seen=excluded.last_seen, last_value=excluded.last_value
+  `);
+  const hideBlockedIO = db.prepare(`UPDATE blocked_io SET hidden=1 WHERE device_id=? AND group_name=? AND key=?`);
+
+  function deletePendingIO(id) {
+    db.prepare(`DELETE FROM pending_io WHERE id=?`).run(id);
+  }
+
+  function deletePendingIOAndBlock(id) {
+    const row = db.prepare(`SELECT * FROM pending_io WHERE id=?`).get(id);
+    if (!row) return;
+    db.transaction(() => {
+      db.prepare(`INSERT OR IGNORE INTO blocked_io (device_id, group_name, key, created_ts) VALUES (?,?,?,?)`).run(row.device_id, row.group_name, row.key, Date.now());
+      db.prepare(`DELETE FROM pending_io WHERE id=?`).run(id);
+    })();
+  }
+
+  function unblockPendingIO(deviceId, groupName, key) {
+    db.prepare(`DELETE FROM blocked_io WHERE device_id=? AND group_name=? AND key=?`).run(deviceId, groupName, key);
+  }
+
+  function approvePending({ pending_id, name, type, zone_id, hw_type, kind, unit, source, port_id, bus_id, board_profile_id }) {
+    const row = db.prepare(`SELECT * FROM pending_io WHERE id=?`).get(pending_id);
+    if (!row) return { ok: false, error: 'not_found' };
+    const ts = Date.now();
+    const info = db.prepare(`
+      INSERT INTO io (device_id, key, group_name, type, name, zone_id, created_ts, hw_type, kind, unit, source, port_id, bus_id, board_profile_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(device_id, group_name, key) DO UPDATE SET
+        name=excluded.name, type=excluded.type, zone_id=excluded.zone_id,
+        hw_type=excluded.hw_type, kind=excluded.kind, unit=excluded.unit,
+        source=excluded.source, port_id=excluded.port_id, bus_id=excluded.bus_id,
+        board_profile_id=excluded.board_profile_id
+    `).run(row.device_id, row.key, row.group_name, type||'sensor', name, zone_id||null, ts, hw_type||null, kind||null, unit||null, source||null, port_id||null, bus_id||null, board_profile_id||null);
+    db.prepare(`DELETE FROM pending_io WHERE id=?`).run(pending_id);
+    return { ok: true, io_id: info.lastInsertRowid };
+  }
+
+  function noteDeviceAndMaybePendingIO({ deviceId, group, key, value, ts, retained }) {
+    if (retained) return;
+    if (isApprovedIO.get(deviceId, group, key)) return;
+    if (isBlockedIO.get(deviceId, group, key)) return;
+    upsertPendingIO.run({ device_id: deviceId, key, group_name: group, ts, last_value: value });
+  }
+
+  function noteDeviceConfig({ deviceId, config, ts, retained }) {
+    if (!config || !deviceId) return;
+    ensureDeviceAssigned(deviceId);
+    const entities = Array.isArray(config.entities) ? config.entities : [];
+    for (const e of entities) {
+      if (!e?.key) continue;
+      const group = e.group || (e.type === 'relay' ? 'state' : 'tele');
+      if (isApprovedIO.get(deviceId, group, e.key)) continue;
+      if (isBlockedIO.get(deviceId, group, e.key)) continue;
+      upsertPendingIO.run({ device_id: deviceId, key: e.key, group_name: group, ts, last_value: null });
+    }
+    upsertEspHomeRegistry({ deviceId, retained, ts });
+  }
+
+  // ── Zones ──────────────────────────────────────────────────────────────────
+  const listZones = db.prepare(`SELECT * FROM zones ORDER BY name`);
+  const listZonesBySite = db.prepare(`SELECT * FROM zones WHERE site_id=? ORDER BY name`);
+  const createZone = db.prepare(`INSERT OR IGNORE INTO zones (name, site_id) VALUES (?,?)`);
+  const renameZoneStmt = db.prepare(`UPDATE zones SET name=? WHERE id=?`);
+  const deleteZoneStmt = db.prepare(`DELETE FROM zones WHERE id=?`);
+  const moveIOZone = db.prepare(`UPDATE io SET zone_id=? WHERE zone_id=?`);
+  const clearIOZone = db.prepare(`UPDATE io SET zone_id=NULL WHERE zone_id=?`);
+  const countIOByZone = db.prepare(`SELECT COUNT(*) AS c FROM io WHERE zone_id=?`);
+
+  // ── Sites ──────────────────────────────────────────────────────────────────
+  const listSites = db.prepare(`SELECT * FROM sites ORDER BY id`);
+  const createSite = db.prepare(`INSERT INTO sites (name, note, is_private, created_ts) VALUES (?,?,?,?)`);
+  const setSitePrivacy = db.prepare(`UPDATE sites SET is_private=? WHERE id=?`);
+
+  function deleteSite(id) {
+    db.transaction(() => {
+      db.prepare(`UPDATE io SET zone_id=NULL WHERE device_id IN (SELECT device_id FROM device_site WHERE site_id=?)`).run(id);
+      db.prepare(`DELETE FROM zones WHERE site_id=?`).run(id);
+      db.prepare(`DELETE FROM device_site WHERE site_id=?`).run(id);
+      db.prepare(`DELETE FROM sites WHERE id=?`).run(id);
+    })();
+  }
 
   const getEspHomeByName = db.prepare(`
-    SELECT * FROM esphome_devices WHERE lower(name)=lower(?) ORDER BY id DESC LIMIT 1
+    SELECT * FROM esphome_devices WHERE deleted_at IS NULL AND lower(name)=lower(?) ORDER BY id DESC LIMIT 1
   `);
   const getEspHomeByTopicRoot = db.prepare(`
+    SELECT * FROM esphome_devices WHERE deleted_at IS NULL AND mqtt_topic_root=? ORDER BY id DESC LIMIT 1
+  `);
+  const getEspHomeAnyByName = db.prepare(`
+    SELECT * FROM esphome_devices WHERE lower(name)=lower(?) ORDER BY id DESC LIMIT 1
+  `);
+  const getEspHomeAnyByTopicRoot = db.prepare(`
     SELECT * FROM esphome_devices WHERE mqtt_topic_root=? ORDER BY id DESC LIMIT 1
   `);
   const insertEspHomeDevice = db.prepare(`
@@ -401,8 +546,12 @@ db.exec(`
         mqtt_topic_root = COALESCE(?, mqtt_topic_root),
         transport = COALESCE(?, transport),
         network_mode = COALESCE(?, network_mode),
-        last_seen_at = ?,
-        updated_at = ?
+        mac_address = COALESCE(?, mac_address),
+        ip_address = COALESCE(?, ip_address),
+        last_seen_at = COALESCE(?, last_seen_at),
+        updated_at = ?,
+        deleted_at = CASE WHEN ? THEN NULL ELSE deleted_at END,
+        deleted_reason = CASE WHEN ? THEN NULL ELSE deleted_reason END
     WHERE id = ?
   `);
 
@@ -425,11 +574,19 @@ db.exec(`
     }
   }
 
-  function upsertEspHomeRegistry({ deviceId, friendlyName = null, status = 'online', hostname = null, firmwareVersion = null, transport = null, networkMode = null, ts = Date.now() }) {
+  function upsertEspHomeRegistry({ deviceId, friendlyName = null, status = 'online', hostname = null, firmwareVersion = null, transport = null, networkMode = null, macAddress = null, ipAddress = null, retained = false, reviveDeleted = false, ts = Date.now() }) {
     const site = ensureDeviceAssigned(deviceId);
     const topicRoot = `elaris/${deviceId}`;
     const nowIso = new Date(Number.isFinite(Number(ts)) ? Number(ts) : Date.now()).toISOString();
-    let row = getEspHomeByName.get(deviceId) || getEspHomeByTopicRoot.get(topicRoot);
+    const visibleRow = getEspHomeByName.get(deviceId) || getEspHomeByTopicRoot.get(topicRoot);
+    const anyRow = visibleRow || getEspHomeAnyByName.get(deviceId) || getEspHomeAnyByTopicRoot.get(topicRoot);
+
+    if (!visibleRow && !anyRow && retained) return null;
+    if (anyRow?.deleted_at && !reviveDeleted) return { id: anyRow.id, suppressed: true, deleted_at: anyRow.deleted_at };
+
+    let row = visibleRow || anyRow || null;
+    const effectiveLastSeen = retained ? null : nowIso;
+    const shouldRevive = !!(row?.deleted_at && reviveDeleted);
     if (!row) {
       const inserted = insertEspHomeDevice.run(
         site.site_id,
@@ -440,17 +597,17 @@ db.exec(`
         null,
         transport,
         networkMode,
-        status,
+        retained ? 'seen' : status,
         null,
-        null,
-        null,
+        macAddress,
+        ipAddress,
         hostname,
         topicRoot,
         firmwareVersion,
         null,
         null,
         null,
-        nowIso,
+        effectiveLastSeen,
         nowIso,
         nowIso,
       );
@@ -458,317 +615,41 @@ db.exec(`
     } else {
       updateEspHomeDevice.run(
         friendlyName,
-        status,
+        retained ? (row.status || 'seen') : status,
         hostname,
         firmwareVersion,
         topicRoot,
         transport,
         networkMode,
+        macAddress,
+        ipAddress,
+        effectiveLastSeen,
         nowIso,
-        nowIso,
+        shouldRevive ? 1 : 0,
+        shouldRevive ? 1 : 0,
         row.id,
       );
     }
+    return row.id ? { id: row.id } : row;
+  }
+
+  function isEspHomeRegistrySuppressed(deviceId) {
+    const topicRoot = `elaris/${deviceId}`;
+    const row = getEspHomeAnyByName.get(deviceId) || getEspHomeAnyByTopicRoot.get(topicRoot) || null;
+    return !!(row && row.deleted_at);
+  }
+
+  function updateEspHomeIdentity(deviceId, fields = {}) {
+    const topicRoot = `elaris/${deviceId}`;
+    const row = getEspHomeAnyByName.get(deviceId) || getEspHomeAnyByTopicRoot.get(topicRoot) || null;
+    if (!row || row.deleted_at) return null;
+    const mac = String(fields.mac_address || fields.macAddress || '').trim() || null;
+    const ip = String(fields.ip_address || fields.ipAddress || '').trim() || null;
+    const fw = String(fields.firmware_version || fields.firmwareVersion || '').trim() || null;
+    const host = String(fields.hostname || '').trim() || null;
+    const nowIso = new Date(Number.isFinite(Number(fields.ts)) ? Number(fields.ts) : Date.now()).toISOString();
+    db.prepare(`UPDATE esphome_devices SET mac_address=COALESCE(?, mac_address), ip_address=COALESCE(?, ip_address), firmware_version=COALESCE(?, firmware_version), hostname=COALESCE(?, hostname), updated_at=? WHERE id=?`).run(mac, ip, fw, host, nowIso, row.id);
     return row.id;
-  }
-
-  const upsertState = db.prepare(`
-    INSERT INTO device_state(device_id, key, value, ts)
-    VALUES(@device_id, @key, @value, @ts)
-    ON CONFLICT(device_id, key) DO UPDATE SET value=excluded.value, ts=excluded.ts
-  `);
-
-  const insertEvent = db.prepare(`
-    INSERT INTO events(device_id, topic, payload, ts)
-    VALUES(@device_id, @topic, @payload, @ts)
-  `);
-
-  const getDeviceState = db.prepare(`
-    SELECT key, value, ts FROM device_state WHERE device_id = ? ORDER BY key ASC
-  `);
-
-  const listDevicesFromState = db.prepare(`
-    SELECT DISTINCT device_id FROM device_state ORDER BY device_id ASC
-  `);
-
-  const upsertDeviceSeen = db.prepare(`
-    INSERT INTO devices(id, name, last_seen)
-    VALUES(?, NULL, ?)
-    ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen
-  `);
-
-  const upsertPendingIO = db.prepare(`
-    INSERT INTO pending_io(device_id, group_name, key, site_id, first_seen, last_seen, last_value)
-    VALUES(@device_id, @group_name, @key,
-      (SELECT site_id FROM device_site WHERE device_id=@device_id),
-      @ts, @ts, @last_value)
-    ON CONFLICT(device_id, group_name, key) DO UPDATE SET
-      last_seen=excluded.last_seen,
-      last_value=excluded.last_value,
-      site_id=COALESCE(excluded.site_id, pending_io.site_id)
-  `);
-
-  const listPendingIO = db.prepare(`
-    SELECT id, device_id, group_name, key, site_id, first_seen, last_seen, last_value
-    FROM pending_io ORDER BY last_seen DESC
-  `);
-
-  const deletePendingIO = db.prepare(`DELETE FROM pending_io WHERE id = ?`);
-  // When deleting a pending IO, automatically block it so it doesn't reappear
-  function deletePendingIOAndBlock(id) {
-    const row = db.prepare(`SELECT device_id, group_name, key FROM pending_io WHERE id=?`).get(id);
-    deletePendingIO.run(id);
-    if (row) blockPendingIO.run(row.device_id, row.group_name, row.key, Date.now());
-  }
-
-  // FIX: was missing — called by approvePending
-  const approvePendingIO = db.prepare(`
-    INSERT INTO io(device_id, group_name, key, type, name, zone_id, created_ts, hw_type, kind, unit)
-    VALUES(@device_id, @group_name, @key, @type, @name, @zone_id, @ts, @hw_type, @kind, @unit)
-    ON CONFLICT(device_id, group_name, key) DO UPDATE SET
-      name=excluded.name,
-      type=excluded.type,
-      zone_id=COALESCE(excluded.zone_id, io.zone_id),
-      hw_type=excluded.hw_type,
-      kind=excluded.kind,
-      unit=excluded.unit
-  `);
-
-  // FIX: single consolidated approvePending (removed duplicate old version below)
-  function approvePending({ pending_id, name, type, zone_id, hw_type, kind, unit }) {
-    const row = db.prepare(`SELECT * FROM pending_io WHERE id = ?`).get(pending_id);
-    if (!row) throw new Error("pending_not_found");
-
-    approvePendingIO.run({
-      device_id: row.device_id,
-      group_name: row.group_name,
-      key: row.key,
-      type,
-      name,
-      zone_id: zone_id ?? null,
-      ts: Date.now(),
-      hw_type: hw_type ?? (type === "relay" ? "relay" : "di"),
-      kind: kind ?? (type === "relay" ? "relay" : "generic"),
-      unit: unit ?? null,
-    });
-
-    deletePendingIO.run(pending_id);
-    return { ok: true };
-  }
-
-  const listIOByDevice = db.prepare(`
-  SELECT io.id, io.device_id, io.group_name, io.key, io.type, io.name,
-         io.zone_id, z.name AS zone_name,
-         io.hw_type, io.kind, io.unit, io.pinned
-  FROM io
-  LEFT JOIN zones z ON z.id = io.zone_id
-  WHERE io.device_id = ?
-  ORDER BY io.group_name, io.key
-`);
-
-  const listPinnedIOWithState = db.prepare(`
-  SELECT io.id, io.device_id, io.group_name, io.key, io.type, io.name,
-         io.zone_id, z.name AS zone_name, io.unit, io.pinned,
-         ds.value, ds.ts AS state_ts
-  FROM io
-  LEFT JOIN zones z ON z.id = io.zone_id
-  LEFT JOIN device_state ds ON ds.device_id = io.device_id
-    AND ds.key = (io.group_name || '.' || io.key)
-  WHERE io.pinned = 1
-  ORDER BY io.name, io.key
-`);
-
-  const createZone        = db.prepare(`INSERT OR IGNORE INTO zones(name, site_id) VALUES(?,?)`);
-  const listZones         = db.prepare(`SELECT id, name, site_id FROM zones ORDER BY name ASC`);
-  const listZonesBySite   = db.prepare(`SELECT id, name, site_id FROM zones WHERE site_id=? ORDER BY name ASC`);
-  const renameZone        = db.prepare(`UPDATE zones SET name=? WHERE id=?`);
-  const deleteZoneStmt    = db.prepare(`DELETE FROM zones WHERE id=?`);
-  const clearIOZone = db.prepare(`UPDATE io SET zone_id=NULL WHERE zone_id=?`);
-  const moveIOZone = db.prepare(`UPDATE io SET zone_id=? WHERE zone_id=?`);
-  const countIOByZone = db.prepare(`SELECT COUNT(*) AS c FROM io WHERE zone_id=?`);
-
-
-  // Sites
-  const listSites      = db.prepare(`SELECT id, name, note, is_private, lat, lon, timezone, address, created_ts FROM sites ORDER BY id ASC`);
-  const createSite     = db.prepare(`INSERT INTO sites(name, note, is_private, created_ts) VALUES(?, ?, ?, ?)`);
-  const _deleteSiteRow  = db.prepare(`DELETE FROM sites WHERE id = ?`);
-  const setSitePrivacy  = db.prepare(`UPDATE sites SET is_private=? WHERE id=?`);
-
-  function deleteSite(id) {
-    const tx = db.transaction(() => {
-      // Block deleting the last site — many flows require at least one site to exist
-      const total = db.prepare(`SELECT COUNT(*) AS c FROM sites`).get();
-      if (total.c <= 1) throw new Error("cannot_delete_last_site");
-      // Unlink zones — keep the zones, just remove site association
-      db.prepare(`UPDATE zones SET site_id=NULL WHERE site_id=?`).run(id);
-      // Unlink scenes — keep scenes, remove site association
-      db.prepare(`UPDATE scenes SET site_id=NULL WHERE site_id=?`).run(id);
-      // Unlink pending_io
-      db.prepare(`UPDATE pending_io SET site_id=NULL WHERE site_id=?`).run(id);
-      // Reassign ESPHome devices to default site (or null if no default)
-      const defaultSite = db.prepare(`SELECT id FROM sites WHERE id != ? ORDER BY id ASC LIMIT 1`).get(id);
-      if (defaultSite) {
-        db.prepare(`UPDATE esphome_devices SET site_id=? WHERE site_id=?`).run(defaultSite.id, id);
-      } else {
-        // no other site: just remove association (site_id is NOT NULL on esphome_devices,
-        // so we block delete if ESPHome devices exist on this site)
-        const count = db.prepare(`SELECT COUNT(*) AS c FROM esphome_devices WHERE site_id=?`).get(id);
-        if (count?.c > 0) throw new Error("cannot_delete_site_with_esphome_devices");
-      }
-      // device_site rows: reassign to defaultSite (always exists — last-site guard above)
-      if (defaultSite) {
-        db.prepare(`UPDATE device_site SET site_id=? WHERE site_id=?`).run(defaultSite.id, id);
-      } else {
-        db.prepare(`DELETE FROM device_site WHERE site_id=?`).run(id);
-      }
-      // Null out scene actions pointing to this site's module instances (CASCADE will delete them next)
-      const siteInstIds = db.prepare(`SELECT id FROM module_instances WHERE site_id=?`).all(id).map(r => r.id);
-      if (siteInstIds.length) {
-        const allScenes = db.prepare(`SELECT id, actions_json FROM scenes`).all();
-        const patchScene = db.prepare(`UPDATE scenes SET actions_json=? WHERE id=?`);
-        for (const scene of allScenes) {
-          let actions; try { actions = JSON.parse(scene.actions_json || '[]'); } catch(_) { continue; }
-          let changed = false;
-          actions = actions.map(a => {
-            if (a.type === 'set_setpoint' && siteInstIds.includes(a.instance_id)) { changed = true; return Object.assign({}, a, { instance_id: null }); }
-            return a;
-          });
-          if (changed) patchScene.run(JSON.stringify(actions), scene.id);
-        }
-      }
-      // module_instances: ON DELETE CASCADE handles these when FK is ON
-      _deleteSiteRow.run(id);
-    });
-    tx();
-  }
-
-  const assignDeviceToSiteStmt = db.prepare(`
-    INSERT INTO device_site(device_id, site_id, assigned_ts)
-    VALUES(?, ?, ?)
-    ON CONFLICT(device_id) DO UPDATE SET site_id=excluded.site_id, assigned_ts=excluded.assigned_ts
-  `);
-
-  const getDeviceSite = db.prepare(`
-    SELECT s.id AS site_id, s.name AS site_name
-    FROM device_site ds
-    JOIN sites s ON s.id = ds.site_id
-    WHERE ds.device_id = ?
-  `);
-
-  const listDevicesForSite = db.prepare(`
-    SELECT ds.device_id FROM device_site ds WHERE ds.site_id = ? ORDER BY ds.device_id ASC
-  `);
-
-  function ensureDeviceAssigned(deviceId) {
-    const row = getDeviceSite.get(deviceId);
-    if (row) return row;
-    const def = getDefaultSite.get();
-    assignDeviceToSiteStmt.run(deviceId, def.id, Date.now());
-    return { site_id: def.id, site_name: def.name };
-  }
-
-  // Pre-compiled check: is this device+group+key already an approved IO?
-  const isApprovedIO = db.prepare(`
-    SELECT 1 FROM io WHERE device_id=? AND group_name=? AND key=?
-  `);
-
-  // Pre-compiled check: is this key blocked (deleted by user)?
-  // Uses the existing blocked_io table (same table used by the blocklist feature)
-  const isBlockedIO = db.prepare(`
-    SELECT 1 FROM blocked_io WHERE device_id=? AND group_name=? AND key=?
-  `);
-
-  const blockPendingIO = db.prepare(`
-    INSERT OR REPLACE INTO blocked_io(device_id, group_name, key, created_ts, reason)
-    VALUES(?, ?, ?, ?, 'pending_deleted')
-  `);
-
-  const unblockPendingIO = db.prepare(`
-    DELETE FROM blocked_io WHERE device_id=? AND group_name=? AND key=?
-  `);
-
-  // Called by MQTT layer
-  function noteDeviceAndMaybePendingIO({ deviceId, group, key, value, ts }) {
-    upsertDeviceSeen.run(deviceId, ts);
-    ensureDeviceAssigned(deviceId);
-
-    if (group === 'meta' && key === 'status') {
-      const raw = String(value ?? '').trim().toLowerCase();
-      const mappedStatus = raw === 'offline' ? 'offline' : 'online';
-      upsertEspHomeRegistry({ deviceId, status: mappedStatus, transport: 'ota', ts });
-      return;
-    }
-
-    if (group === "tele" || group === "state") {
-      upsertEspHomeRegistry({ deviceId, status: 'online', transport: 'ota', ts });
-    }
-
-    if (group === "tele" || group === "state") {
-      // Skip if already approved — no point showing it in pending again
-      const alreadyApproved = isApprovedIO.get(deviceId, group, key);
-      if (alreadyApproved) return;
-
-      // Skip if user explicitly deleted this pending IO (blocked)
-      const isBlocked = isBlockedIO.get(deviceId, group, key);
-      if (isBlocked) return;
-
-      upsertPendingIO.run({
-        device_id: deviceId,
-        group_name: group,
-        key,
-        ts,
-        last_value: value ?? null,
-      });
-    }
-  }
-
-  // FIX Bug 2: noteDeviceConfig — called by mqtt.js when a device sends its /config payload
-  function noteDeviceConfig({ deviceId, config, ts }) {
-    upsertDeviceSeen.run(deviceId, ts);
-    ensureDeviceAssigned(deviceId);
-    upsertEspHomeRegistry({
-      deviceId,
-      friendlyName: config?.device?.name || deviceId,
-      hostname: config?.device?.hostname || deviceId,
-      firmwareVersion: config?.device?.sw || null,
-      transport: 'ota',
-      status: 'online',
-      ts,
-    });
-
-    let seeded = false;
-    const entities = Array.isArray(config?.entities) ? config.entities : [];
-    for (const e of entities) {
-      if (!e?.key) continue;
-      const group = e.group || (e.type === "relay" || e.type === "switch" ? "state" : "tele");
-
-      // Do not recreate approved or user-blocked IOs every time the device republishes
-      // its discovery/config payload after reboot or OTA.
-      const alreadyApproved = isApprovedIO.get(deviceId, group, e.key);
-      if (alreadyApproved) continue;
-      const blocked = isBlockedIO.get(deviceId, group, e.key);
-      if (blocked) continue;
-
-      upsertPendingIO.run({
-        device_id: deviceId,
-        group_name: group,
-        key: e.key,
-        ts,
-        last_value: null,
-      });
-      seeded = true;
-    }
-
-    if (!seeded) {
-      const reg = getEspHomeByName.get(deviceId) || getEspHomeByTopicRoot.get(`elaris/${deviceId}`);
-      if (reg?.board_profile_id) {
-        seedPendingFromBoardProfile(deviceId, reg.board_profile_id, ts);
-      }
-    }
-
-    if (config?.device?.name) {
-      db.prepare(`UPDATE devices SET name=? WHERE id=?`).run(config.device.name, deviceId);
-    }
   }
 
   function assignDeviceToSite(deviceId, siteId) {
@@ -797,6 +678,11 @@ db.exec(`
     );
   `);
 
+  const upsertState = db.prepare(`
+    INSERT INTO device_state (device_id, key, value, ts) VALUES (@device_id, @key, @value, @ts)
+    ON CONFLICT(device_id, key) DO UPDATE SET value=excluded.value, ts=excluded.ts
+  `);
+
   return {
     db,
 
@@ -814,12 +700,13 @@ db.exec(`
     deletePendingIO,
     deletePendingIOAndBlock,
     unblockPendingIO,
+    hideBlockedIO,
 
     createZone,
     listZones,
     listZonesBySite,
 
-    renameZone: (id, name) => renameZone.run(name, id),
+    renameZone: (id, name) => renameZoneStmt.run(name, id),
     deleteZone: (id, reassign_zone_id = null) => {
       const tx = db.transaction(() => {
         if (reassign_zone_id != null && Number.isFinite(reassign_zone_id)) {
@@ -845,6 +732,9 @@ db.exec(`
     getDefaultSite,
     getDeviceSite,
     findEspHomeRegistry: (deviceId) => getEspHomeByName.get(deviceId) || getEspHomeByTopicRoot.get(`elaris/${deviceId}`) || null,
+    findEspHomeRegistryAny: (deviceId) => getEspHomeAnyByName.get(deviceId) || getEspHomeAnyByTopicRoot.get(`elaris/${deviceId}`) || null,
+    isEspHomeRegistrySuppressed,
+    updateEspHomeIdentity,
   };
 }
 

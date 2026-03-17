@@ -31,6 +31,12 @@ module.exports = {
     { id: 'pcf8574_hub_in_1', address: '0x22' },
     { id: 'pcf8574_hub_in_2', address: '0x23' },
   ],
+  boardPorts: [
+    ...Array.from({ length: 16 }, (_, i) => ({ id: `DI${i + 1}`, label: `DI${i + 1}`, group: 'di', protocols: ['di'], supports: ['pulse_counter'], aliases: [`IN${i + 1}`], hint: 'Digital input / dry contact channel.' })),
+  ],
+  boardBuses: [
+    { id: 'bus_a', label: 'I²C Bus A', protocol: 'i2c', aliases: ['I2C', 'I2C_A'], sda: 4, scl: 5, supports: ['bh1750', 'sht3x', 'bme280', 'bmp280', 'veml7700', 'ina219', 'ccs811'], addresses: ['0x23', '0x5c', '0x44', '0x45'], hint: 'Main expansion / sensor I²C bus.' },
+  ],
   pinRules: {
     reserved: [4, 5, 17, 18, 23],
     inputOnly: [34, 35, 36, 39],

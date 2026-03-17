@@ -108,7 +108,7 @@ function createAuthRateLimiter({ windowMs = 15 * 60 * 1000, maxFailures = 5 } = 
   }
 
   function keyFor(req, email = "") {
-    const ip = String(req.ip || req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown");
+    const ip = String(req.ip || req.socket?.remoteAddress || "unknown");
     const normalizedEmail = String(email || "").trim().toLowerCase();
     return `${ip}|${normalizedEmail}`;
   }

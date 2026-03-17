@@ -9,6 +9,9 @@ module.exports = {
     'Generic profile: use raw GPIO pins carefully.',
     'Validator blocks flash pins and output-on-input-only mistakes.',
   ],
+  boardBuses: [
+    { id: 'i2c_default', label: 'Custom I²C Bus', protocol: 'i2c', supports: ['bh1750', 'sht3x', 'bme280', 'bmp280', 'veml7700', 'ina219', 'ccs811'], addresses: ['0x23', '0x5c', '0x44', '0x45'], hint: 'Manual SDA/SCL selection.' },
+  ],
   pinRules: {
     reserved: [],
     inputOnly: [34, 35, 36, 39],

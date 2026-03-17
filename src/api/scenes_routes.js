@@ -41,7 +41,7 @@ function initScenesRoutes({ scenesApi, access, engine, mqttApi, notifyApi, wsApi
       if (site_id != null && !checkSite(req, res, site_id)) return;
       const id = scenesApi.createScene(name, icon, color, actions, site_id ?? null);
       res.json({ ok: true, id });
-    } catch (e) { res.status(e.status || 400).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(e?.status || 400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.put('/:id', requireEngineerAccess, (req, res) => {
@@ -51,7 +51,7 @@ function initScenesRoutes({ scenesApi, access, engine, mqttApi, notifyApi, wsApi
       if (site_id != null && !checkSite(req, res, site_id)) return;
       scenesApi.updateScene(Number(req.params.id), name, icon, color, actions, site_id ?? null);
       res.json({ ok: true });
-    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.delete('/:id', requireEngineerAccess, (req, res) => {
@@ -59,7 +59,7 @@ function initScenesRoutes({ scenesApi, access, engine, mqttApi, notifyApi, wsApi
       if (!checkScene(req, res, req.params.id)) return;
       scenesApi.deleteScene(Number(req.params.id));
       res.json({ ok: true });
-    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.post('/:id/activate', requireLogin, async (req, res) => {
@@ -71,7 +71,7 @@ function initScenesRoutes({ scenesApi, access, engine, mqttApi, notifyApi, wsApi
       });
       wsApi.broadcast({ type: 'scene_activated', scene_id: Number(req.params.id), site_id: ref.site_id ?? null, siteId: ref.site_id ?? null, ts: Date.now() });
       res.json(result);
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   // ── Schedules — static /schedules/:id BEFORE /:id/schedules ───────────
@@ -83,7 +83,7 @@ function initScenesRoutes({ scenesApi, access, engine, mqttApi, notifyApi, wsApi
       const { time, days, enabled } = req.body;
       scenesApi.updateSchedule(Number(req.params.id), time, days, enabled);
       res.json({ ok: true });
-    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.delete('/schedules/:id', requireEngineerAccess, (req, res) => {
@@ -93,7 +93,7 @@ function initScenesRoutes({ scenesApi, access, engine, mqttApi, notifyApi, wsApi
       if (!access.canAccessSiteRef(req, ref)) return res.status(403).json({ ok: false, error: 'forbidden' });
       scenesApi.deleteSchedule(Number(req.params.id));
       res.json({ ok: true });
-    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.get('/:id/schedules', requireLogin, (req, res) => {
@@ -108,7 +108,7 @@ function initScenesRoutes({ scenesApi, access, engine, mqttApi, notifyApi, wsApi
       if (!time || !/^\d{2}:\d{2}$/.test(time)) return res.status(400).json({ ok: false, error: 'invalid_time' });
       const id = scenesApi.createSchedule(Number(req.params.id), time, days);
       res.json({ ok: true, id });
-    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   return router;

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { profiles: jsProfiles } = require('./board_profiles');
+const { deriveBoardPorts } = require('./board_port_registry');
 
 const CATALOG_DIR = path.join(__dirname, 'catalog_profiles');
 
@@ -9,18 +10,36 @@ function stripFunctions(value) {
 }
 
 function deriveCapabilities(profile) {
-  const items = Array.isArray(profile?.entityDefaults) ? profile.entityDefaults : [];
   const counts = new Map();
+  const bump = (key, amount = 1, meta = {}) => {
+    const k = String(key || '').trim().toLowerCase();
+    if (!k) return;
+    const prev = counts.get(k) || { capability_key: k, channel_count: 0, meta: {} };
+    prev.channel_count += Number(amount || 0);
+    prev.meta = { ...prev.meta, ...meta };
+    counts.set(k, prev);
+  };
+
+  const items = Array.isArray(profile?.entityDefaults) ? profile.entityDefaults : [];
   for (const item of items) {
     const t = String(item?.type || '').toLowerCase();
     if (!t) continue;
-    counts.set(t, (counts.get(t) || 0) + 1);
+    bump(t, 1, { source: 'entityDefaults' });
   }
-  return Array.from(counts.entries()).map(([capability_key, channel_count]) => ({
-    capability_key,
-    channel_count,
-    meta: { source: 'entityDefaults' },
-  }));
+
+  const runtime = deriveBoardPorts(profile || {});
+  for (const port of runtime.ports || []) {
+    const g = String(port.group || '').toLowerCase();
+    if (g) bump(`port_${g}`, 1, { source: 'boardPorts' });
+    for (const s of (port.supports || [])) bump(`supports_${String(s).toLowerCase()}`, 1, { source: 'boardPorts' });
+  }
+  for (const bus of runtime.buses || []) {
+    const proto = String(bus.protocol || '').toLowerCase();
+    if (proto) bump(`bus_${proto}`, 1, { source: 'boardBuses' });
+    for (const s of (bus.supports || [])) bump(`supports_${String(s).toLowerCase()}`, 1, { source: 'boardBuses' });
+  }
+
+  return Array.from(counts.values()).sort((a, b) => a.capability_key.localeCompare(b.capability_key));
 }
 
 function buildSeedProfiles() {
@@ -170,8 +189,48 @@ function withRuntimeHelpers(def) {
   if (typeof def.resolveSource !== 'function') {
     def.resolveSource = function resolveSource(source) {
       const s = String(source || '').trim().toUpperCase();
+      if (!s) return null;
       const defaults = Array.isArray(def.entityDefaults) ? def.entityDefaults : [];
-      return defaults.find(e => String(e?.source || '').trim().toUpperCase() === s) || null;
+      const direct = defaults.find(e => String(e?.source || '').trim().toUpperCase() === s);
+      if (direct) return direct;
+
+      const ports = Array.isArray(def.boardPorts) ? def.boardPorts : [];
+      const port = ports.find((port) => {
+        const aliases = Array.isArray(port?.aliases) ? port.aliases.map(a => String(a || '').trim().toUpperCase()) : [];
+        return String(port?.id || '').trim().toUpperCase() === s
+          || String(port?.label || '').trim().toUpperCase() === s
+          || aliases.includes(s);
+      });
+      if (port) {
+        return {
+          source: String(port.id || port.label || source || '').trim(),
+          pin: port.pin ? String(port.pin).trim().toUpperCase() : null,
+          port_id: String(port.id || port.label || source || '').trim(),
+          group: port.group || null,
+          aliases: port.aliases || [],
+        };
+      }
+
+      const buses = Array.isArray(def.boardBuses) ? def.boardBuses : [];
+      const bus = buses.find((bus) => {
+        const aliases = Array.isArray(bus?.aliases) ? bus.aliases.map(a => String(a || '').trim().toUpperCase()) : [];
+        return String(bus?.id || '').trim().toUpperCase() === s
+          || String(bus?.label || '').trim().toUpperCase() === s
+          || aliases.includes(s);
+      });
+      if (bus) {
+        return {
+          source: String(bus.id || bus.label || source || '').trim(),
+          bus_id: String(bus.id || bus.label || source || '').trim(),
+          protocol: bus.protocol || null,
+          sda: bus.sda ? String(bus.sda).trim().toUpperCase() : null,
+          scl: bus.scl ? String(bus.scl).trim().toUpperCase() : null,
+          tx: bus.tx ? String(bus.tx).trim().toUpperCase() : null,
+          rx: bus.rx ? String(bus.rx).trim().toUpperCase() : null,
+          aliases: bus.aliases || [],
+        };
+      }
+      return null;
     };
   }
   return def;
@@ -219,25 +278,31 @@ function getProfileCatalogRows(db) {
 }
 
 function listCatalogSummaries(db) {
-  return getProfileCatalogRows(db).map(r => ({
-    id: r.id,
-    label: r.label,
-    board: r.board,
-    platform: r.platform,
-    frameworkDefault: r.frameworkDefault,
-    supports: r.supports,
-    notes: r.notes,
-    source: r.source,
-    source_url: r.source_url,
-    capabilities: r.capabilities,
-    defaults: (r.definition?.entityDefaults || []).map(e => ({
-      type: e.type,
-      name: e.name,
-      key: e.key,
-      source: e.source,
-      pin: e.pin || e.source,
-    })),
-  }));
+  return getProfileCatalogRows(db).map(r => {
+    const runtime = deriveBoardPorts(r.definition || {});
+    return {
+      id: r.id,
+      label: r.label,
+      board: r.board,
+      platform: r.platform,
+      frameworkDefault: r.frameworkDefault,
+      supports: r.supports,
+      notes: r.notes,
+      source: r.source,
+      source_url: r.source_url,
+      capabilities: r.capabilities,
+      boardPorts: runtime.ports,
+      boardBuses: runtime.buses,
+      portGroups: runtime.portGroups,
+      defaults: (r.definition?.entityDefaults || []).map(e => ({
+        type: e.type,
+        name: e.name,
+        key: e.key,
+        source: e.source,
+        pin: e.pin || e.source,
+      })),
+    };
+  });
 }
 
 function getCatalogProfile(db, profileId) {

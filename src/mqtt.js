@@ -44,10 +44,11 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
   client.on("offline", () => emit("mqtt_status", { status: "offline" }));
   client.on("error", (e) => emit("mqtt_status", { status: "error", error: String(e?.message || e) }));
 
-  client.on("message", (topic, payloadBuf) => {
+  client.on("message", (topic, payloadBuf, packet = {}) => {
     const payload = payloadBuf.toString("utf8");
     const trimmedPayload = typeof payload === 'string' ? payload.trim() : '';
     const ts = Date.now();
+    const retained = !!packet?.retain;
 
     const parts = topic.split("/");
 
@@ -67,7 +68,7 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
         }
         try {
           const cfg = JSON.parse(body);
-          dbApi.noteDeviceConfig({ deviceId, config: cfg, ts });
+          dbApi.noteDeviceConfig({ deviceId, config: cfg, ts, retained });
           emit("mqtt_config", { deviceId, topic });
         } catch (e) {
           emit("mqtt_config_error", { deviceId, topic, error: String(e?.message || e) });
@@ -85,7 +86,7 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
         return;
       }
 
-      dbApi.noteDeviceAndMaybePendingIO({ deviceId, group, key, value: payload, ts });
+      dbApi.noteDeviceAndMaybePendingIO({ deviceId, group, key, value: payload, ts, retained });
 
       if (group === "tele" || group === "state") {
         dbApi.upsertState.run({
@@ -110,10 +111,34 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
     if (!known) return;
 
     if (parts.length === 2 && parts[1] === 'status') {
-      dbApi.noteDeviceAndMaybePendingIO({ deviceId, group: 'meta', key: 'status', value: payload, ts });
+      dbApi.noteDeviceAndMaybePendingIO({ deviceId, group: 'meta', key: 'status', value: payload, ts, retained });
       dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
       emit("mqtt", { topic, deviceId, group: 'meta', key: 'status', payload });
       return;
+    }
+
+    if (parts.length === 4 && parts[1] === 'text_sensor' && parts[3] === 'state') {
+      const diagKey = String(parts[2] || '').trim().toLowerCase();
+      if (diagKey) {
+        if ((/mac/.test(diagKey) || diagKey.endsWith('mac_address')) && typeof dbApi.updateEspHomeIdentity === 'function') {
+          dbApi.updateEspHomeIdentity(deviceId, { mac_address: trimmedPayload, ts });
+          dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
+          emit("mqtt", { topic, deviceId, group: 'meta', key: 'mac_address', payload });
+          return;
+        }
+        if ((diagKey === 'ip_address' || diagKey.endsWith('_ip') || diagKey.endsWith('_ip_address')) && typeof dbApi.updateEspHomeIdentity === 'function') {
+          dbApi.updateEspHomeIdentity(deviceId, { ip_address: trimmedPayload, ts });
+          dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
+          emit("mqtt", { topic, deviceId, group: 'meta', key: 'ip_address', payload });
+          return;
+        }
+        if ((diagKey === 'version' || diagKey === 'esphome_version' || diagKey === 'firmware_version') && typeof dbApi.updateEspHomeIdentity === 'function') {
+          dbApi.updateEspHomeIdentity(deviceId, { firmware_version: trimmedPayload, ts });
+          dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
+          emit("mqtt", { topic, deviceId, group: 'meta', key: 'firmware_version', payload });
+          return;
+        }
+      }
     }
 
     let group = null;
@@ -136,7 +161,7 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
       return;
     }
 
-    dbApi.noteDeviceAndMaybePendingIO({ deviceId, group, key, value: payload, ts });
+    dbApi.noteDeviceAndMaybePendingIO({ deviceId, group, key, value: payload, ts, retained });
     dbApi.upsertState.run({ device_id: deviceId, key: `${group}.${key}`, value: payload, ts });
     dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
     if (solarAuto) solarAuto.onSensorUpdate(deviceId, `${group}.${key}`);

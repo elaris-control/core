@@ -22,7 +22,7 @@ function initAdminRoutes({ db, users, requireAdmin }) {
         return res.status(400).json({ ok: false, error: 'cannot_remove_last_admin' });
       users.setRole(targetId, req.body.role);
       res.json({ ok: true });
-    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.delete('/users/:id', requireAdmin, (req, res) => {
@@ -56,7 +56,7 @@ function initAdminRoutes({ db, users, requireAdmin }) {
         FROM devices d ORDER BY d.id ASC
       `).all();
       res.json({ ok: true, devices });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.delete('/db/devices/:deviceId', requireAdmin, (req, res) => {
@@ -88,7 +88,7 @@ function initAdminRoutes({ db, users, requireAdmin }) {
         db.prepare(`DELETE FROM devices WHERE id = ?`).run(id);
       })();
       res.json({ ok: true });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.get('/db/pending', requireAdmin, (req, res) => {
@@ -98,14 +98,14 @@ function initAdminRoutes({ db, users, requireAdmin }) {
         FROM pending_io ORDER BY device_id, last_seen DESC
       `).all();
       res.json({ ok: true, pending: rows });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.delete('/db/pending/:id', requireAdmin, (req, res) => {
     try {
       db.prepare(`DELETE FROM pending_io WHERE id = ?`).run(Number(req.params.id));
       res.json({ ok: true });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.delete('/db/pending', requireAdmin, (req, res) => {
@@ -114,7 +114,7 @@ function initAdminRoutes({ db, users, requireAdmin }) {
       if (device_id) db.prepare(`DELETE FROM pending_io WHERE device_id = ?`).run(device_id);
       else           db.prepare(`DELETE FROM pending_io`).run();
       res.json({ ok: true });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.get('/db/profiles', requireAdmin, (req, res) => {
@@ -124,7 +124,7 @@ function initAdminRoutes({ db, users, requireAdmin }) {
         FROM esphome_board_profiles WHERE is_enabled = 1 ORDER BY label COLLATE NOCASE ASC
       `).all();
       res.json({ ok: true, profiles: rows });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.delete('/db/profiles/:id', requireAdmin, (req, res) => {
@@ -133,7 +133,7 @@ function initAdminRoutes({ db, users, requireAdmin }) {
       db.prepare(`DELETE FROM esphome_profile_capabilities WHERE profile_id = ?`).run(id);
       db.prepare(`DELETE FROM esphome_board_profiles WHERE id = ?`).run(id);
       res.json({ ok: true });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.post('/db/repair', requireAdmin, (req, res) => {
@@ -143,7 +143,7 @@ function initAdminRoutes({ db, users, requireAdmin }) {
       db.exec(`VACUUM`);
       const ok = integrity.length === 1 && integrity[0].integrity_check === 'ok';
       res.json({ ok: true, integrity: ok ? 'ok' : 'errors', details: integrity });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.post('/db/erase', requireAdmin, (req, res) => {
@@ -161,7 +161,7 @@ function initAdminRoutes({ db, users, requireAdmin }) {
         // Keep: users, sites, board_profiles
       })();
       res.json({ ok: true });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   return router;

@@ -11,7 +11,7 @@ function initAutomationRoutes({ engine, access, auth, hasFeature, requireLogin, 
       const result = ensureUserModuleAccess(req, res, Number(req.params.id), ({ ui }) => !!ui.user_view);
       if (!result) return;
       res.json({ ok: true, ...engine.getLiveStatus(Number(req.params.id)) });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.get('/settings/:id', requireEngineerAccess, (req, res) => {
@@ -21,7 +21,7 @@ function initAutomationRoutes({ engine, access, auth, hasFeature, requireLogin, 
       if (!ref) return res.status(404).json({ ok: false, error: 'instance_not_found' });
       if (!access.canAccessSiteRef(req, ref)) return res.status(403).json({ ok: false, error: 'forbidden' });
       res.json({ ok: true, settings: engine.getSettings(id) });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.patch('/settings/:id', requireEngineerAccess, (req, res) => {
@@ -33,7 +33,7 @@ function initAutomationRoutes({ engine, access, auth, hasFeature, requireLogin, 
       const { key, value } = req.body;
       const v = engine.setSetting(id, key, value);
       res.json({ ok: true, value: v });
-    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.get('/log/:id', requireLogin, (req, res) => {
@@ -41,7 +41,7 @@ function initAutomationRoutes({ engine, access, auth, hasFeature, requireLogin, 
       const result = ensureUserModuleAccess(req, res, Number(req.params.id), ({ ui }) => !!ui.user_view);
       if (!result) return;
       res.json({ ok: true, log: engine.getLog(Number(req.params.id), 100) });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   const _getInstanceForCommand = engine._db
@@ -63,7 +63,7 @@ function initAutomationRoutes({ engine, access, auth, hasFeature, requireLogin, 
 
       if (String(command) === 'reset_lock') {
         if (!hasFeature('engineer_tools')) return res.status(403).json({ ok: false, error: 'engineer_not_licensed' });
-        if (auth.getRole(req) !== 'ENGINEER') return res.status(401).json({ ok: false, error: 'engineer_required' });
+        if (req.user?.role !== 'ADMIN' && auth.getRole(req) !== 'ENGINEER') return res.status(401).json({ ok: false, error: 'engineer_required' });
       }
 
       const def = getModule(inst.module_id);
@@ -73,7 +73,7 @@ function initAutomationRoutes({ engine, access, auth, hasFeature, requireLogin, 
       const ctx    = engine.makeCtx(inst);
       const result = fn(ctx, args || {});
       res.json({ ok: true, result });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   router.post('/override/:id', requireEngineerAccess, (req, res) => {
@@ -86,7 +86,7 @@ function initAutomationRoutes({ engine, access, auth, hasFeature, requireLogin, 
       const paused = !!req.body?.paused;
       engine.setOverride(id, paused);
       res.json({ ok: true, paused });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   return router;

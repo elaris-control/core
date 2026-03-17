@@ -210,7 +210,7 @@
         <select id="boardSel" style="min-width:260px;">
           <option value="">Loading boards…</option>
         </select>
-        <input id="importDeviceName" placeholder="Device name (e.g. kincony_a16)" style="min-width:220px;" />
+        <input id="importDeviceName" placeholder="Device name (e.g. relay_board_01)" style="min-width:220px;" />
         <button class="btn btnAccent" id="importBoardBtn">Import IOs</button>
         <span class="muted" id="importMsg"></span>
       </div>
@@ -236,6 +236,7 @@
           <tr>
             <th>DEVICE / KEY</th>
             <th>TYPE</th>
+            <th>BOARD PORT / BUS</th>
             <th>ZONE</th>
             <th>NAME (LABEL)</th>
             <th style="text-align:right;">ACTION</th>
@@ -275,6 +276,8 @@
 
   let zones = [];
   let role = "USER";
+  let installerDevicesCache = [];
+  const installerProfileCache = Object.create(null);
 
   async function api(path, opts){
     const res = await fetch("/api"+path, { headers:{ "Content-Type":"application/json" }, ...opts });
@@ -378,10 +381,218 @@
 
   let pendingFilter = "";
 
+  function guessPendingClass(p){
+    const group = String(p.group_name || '').toLowerCase();
+    const key = String(p.key || '').toLowerCase();
+    if (group === 'state' || key.startsWith('state.')) return 'DO';
+    if (key.startsWith('ao_') || key.startsWith('pwm_') || key.startsWith('dimmer_')) return 'AO';
+    if (key.startsWith('di_') || key.startsWith('input_') || ['pir','door','leak','motion','contact','reed'].some(x => key.includes(x))) return 'DI';
+    return 'AI';
+  }
+
+  function pendingClassOptions(selected){
+    const vals = [
+      ['DO', 'DO · Digital Output'],
+      ['DI', 'DI · Digital Input'],
+      ['AI', 'AI · Analog Input'],
+      ['AO', 'AO · Analog Output'],
+    ];
+    return vals.map(([v, label]) => `<option value="${v}" ${String(selected)===v?'selected':''}>${label}</option>`).join('');
+  }
+
+  function defaultPendingName(p){
+    if (p.group_name==='tele' && p.key==='temp') return 'Temperature';
+    if (p.group_name==='tele' && p.key==='hum') return 'Humidity';
+    return String(p.key || '').toUpperCase();
+  }
+
+  function getInstallerContext(){
+    const params = new URLSearchParams(window.location.search || '');
+    let boardId = params.get('board') || '';
+    let deviceName = params.get('device') || '';
+    try {
+      boardId = boardId || localStorage.getItem('elaris_installer_board_profile_id') || '';
+      deviceName = deviceName || localStorage.getItem('elaris_installer_device_name') || '';
+    } catch(e){}
+    return { boardId, deviceName };
+  }
+
+  function normalizeToken(v){
+    return String(v || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  }
+
+  function installerClassFromEntityType(type){
+    const t = String(type || '').toLowerCase();
+    if (t === 'relay') return 'DO';
+    if (t === 'di' || t === 'pulse_counter') return 'DI';
+    if (t === 'ao') return 'AO';
+    return 'AI';
+  }
+
+  function installerPortFriendly(source){
+    return String(source || '').trim().replace(/_/g, ' ').replace(/([A-Z]+)(\d+)/g, '$1 $2');
+  }
+
+  async function ensureInstallerDevices(){
+    if (installerDevicesCache.length) return installerDevicesCache;
+    try {
+      const out = await api('/esphome/devices');
+      installerDevicesCache = out.devices || [];
+    } catch(e) {
+      installerDevicesCache = [];
+    }
+    return installerDevicesCache;
+  }
+
+  async function loadBoardProfileSummary(boardId){
+    const id = String(boardId || '').trim();
+    if (!id) return null;
+    if (installerProfileCache[id]) return installerProfileCache[id];
+    try {
+      const out = await api('/esphome/profile/' + encodeURIComponent(id));
+      installerProfileCache[id] = out.profile || null;
+      return installerProfileCache[id];
+    } catch(e) {
+      installerProfileCache[id] = null;
+      return null;
+    }
+  }
+
+  function findInstallerDeviceForPending(p){
+    const want = normalizeToken(p && p.device_id);
+    if (!want) return null;
+    return installerDevicesCache.find(d => [d.name, d.friendly_name, d.hostname].some(v => normalizeToken(v) === want)) || null;
+  }
+
+  function profileContextForPending(p){
+    const ctx = getInstallerContext();
+    const ctxDevice = normalizeToken(ctx.deviceName);
+    const rowDevice = normalizeToken(p && p.device_id);
+    if (ctx.boardId && ctxDevice && ctxDevice === rowDevice && installerProfileCache[ctx.boardId]) {
+      return { profile: installerProfileCache[ctx.boardId], via: 'context' };
+    }
+    const dev = findInstallerDeviceForPending(p);
+    if (dev && dev.board_profile_id && installerProfileCache[dev.board_profile_id]) {
+      return { profile: installerProfileCache[dev.board_profile_id], via: 'device', device: dev };
+    }
+    if (ctx.boardId && installerProfileCache[ctx.boardId]) return { profile: installerProfileCache[ctx.boardId], via: 'fallback' };
+    return { profile: null, via: null, device: null };
+  }
+
+  function inferPendingProfileBinding(p, profile){
+    if (!profile) return { source: '', klass: '', note: '' };
+    const defaults = Array.isArray(profile.defaults) ? profile.defaults : [];
+    const key = String(p && p.key || '').trim().toLowerCase();
+    const exact = defaults.find(d => String(d && d.key || '').trim().toLowerCase() === key);
+    if (exact) return {
+      source: String(exact.source || exact.pin || '').trim(),
+      klass: installerClassFromEntityType(exact.type),
+      note: exact.name ? ('Default profile mapping: ' + exact.name) : 'Default profile mapping'
+    };
+    var m = key.match(/^relay_(\d+)$/);
+    if (m) return { source: 'DO' + m[1], klass: 'DO', note: 'Matched relay channel from key.' };
+    m = key.match(/^di_(\d+)$/);
+    if (m) return { source: 'DI' + m[1], klass: 'DI', note: 'Matched digital input from key.' };
+    m = key.match(/^ai_(\d+)$/);
+    if (m) return { source: 'AI' + m[1], klass: 'AI', note: 'Matched analog input from key.' };
+    m = key.match(/^ht_(\d+)$/);
+    if (m) return { source: 'HT' + m[1], klass: 'AI', note: 'Matched sensor port from key.' };
+    return { source: '', klass: '', note: '' };
+  }
+
+  function boardBindingsForClass(profile, klass){
+    const out = [];
+    if (!profile) return out;
+    const ports = Array.isArray(profile.boardPorts) ? profile.boardPorts : [];
+    const buses = Array.isArray(profile.boardBuses) ? profile.boardBuses : [];
+    const want = String(klass || '').toUpperCase();
+    ports.forEach(port => {
+      const group = String(port.group || '').toLowerCase();
+      if (want === 'DO' && group !== 'do') return;
+      if (want === 'DI' && group !== 'di') return;
+      if (want === 'AO' && group !== 'ao') return;
+      if (want === 'AI' && ['ai','ht','onewire'].indexOf(group) < 0) return;
+      out.push({ kind: 'port', value: port.id || port.label, label: port.id || port.label, detail: [port.aliases && port.aliases.length ? port.aliases[0] : null, port.range || null, port.pin || null, port.hint || null].filter(Boolean).join(' · '), group: group.toUpperCase() });
+    });
+    if (want === 'AI') {
+      buses.forEach(bus => {
+        const proto = String(bus.protocol || '').toLowerCase();
+        if (['i2c','rs485','uart'].indexOf(proto) < 0) return;
+        out.push({ kind: 'bus', value: bus.id || bus.label, label: bus.label || bus.id, detail: [proto.toUpperCase(), bus.sda && bus.scl ? (bus.sda + '/' + bus.scl) : null, bus.tx && bus.rx ? (bus.tx + '/' + bus.rx) : null, bus.hint || null].filter(Boolean).join(' · '), group: proto.toUpperCase() });
+      });
+    }
+    return out;
+  }
+
+  function renderBoardBinding(wrap, p, profile, klass, selectedValue, note){
+    if (!wrap) return null;
+    wrap.innerHTML = '';
+    if (!profile) {
+      wrap.innerHTML = '<span class="muted">—</span>';
+      return null;
+    }
+    const options = boardBindingsForClass(profile, klass);
+    if (!options.length) {
+      wrap.innerHTML = '<span class="muted">No compatible board ports for ' + escHTML(klass || 'this class') + '.</span>';
+      return null;
+    }
+    const select = document.createElement('select');
+    select.className = 'boardPortSel';
+    select.style.minWidth = '170px';
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = '— choose board path —';
+    select.appendChild(blank);
+    const groups = {};
+    options.forEach(opt => {
+      if (!groups[opt.group]) groups[opt.group] = [];
+      groups[opt.group].push(opt);
+    });
+    Object.keys(groups).forEach(groupKey => {
+      const og = document.createElement('optgroup');
+      og.label = groupKey;
+      groups[groupKey].forEach(opt => {
+        const el = document.createElement('option');
+        el.value = opt.value;
+        el.textContent = opt.label + (opt.kind === 'bus' ? ' · bus' : '');
+        el.dataset.detail = opt.detail || '';
+        og.appendChild(el);
+      });
+      select.appendChild(og);
+    });
+    if (selectedValue) select.value = selectedValue;
+    wrap.appendChild(select);
+    const detail = document.createElement('div');
+    detail.className = 'muted';
+    detail.style.fontSize = '11px';
+    detail.style.marginTop = '4px';
+    wrap.appendChild(detail);
+    const sync = function() {
+      const opt = select.options[select.selectedIndex];
+      detail.textContent = (opt && opt.dataset && opt.dataset.detail ? opt.dataset.detail : '') || note || ('Board-aware path on ' + profile.label + '.');
+    };
+    select.addEventListener('change', sync);
+    sync();
+    return select;
+  }
+
+  async function preloadPendingBoardProfiles(pending){
+    await ensureInstallerDevices();
+    const ctx = getInstallerContext();
+    const ids = new Set();
+    if (ctx.boardId) ids.add(ctx.boardId);
+    (pending || []).forEach(p => {
+      const dev = findInstallerDeviceForPending(p);
+      if (dev && dev.board_profile_id) ids.add(dev.board_profile_id);
+    });
+    await Promise.all(Array.from(ids).map(loadBoardProfileSummary));
+  }
+
   async function loadPending(){
     setMsg("Loading pending IO...");
     const out = await api("/pending-io");
     const allPending = out.pending || [];
+    await preloadPendingBoardProfiles(allPending);
     const tbody = $("rows");
     tbody.innerHTML = "";
 
@@ -407,22 +618,24 @@
     setMsg(term ? ("Filtered to " + pending.length + " of " + allPending.length + " pending IO.") : "");
 
     pending.forEach(p=>{
+      const ctx = profileContextForPending(p);
+      const profile = ctx.profile;
+      const inferred = inferPendingProfileBinding(p, profile);
+      const initialClass = inferred.klass || guessPendingClass(p);
       const tr = document.createElement("tr");
 
       tr.innerHTML = `
         <td>
-          <div style="font-weight:900">${p.device_id}</div>
-          <div class="muted">${p.group_name}.${p.key}</div>
-          <div class="muted">last: ${(new Date(p.last_seen)).toLocaleTimeString()} | val: ${p.last_value ?? "—"}</div>
+          <div style="font-weight:900">${escHTML(p.device_id)}</div>
+          <div class="muted">${escHTML(p.group_name)}.${escHTML(p.key)}</div>
+          <div class="muted">last: ${(new Date(p.last_seen)).toLocaleTimeString()} | val: ${escHTML(p.last_value ?? "—")}</div>
         </td>
         <td>
-          <select class="typeSel">
-            <option value="sensor" ${p.group_name==="tele"?"selected":""}>sensor</option>
-            <option value="relay" ${p.group_name==="state"?"selected":""}>relay</option>
-          </select>
+          <select class="typeSel">${pendingClassOptions(initialClass)}</select>
         </td>
+        <td><div class="boardPathWrap"></div></td>
         <td>${zoneSelectHtml("")}</td>
-        <td><input class="nameInp" value="${p.group_name==='tele' && p.key==='temp' ? "Temperature" : (p.group_name==='tele' && p.key==='hum' ? "Humidity" : p.key.toUpperCase())}" /></td>
+        <td><input class="nameInp" value="${escHTML(defaultPendingName(p))}" /></td>
         <td style="text-align:right; white-space:nowrap;">
           <button class="btn btnPrimary approveBtn">Approve</button>
           <button class="btn deleteBtn">Delete</button>
@@ -432,13 +645,22 @@
       const typeSel = tr.querySelector(".typeSel");
       const zoneSel = tr.querySelector(".zoneSel");
       const nameInp = tr.querySelector(".nameInp");
+      const bindingWrap = tr.querySelector('.boardPathWrap');
+      let bindingSel = null;
+
+      const syncBinding = () => {
+        const preferred = (String(typeSel.value || '').toUpperCase() === inferred.klass) ? inferred.source : '';
+        bindingSel = renderBoardBinding(bindingWrap, p, profile, typeSel.value, preferred, inferred.note || (profile ? ('Board profile: ' + profile.label) : ''));
+        if (bindingSel && preferred && (!nameInp.value.trim() || nameInp.value.trim() === defaultPendingName(p))) nameInp.value = installerPortFriendly(preferred);
+      };
+      syncBinding();
+      typeSel.addEventListener('change', syncBinding);
 
       tr.querySelector(".approveBtn").onclick = async ()=>{
         try{
           const zone_id = zoneSel.value ? Number(zoneSel.value) : null;
           let site_id = null;
           try {
-            // Auto-pick first site if none stored
             if (!localStorage.getItem('elaris_site_id')) {
               const sr = await fetch('/api/sites',{credentials:'include'}).then(r=>r.json()).catch(()=>({}));
               const ss = (sr.sites||[]);
@@ -446,9 +668,12 @@
             }
             site_id = Number(localStorage.getItem('elaris_site_id')||'') || null;
           } catch(e){ site_id=null; }
+          const entity_class = typeSel.value;
+          const source_hint = bindingSel ? String(bindingSel.value || '').trim() : '';
+          const board_profile_id = String(profile?.id || '').trim() || null;
           await api(`/pending-io/${p.id}/approve`, {
             method:"POST",
-            body: JSON.stringify({ name: nameInp.value, type: typeSel.value, zone_id, site_id })
+            body: JSON.stringify({ name: nameInp.value, entity_class, zone_id, site_id, source_hint, board_profile_id })
           });
           setMsg("Approved.");
           await loadPending();
@@ -537,19 +762,42 @@
   };
 
   // ── Board catalog import ──────────────────────────────────────────────────
-  async function loadBoards() {
+  async function loadBoards(showAll = false) {
     try {
       const out = await api('/esphome/catalog');
       const boards = out.boards || [];
       const sel = $('boardSel');
-      sel.innerHTML = `<option value="">— Select board —</option>` +
-        boards.map(b => `<option value="${b.id}">${b.label}</option>`).join('');
-      sel.onchange = () => {
-        const b = boards.find(x => x.id === sel.value);
-        if (!b) { $('importBoardInfo').textContent = ''; return; }
+      const info = $('importBoardInfo');
+      const ctx = getInstallerContext();
+      let visibleBoards = boards;
+      if (!showAll && ctx.boardId) {
+        const preferred = boards.find(b => b.id === ctx.boardId);
+        if (preferred) visibleBoards = [preferred];
+      }
+      const opts = ['<option value="">— Select board —</option>'];
+      if (!showAll && ctx.boardId && visibleBoards.length === 1 && boards.length > 1) {
+        opts.push('<option value="__all__">Show all boards…</option>');
+      }
+      visibleBoards.forEach(b => opts.push(`<option value="${b.id}">${b.label}</option>`));
+      sel.innerHTML = opts.join('');
+      if (ctx.deviceName && !$('importDeviceName').value.trim()) $('importDeviceName').value = ctx.deviceName;
+      if (ctx.boardId && visibleBoards.some(b => b.id === ctx.boardId)) sel.value = ctx.boardId;
+      const updateInfo = () => {
+        if (sel.value === '__all__') { loadBoards(true); return; }
+        const all = boards;
+        const b = all.find(x => x.id === sel.value);
+        if (!b) {
+          info.textContent = ctx.boardId && !showAll && visibleBoards.length === 1
+            ? 'Showing the last board used in ESPHome. Choose “Show all boards…” to browse the full catalog.'
+            : '';
+          return;
+        }
         const counts = (b.defaults || []).reduce((acc, e) => { acc[e.type] = (acc[e.type] || 0) + 1; return acc; }, {});
-        $('importBoardInfo').textContent = Object.entries(counts).map(([t, n]) => `${n}× ${t}`).join(' · ') || 'No IOs defined';
+        const countText = Object.entries(counts).map(([t, n]) => `${n}× ${t}`).join(' · ') || 'No IOs defined';
+        info.textContent = countText + (ctx.deviceName ? ` · device ${ctx.deviceName}` : '');
       };
+      sel.onchange = updateInfo;
+      updateInfo();
     } catch(e) {
       $('boardSel').innerHTML = `<option value="">Error loading boards</option>`;
     }
@@ -630,9 +878,11 @@
           <td style="padding:8px"><strong>${b.device_id}</strong><br>
             <span style="color:var(--muted,#888);font-size:11px">${b.group_name}.${b.key}</span></td>
           <td style="padding:8px;color:var(--muted,#888);font-size:11px">${dt}</td>
-          <td style="padding:8px;text-align:right">
+          <td style="padding:8px;text-align:right;white-space:nowrap">
             <button class="btn" style="font-size:11px;padding:4px 10px"
               onclick="unblockIO('${b.device_id}','${b.group_name}','${b.key}')">Unblock</button>
+            <button class="btn" style="font-size:11px;padding:4px 10px;margin-left:6px"
+              onclick="hideBlockedIO('${b.device_id}','${b.group_name}','${b.key}')">Delete</button>
           </td>`;
         tbody.appendChild(tr);
       });
@@ -644,6 +894,13 @@
       await api("/blocked-io", { method: "DELETE", body: JSON.stringify({ device_id, group_name, key }) });
       await loadBlocked();
     } catch(e) { setMsg("Unblock error: "+e.message, true); }
+  }
+
+  async function hideBlockedIO(device_id, group_name, key) {
+    try {
+      await api("/blocked-io/hide", { method: "POST", body: JSON.stringify({ device_id, group_name, key }) });
+      await loadBlocked();
+    } catch(e) { setMsg("Delete error: "+e.message, true); }
   }
 </script>
 
