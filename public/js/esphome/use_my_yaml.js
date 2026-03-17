@@ -6,6 +6,11 @@ function toggleUseMyYaml() {
   var p = document.getElementById('useMyYamlPanel');
   if (p.style.display === 'none') {
     closeEspPanels('useMyYamlPanel');
+    // Hide wizard steps so they don't show alongside the UMY panel
+    for (var i = 1; i <= 5; i++) {
+      var s = document.getElementById('step' + i);
+      if (s) s.style.display = 'none';
+    }
     p.style.display = '';
     _umyCurrentYaml = '';
     _umyAddedPeripherals = [];
@@ -18,6 +23,11 @@ function toggleUseMyYaml() {
     document.getElementById('umyTerminal').style.display = 'none';
   } else {
     p.style.display = 'none';
+    // Restore the current wizard step
+    if (typeof currentStep !== 'undefined') {
+      var cur = document.getElementById('step' + currentStep);
+      if (cur) cur.style.display = '';
+    }
   }
 }
 
