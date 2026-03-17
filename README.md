@@ -7,7 +7,7 @@
 <p align="center"><strong>Modular automation engine for home, building, and light industrial control.</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.3.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/node-20+-green" alt="Node">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
   <img src="https://img.shields.io/badge/platform-Raspberry%20Pi-red" alt="Platform">
@@ -24,11 +24,28 @@ ELARIS Core is the open foundation of the ELARIS ecosystem — a runtime automat
 
 ## What it does
 
-- Discovers and manages ESP32-based I/O nodes over MQTT
-- Runs automation modules (lighting, climate, shading, energy, scenes)
-- Provides a web-based UI for daily control and engineering commissioning
-- Supports multi-zone, multi-site configurations
-- Integrates with ESPHome for firmware generation and flashing
+**Devices & connectivity**
+- Discovers and manages ESP32-based I/O nodes automatically over MQTT
+- Supports Kincony KC868 series, WT32-ETH01, and any generic ESPHome board
+- Real-time device state via WebSocket — no polling
+
+**Automation**
+- Runs automation modules with a 30-second tick engine
+- Multi-zone, multi-site configurations
+- Scenes: multi-device macros with trigger conditions
+- Three-tier role model: User / Engineer / Admin
+
+**ESPHome integration (v0.3)**
+- Browse 750+ community device profiles from esphome.io directly in the UI
+- Flash a device directly from the browser without saving to catalog first
+- Generate and flash custom firmware over USB serial or OTA
+- Peripheral Library: 22 sensor types (temperature, humidity, CO₂, flow, PIR, soil, wind, and more)
+- Add peripherals to existing firmware via OTA — no USB re-flash required
+- Board profile manager: create, edit, clone, and export custom profiles
+
+**Platform**
+- Web-based UI — no app, no build step, works from any browser on the local network
+- Runs on Raspberry Pi 3/4/5 under PM2 or systemd
 
 ---
 
@@ -54,7 +71,7 @@ Additional modules (Solar, Pool, Irrigation, Hydronic, Load Shifting, Custom Log
 - **Runtime:** Node.js 20+
 - **Database:** SQLite (via better-sqlite3)
 - **Protocol:** MQTT (Mosquitto)
-- **Hardware:** ESP32 + Kincony KC868 series I/O boards
+- **Hardware:** ESP32 / ESP8266 — Kincony KC868 series, WT32-ETH01, generic boards
 - **Firmware:** ESPHome (auto-generated YAML, OTA flashing)
 - **Frontend:** Vanilla HTML/CSS/JS — no build step
 
@@ -119,10 +136,13 @@ ELARIS discovers ESP32 devices automatically over MQTT using a lightweight disco
 
 The built-in ESPHome page (`/esphome.html`) lets you:
 
-- Generate and flash firmware for supported boards
-- Browse 750+ community device profiles
-- Build YAML configs for peripheral sensors (Peripheral Library)
-- Flash over USB or OTA
+- **Browse** 750+ community device profiles from esphome.io (cached, searchable)
+- **Flash directly** from the browser — no need to import to catalog first
+- **Generate** custom firmware for any ESP32/ESP8266 board
+- **Peripheral Library** — add 22 sensor/actuator types to existing devices via OTA
+- **Import** YAML configs from URL or paste — auto-parsed into the board catalog
+- **Manage** board profiles: create, edit, clone, export
+- Flash over **USB serial** or **OTA** (Ethernet or WiFi)
 
 ---
 

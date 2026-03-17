@@ -54,3 +54,14 @@ window.toast = function toast(msg, okOrMs) {
     }
   }, ms);
 };
+
+// ── Version badge — injected on every page that loads core.js ─────────────────
+document.addEventListener('DOMContentLoaded', function () {
+  var b = document.createElement('div');
+  b.id = 'elarisVersionBadge';
+  b.style.cssText = 'position:fixed;bottom:7px;right:11px;font-size:10px;color:#888;opacity:.5;pointer-events:none;z-index:9999;font-family:monospace;letter-spacing:.02em';
+  document.body.appendChild(b);
+  fetch('/api/version').then(function(r){ return r.json(); }).then(function(d){
+    if (d.version) b.textContent = 'ELARIS v' + d.version;
+  }).catch(function(){});
+});

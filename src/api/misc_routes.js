@@ -5,6 +5,11 @@ const { getWeather } = require('../weather');
 
 function mountMiscRoutes(app, { db, access, requireLogin, requireEngineerAccess }) {
 
+  // ── Version (public) ─────────────────────────────────────────────────────
+  app.get('/api/version', (req, res) => {
+    res.json({ ok: true, version: require('../../package.json').version });
+  });
+
   // ── Weather ─────────────────────────────────────────────────────────────
   app.get('/api/weather/:site_id', requireLogin, async (req, res) => {
     try {
