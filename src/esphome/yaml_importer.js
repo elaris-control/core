@@ -20,6 +20,17 @@ function parseEsphomeYaml(yamlText) {
     }
   }
 
+  // Strip ESPHome custom YAML tags that js-yaml doesn't understand.
+  // !secret foo        → "__secret__"  (credentials — value irrelevant for profile extraction)
+  // !lambda 'code'     → "__lambda__"  (runtime expressions — not needed for profile)
+  // !include file.yaml → "__include__" (file includes — not resolved here)
+  // !extend id         → "__extend__"  (package overrides — not needed for profile)
+  yamlText = yamlText.replace(/!secret\s+\S+/g, '"__secret__"');
+  yamlText = yamlText.replace(/!lambda\s+'[^']*'/g, '"__lambda__"');
+  yamlText = yamlText.replace(/!lambda\s+"[^"]*"/g, '"__lambda__"');
+  yamlText = yamlText.replace(/!include\s+\S+/g, '"__include__"');
+  yamlText = yamlText.replace(/!extend\s+\S+/g, '"__extend__"');
+
   let doc;
   try {
     doc = yaml.load(yamlText);
