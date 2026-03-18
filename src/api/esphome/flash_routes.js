@@ -8,6 +8,121 @@ const { safeName } = require('../../esphome/schema');
 const { applyYamlOverrides } = require('../../esphome/generator');
 const { parseEsphomeYaml } = require('../../esphome/yaml_importer');
 const { getEspHomeBin, sendWs, resolveConfig, defaultSiteId, persistInstallState, updateJob } = require('../../esphome/helpers');
+const { getCatalogProfile, listCatalogSummaries } = require('../../esphome/profile_registry');
+
+
+function yamlHasTopLevelBlock(text, key) {
+  const src = String(text || '');
+  const safeKey = String(key || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const rx = new RegExp('^' + safeKey + '\\s*:(?:\\s*$|\\s*\\n)', 'mi');
+  return rx.test(src);
+}
+
+
+function removeTopLevelBlock(text, key) {
+  const src = String(text || '');
+  const safeKey = String(key || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const rx = new RegExp('(^' + safeKey + '\\s*:[\\s\\S]*?)(?=^[^\\s#][^:]*:\\s*$|\\Z)', 'mi');
+  const out = src.replace(rx, '').replace(/\n{3,}/g, '\n\n').trim();
+  return out ? out + '\n' : '';
+}
+
+function buildManagedConfigJson({ deviceName, boardProfileId, boardLabel, entities }) {
+  const hostname = safeName(deviceName || 'device');
+  const list = (Array.isArray(entities) ? entities : [])
+    .filter((e) => e && e.key)
+    .map((e) => ({
+      key: String(e.key),
+      group: String(e.group || (String(e.type || '').toLowerCase() === 'relay' ? 'state' : 'tele')),
+      type: String(e.type || 'sensor'),
+      name: String(e.name || e.key),
+    }));
+  return JSON.stringify({
+    device: {
+      name: String(deviceName || hostname),
+      hostname,
+      model: String(boardLabel || 'ELARIS Imported ESPHome Device'),
+      board_profile_id: boardProfileId || null,
+      sw: '1.0.0',
+    },
+    entities: list,
+  });
+}
+
+function injectManagedOverlay(yamlText, { deviceName, mqttHost, configJson }) {
+  let out = String(yamlText || '');
+  const deviceSafe = safeName(deviceName || 'device');
+  if (!yamlHasTopLevelBlock(out, 'mqtt')) {
+    out = out.trimEnd() + '\n\n' + [
+      'mqtt:',
+      `  broker: ${mqttHost}`,
+      `  topic_prefix: ${deviceSafe}`,
+      ''
+    ].join('\n');
+  }
+  const configPayload = String(configJson || '{}').replace(/'/g, "''");
+  const configTopic = `topic: "elaris/${deviceSafe}/config"`;
+  if (!out.includes(configTopic)) {
+    out = out.replace(/^esphome:\s*$/m, [
+      'esphome:',
+      '  on_boot:',
+      '    priority: -100',
+      '    then:',
+      '      - delay: 2s',
+      '      - mqtt.publish:',
+      `          ${configTopic}`,
+      `          payload: '${configPayload}'`,
+      '          retain: true',
+    ].join('\n'));
+  } else {
+    const escapedTopic = configTopic.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(
+      new RegExp(`(${escapedTopic}\\s*\\n\\s*payload:\\s*'[^\\n]*')(?!\\n\\s*retain:\\s*true)`, 'm'),
+      `$1\\n          retain: true`
+    );
+  }
+  return out;
+}
+function pickCatalogProfileForYaml(db, parsed, explicitProfileId) {
+  const explicit = String(explicitProfileId || '').trim();
+  if (explicit) {
+    const def = getCatalogProfile(db, explicit);
+    if (def) return def;
+  }
+  const rows = listCatalogSummaries(db || null);
+  if (!rows.length) return null;
+  const parsedId = String(parsed?.id || '').trim().toLowerCase();
+  const parsedBoard = String(parsed?.board || '').trim().toLowerCase();
+  const parsedLabel = String(parsed?.label || '').trim().toLowerCase();
+  const wantEth = !!(parsed && parsed.supports && parsed.supports.ethernet);
+  const scored = rows.map((row) => {
+    let score = 0;
+    const rowId = String(row.id || '').trim().toLowerCase();
+    const rowBoard = String(row.board || '').trim().toLowerCase();
+    const rowLabel = String(row.label || '').trim().toLowerCase();
+    if (parsedId && rowId === parsedId) score += 120;
+    if (parsedId && rowId.endsWith(parsedId)) score += 90;
+    if (parsedId && rowLabel.includes(parsedId.replace(/[_-]+/g, ' '))) score += 40;
+    if (parsedLabel && rowLabel === parsedLabel) score += 50;
+    if (parsedBoard && rowBoard && parsedBoard === rowBoard) score += 10;
+    if (wantEth && row.supports && row.supports.ethernet) score += 20;
+    if (rowId.includes('kc868') && (parsedId.includes('kc868') || parsedId.includes('a16'))) score += 20;
+    return { row, score };
+  }).sort((a, b) => b.score - a.score);
+  return scored[0] && scored[0].score >= 30 ? getCatalogProfile(db, scored[0].row.id) : null;
+}
+
+function resetManagedDiscoveryRows(db, deviceName) {
+  const id = String(deviceName || '').trim();
+  if (!db || !id) return { cleared_blocked: 0, cleared_pending: 0 };
+  let clearedBlocked = 0;
+  let clearedPending = 0;
+  db.transaction(() => {
+    clearedBlocked = db.prepare('DELETE FROM blocked_io WHERE device_id=?').run(id).changes || 0;
+    clearedPending = db.prepare('DELETE FROM pending_io WHERE device_id=?').run(id).changes || 0;
+  })();
+  return { cleared_blocked: clearedBlocked, cleared_pending: clearedPending };
+}
 
 function mountFlashRoutes({ app, db, wsApi, dataDir, cfgDir, venvDir, requireEngineerAccess, state }) {
 
@@ -34,14 +149,20 @@ function mountFlashRoutes({ app, db, wsApi, dataDir, cfgDir, venvDir, requireEng
     if (state.activeFlash) return res.status(409).json({ error: 'flash_in_progress' });
     const bin = getEspHomeBin(dataDir);
     if (!bin) return res.status(503).json({ error: 'esphome_not_installed' });
-    const { payload, profile, validation, yaml } = resolveConfig(db, req.body);
+    const body = req.body || {};
+    if (!Object.prototype.hasOwnProperty.call(body, 'integration_key')) body.integration_key = 'esphome';
+    if (!Object.prototype.hasOwnProperty.call(body, 'ownership_mode')) body.ownership_mode = 'managed_internal';
+    if (!Object.prototype.hasOwnProperty.call(body, 'config_source')) body.config_source = 'board_profile';
+    if (!Object.prototype.hasOwnProperty.call(body, 'read_only')) body.read_only = 0;
+    const { payload, profile, validation, yaml } = resolveConfig(db, body);
     if (!profile) return res.status(400).json({ error: 'unknown_board_profile', validation });
     if (!validation.ok) return res.status(400).json({ error: 'validation_failed', validation, yaml: '' });
     if (!payload.port) return res.status(400).json({ error: 'missing_target_port_or_ip' });
     const yamlPath = path.join(cfgDir, `${safeName(payload.device_name)}.yaml`);
     fs.writeFileSync(yamlPath, yaml, 'utf8');
+    const reset = resetManagedDiscoveryRows(db, payload.device_name);
     const persisted = persistInstallState(db, { payload, profile, validation, yaml, yamlPath, port: payload.port, jobStatus: 'queued' });
-    res.json({ ok: true, yaml, validation, job_id: persisted?.jobId || null, device_id: persisted?.deviceId || null });
+    res.json({ ok: true, yaml, validation, reset, job_id: persisted?.jobId || null, device_id: persisted?.deviceId || null });
     const clientId = payload.client_id || null;
     const logs = [];
     const appendLog = (level, text) => { logs.push(`[${level}] ${text}`); sendWs(wsApi, clientId, 'esphome_log', level, text); };
@@ -89,37 +210,99 @@ function mountFlashRoutes({ app, db, wsApi, dataDir, cfgDir, venvDir, requireEng
     if (!yamlText) return res.status(400).json({ ok: false, error: 'yaml_text_required' });
     if (!device_name) return res.status(400).json({ ok: false, error: 'device_name_required' });
     if (!port) return res.status(400).json({ ok: false, error: 'port_or_ip_required' });
-    const finalYaml = applyYamlOverrides(yamlText, { device_name, wifi_ssid, wifi_pass, mqtt_host });
+    let finalYaml = applyYamlOverrides(yamlText, { device_name, wifi_ssid, wifi_pass, mqtt_host });
+    // Strip remaining !secret tags — HA-specific secrets (api key, ota password, etc.)
+    // not needed by ELARIS. Replace *key* secrets with a valid random base64 value,
+    // everything else with an empty string so ESPHome doesn't abort on missing secrets.yaml.
+    const crypto = require('crypto');
+    finalYaml = finalYaml.replace(/!secret\s+(\S+)/g, (_, name) =>
+      /key|encr/i.test(name) ? '"' + crypto.randomBytes(32).toString('base64') + '"' : '""'
+    );
     let parsed;
     try { parsed = parseEsphomeYaml(finalYaml); }
     catch (e) { return res.status(400).json({ ok: false, error: 'invalid_yaml_after_overrides: ' + String(e?.message || e) }); }
-    const minimalProfile = { id: parsed.id || 'yaml_draft', label: parsed.label || device_name, platform: parsed.platform || 'esp32', frameworkDefault: parsed.frameworkDefault || 'arduino' };
-    const payload = { site_id, device_name, board_profile_id: minimalProfile.id, wifi_ssid, wifi_pass, mqtt_host, port, client_id, entities: Array.isArray(parsed.entityDefaults) ? parsed.entityDefaults : [] };
+    let hasWifi = yamlHasTopLevelBlock(finalYaml, 'wifi');
+    const hasEthernet = yamlHasTopLevelBlock(finalYaml, 'ethernet');
+    if (hasWifi && hasEthernet) {
+      // For ELARIS-managed imports, prefer Ethernet when the source YAML already has ethernet.
+      // This matches the UI hint that WiFi fields are ignored for ethernet boards.
+      finalYaml = removeTopLevelBlock(finalYaml, 'wifi');
+      hasWifi = false;
+    }
+    const explicitExistingId = Number(body.existing_device_id || 0) || null;
+    const explicitProfileId = String(body.board_profile_id || '').trim();
+    let selectedRow = null;
+    if (explicitExistingId) {
+      try { selectedRow = db.prepare('SELECT * FROM esphome_devices WHERE id=? LIMIT 1').get(explicitExistingId); } catch (_) { selectedRow = null; }
+    }
+    const selectedProfileId = String(selectedRow?.board_profile_id || '').trim();
+    const resolvedProfile = pickCatalogProfileForYaml(db, parsed, explicitProfileId || selectedProfileId) || {
+      id: explicitProfileId || selectedProfileId || parsed.id || 'yaml_draft',
+      label: parsed.label || device_name,
+      platform: parsed.platform || 'esp32',
+      frameworkDefault: parsed.frameworkDefault || 'arduino'
+    };
+    const managedEntities = Array.isArray(parsed.entityDefaults) ? parsed.entityDefaults.map((e) => ({
+      key: e.key,
+      group: e.group || (String(e.type || '').toLowerCase() === 'relay' ? 'state' : 'tele'),
+      type: e.type,
+      name: e.name || e.key,
+    })) : [];
+    if (mqtt_host) {
+      const configJson = buildManagedConfigJson({
+        deviceName: device_name,
+        boardProfileId: resolvedProfile.id,
+        boardLabel: resolvedProfile.label,
+        entities: managedEntities,
+      });
+      finalYaml = injectManagedOverlay(finalYaml, { deviceName: device_name, mqttHost: mqtt_host, configJson });
+    }
+    const payload = {
+      site_id,
+      device_name,
+      board_profile_id: resolvedProfile.id,
+      wifi_ssid,
+      wifi_pass,
+      mqtt_host,
+      port,
+      client_id,
+      use_ethernet: hasEthernet && !hasWifi,
+      existing_device_id: explicitExistingId,
+      entities: managedEntities,
+      integration_key: 'esphome',
+      ownership_mode: 'managed_internal',
+      config_source: 'use_my_yaml_overlay',
+      read_only: 0
+    };
     const validation = { ok: true };
     const yamlPath = path.join(cfgDir, `${safeName(device_name)}.yaml`);
     fs.writeFileSync(yamlPath, finalYaml, 'utf8');
-    const persisted = persistInstallState(db, { payload, profile: minimalProfile, validation, yaml: finalYaml, yamlPath, port, jobStatus: 'queued' });
-    res.json({ ok: true, yaml: finalYaml, validation, job_id: persisted?.jobId || null, device_id: persisted?.deviceId || null });
+    const reset = resetManagedDiscoveryRows(db, device_name);
+    const persisted = persistInstallState(db, { payload, profile: resolvedProfile, validation, yaml: finalYaml, yamlPath, port, jobStatus: 'queued' });
+    res.json({ ok: true, yaml: finalYaml, validation, reset, job_id: persisted?.jobId || null, device_id: persisted?.deviceId || null });
     const logs = [];
     const appendLog = (level, text) => { logs.push(`[${level}] ${text}`); sendWs(wsApi, client_id, 'esphome_log', level, text); };
     const args = ['run', yamlPath, '--no-logs'];
     if (port) args.push('--device', port);
+    console.log(`[ESPHOME] spawn: bin=${bin} args=${JSON.stringify(args)} client_id=${client_id}`);
     const proc = spawn(bin, args, { cwd: cfgDir });
     state.activeFlash = proc;
     updateJob(db, persisted?.jobId, { status: 'running', started_at: new Date().toISOString() });
     if (db && persisted?.deviceId) db.prepare('UPDATE esphome_devices SET status=?, updated_at=? WHERE id=?').run('running', new Date().toISOString(), persisted.deviceId);
-    proc.stdout.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => appendLog('info', l)));
-    proc.stderr.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => appendLog('warn', l)));
+    proc.stdout.on('data', d => { d.toString().split('\n').filter(Boolean).forEach(l => { console.log(`[ESPHOME out] ${l}`); appendLog('info', l); }); });
+    proc.stderr.on('data', d => { d.toString().split('\n').filter(Boolean).forEach(l => { console.log(`[ESPHOME err] ${l}`); appendLog('warn', l); }); });
     proc.on('close', code => {
       state.activeFlash = null;
       const ok = code === 0;
+      console.log(`[ESPHOME] process closed, exit=${code}`);
       if (db && persisted?.deviceId) db.prepare('UPDATE esphome_devices SET status=?, updated_at=? WHERE id=?').run(ok ? 'flashed' : 'error', new Date().toISOString(), persisted.deviceId);
       updateJob(db, persisted?.jobId, { status: ok ? 'success' : 'failed', finished_at: new Date().toISOString(), exit_code: code, output_log: logs.join('\n'), error_text: ok ? null : logs.slice(-20).join('\n') });
       if (client_id && wsApi.sendToClient) wsApi.sendToClient(client_id, { type: 'esphome_done', ok, code });
-      appendLog(ok ? 'info' : 'error', ok ? `✓ Flash complete — "${device_name}" will appear in Installer once it connects` : `✗ Flash failed (exit ${code})`);
+      appendLog(ok ? 'info' : 'error', ok ? `✓ Flash complete — "${device_name}" will appear in Installer once the ELARIS MQTT announce arrives` : `✗ Flash failed (exit ${code})`);
     });
     proc.on('error', err => {
       state.activeFlash = null;
+      console.error(`[ESPHOME] spawn error: ${err.message}`);
       updateJob(db, persisted?.jobId, { status: 'failed', finished_at: new Date().toISOString(), error_text: err.message, output_log: logs.join('\n') });
       appendLog('error', `Cannot run esphome: ${err.message}`);
     });

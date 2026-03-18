@@ -225,6 +225,8 @@
         </div>
         <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;">
           <input id="pendingSearch" placeholder="Filter by device, key or label…" style="min-width:220px;max-width:260px;" />
+          <button class="btn" id="mqttResyncBtn">Force MQTT Resync</button>
+          <button class="btn danger" id="freshImportBtn">Fresh Import (clear blocked)</button>
           <button class="btn" id="reloadBtn">Reload</button>
         </div>
       </div>
@@ -249,6 +251,7 @@
 
 <script>
   const $ = (id)=>document.getElementById(id);
+  const escHTML = (v)=> String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
   function applyTheme(theme){
     const t = (theme==="dark") ? "dark" : "light";
@@ -381,7 +384,27 @@
 
   let pendingFilter = "";
 
+  function installerClassFromPortGroup(group){
+    const g = String(group || '').toLowerCase();
+    if (g === 'do') return 'DO';
+    if (g === 'di') return 'DI';
+    if (g === 'ao') return 'AO';
+    if (g === 'ai' || g === 'ht' || g === 'onewire') return 'AI';
+    return '';
+  }
+
+  function pendingMeta(p){
+    try {
+      const raw = String(p && p.last_value != null ? p.last_value : '').trim();
+      if (!raw || raw[0] !== '{') return null;
+      return JSON.parse(raw);
+    } catch(e) { return null; }
+  }
+
   function guessPendingClass(p){
+    const meta = pendingMeta(p);
+    const metaClass = String(meta && meta.entity_class || '').trim().toUpperCase();
+    if (metaClass === 'DO' || metaClass === 'DI' || metaClass === 'AI' || metaClass === 'AO') return metaClass;
     const group = String(p.group_name || '').toLowerCase();
     const key = String(p.key || '').toLowerCase();
     if (group === 'state' || key.startsWith('state.')) return 'DO';
@@ -400,7 +423,118 @@
     return vals.map(([v, label]) => `<option value="${v}" ${String(selected)===v?'selected':''}>${label}</option>`).join('');
   }
 
-  function defaultPendingName(p){
+  function normalizeBoardMatchToken(v){
+    return String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '');
+  }
+
+  function addBoardMatchToken(set, value){
+    const raw = String(value || '').trim().toUpperCase();
+    if (!raw) return;
+    set.add(raw);
+    const flat = raw.replace(/[\s._\-/]+/g, '');
+    if (flat) set.add(flat);
+    const m = raw.match(/^([A-Z]+)0+(\d+)$/);
+    if (m) set.add(m[1] + String(Number(m[2])));
+  }
+
+  function buildBoardLookupTokens(value){
+    const out = new Set();
+    const push = function(v){
+      const raw = String(v || '').trim().toUpperCase();
+      if (!raw) return;
+      addBoardMatchToken(out, raw);
+      raw.split(/[^A-Z0-9]+/).filter(Boolean).forEach(function(part){ addBoardMatchToken(out, part); });
+    };
+    if (Array.isArray(value)) value.forEach(push);
+    else push(value);
+    return Array.from(out).map(normalizeBoardMatchToken).filter(Boolean);
+  }
+
+  function installerPortIndex(port){
+    const candidates = [port && port.id, port && port.label].concat(Array.isArray(port && port.aliases) ? port.aliases : []);
+    for (var i = 0; i < candidates.length; i++) {
+      var m = String(candidates[i] || '').trim().toUpperCase().match(/(?:^|[^A-Z])(DI|DO|AI|AO|HT|DS|IN|OUT|X|Y|AN|ADC|RELAY|TEMP|INPUT)0*(\d+)$/);
+      if (m) return Number(m[2]);
+    }
+    return null;
+  }
+
+  function installerGeneratedPortAliases(port){
+    const idx = installerPortIndex(port);
+    if (!Number.isFinite(idx)) return [];
+    const plain = String(idx);
+    const padded = String(idx).padStart(2, '0');
+    const families = {
+      do: ['DO', 'OUT', 'Y', 'RELAY'],
+      di: ['DI', 'IN', 'X', 'INPUT'],
+      ai: ['AI', 'AN', 'ADC'],
+      ao: ['AO', 'PWM'],
+      ht: ['HT', 'DS', 'TEMP', 'ONEWIRE'],
+      onewire: ['HT', 'DS', 'TEMP', 'ONEWIRE']
+    };
+    const list = [];
+    (families[String((port && port.group) || '').toLowerCase()] || []).forEach(function(prefix){
+      list.push(prefix + plain, prefix + padded);
+    });
+    return list;
+  }
+
+  function installerPortAliases(port){
+    const set = new Set();
+    [port && port.id, port && port.label, port && port.pin].forEach(function(v){ addBoardMatchToken(set, v); });
+    (Array.isArray(port && port.aliases) ? port.aliases : []).forEach(function(v){ addBoardMatchToken(set, v); });
+    installerGeneratedPortAliases(port).forEach(function(v){ addBoardMatchToken(set, v); });
+    var pin = String((port && port.pin) || '').trim().toUpperCase();
+    var m = pin.match(/^GPIO\s*(\d+)$/);
+    if (m) addBoardMatchToken(set, m[1]);
+    return Array.from(set).map(normalizeBoardMatchToken).filter(Boolean);
+  }
+
+  function installerDefaultAliases(def){
+    const set = new Set();
+    [def && def.key, def && def.source, def && def.pin].forEach(function(v){ addBoardMatchToken(set, v); });
+    return Array.from(set).map(normalizeBoardMatchToken).filter(Boolean);
+  }
+
+  function installerFindPortMatch(profile, rawValues, wantClass){
+    const ports = Array.isArray(profile && profile.boardPorts) ? profile.boardPorts : [];
+    const wanted = new Set(buildBoardLookupTokens(rawValues));
+    if (!wanted.size) return null;
+    var best = null;
+    ports.forEach(function(port){
+      var portClass = installerClassFromPortGroup(port && port.group);
+      if (wantClass && portClass && String(wantClass).toUpperCase() !== portClass) return;
+      installerPortAliases(port).forEach(function(alias){
+        if (!wanted.has(alias)) return;
+        var score = 100 + alias.length;
+        if (!best || score > best.score) best = { port: port, alias: alias, score: score };
+      });
+    });
+    return best;
+  }
+
+  function installerFindBusMatch(profile, rawValues){
+    const buses = Array.isArray(profile && profile.boardBuses) ? profile.boardBuses : [];
+    const wanted = new Set(buildBoardLookupTokens(rawValues));
+    if (!wanted.size) return null;
+    var best = null;
+    buses.forEach(function(bus){
+      var aliases = [bus && bus.id, bus && bus.label].concat(Array.isArray(bus && bus.aliases) ? bus.aliases : []);
+      aliases.map(normalizeBoardMatchToken).filter(Boolean).forEach(function(alias){
+        if (!wanted.has(alias)) return;
+        var score = 80 + alias.length;
+        if (!best || score > best.score) best = { bus: bus, alias: alias, score: score };
+      });
+    });
+    return best;
+  }
+
+  function defaultPendingName(p, inferred){
+    const meta = pendingMeta(p);
+    if (meta && meta.name) return String(meta.name);
+    if (inferred && inferred.name) return String(inferred.name);
+    if (meta && meta.source) return installerPortFriendly(meta.source);
+    if (inferred && inferred.source) return installerPortFriendly(inferred.source);
     if (p.group_name==='tele' && p.key==='temp') return 'Temperature';
     if (p.group_name==='tele' && p.key==='hum') return 'Humidity';
     return String(p.key || '').toUpperCase();
@@ -480,24 +614,84 @@
   }
 
   function inferPendingProfileBinding(p, profile){
-    if (!profile) return { source: '', klass: '', note: '' };
+    if (!profile) return { source: '', klass: '', note: '', name: '' };
     const defaults = Array.isArray(profile.defaults) ? profile.defaults : [];
+    const meta = pendingMeta(p);
+    const rawCandidates = [p && p.key, (p && p.group_name ? (p.group_name + '.' + p.key) : ''), p && p.device_id, meta && meta.source, meta && meta.port_id, meta && meta.bus_id];
+    const wanted = new Set(buildBoardLookupTokens(rawCandidates));
     const key = String(p && p.key || '').trim().toLowerCase();
-    const exact = defaults.find(d => String(d && d.key || '').trim().toLowerCase() === key);
-    if (exact) return {
-      source: String(exact.source || exact.pin || '').trim(),
-      klass: installerClassFromEntityType(exact.type),
-      note: exact.name ? ('Default profile mapping: ' + exact.name) : 'Default profile mapping'
-    };
+
+    for (var i = 0; i < defaults.length; i++) {
+      var def = defaults[i] || {};
+      var klass = installerClassFromEntityType(def.type);
+      var portMatch = installerFindPortMatch(profile, installerDefaultAliases(def), klass);
+      var busMatch = (!portMatch && klass === 'AI') ? installerFindBusMatch(profile, installerDefaultAliases(def)) : null;
+      var defAliases = installerDefaultAliases(def);
+      var exact = defAliases.some(function(alias){ return wanted.has(alias); });
+      if (exact) {
+        if (portMatch && portMatch.port) {
+          return {
+            source: String(portMatch.port.id || def.source || def.pin || '').trim(),
+            klass: klass || installerClassFromPortGroup(portMatch.port.group),
+            note: def.name ? ('Profile default: ' + def.name) : 'Matched board profile default.',
+            name: String(def.name || portMatch.port.label || portMatch.port.id || '').trim()
+          };
+        }
+        if (busMatch && busMatch.bus) {
+          return {
+            source: String(busMatch.bus.id || def.source || '').trim(),
+            klass: klass || 'AI',
+            note: def.name ? ('Profile default: ' + def.name) : 'Matched board profile bus.',
+            name: String(def.name || busMatch.bus.label || busMatch.bus.id || '').trim()
+          };
+        }
+        return {
+          source: String(def.source || def.pin || '').trim(),
+          klass: klass,
+          note: def.name ? ('Profile default: ' + def.name) : 'Matched board profile default.',
+          name: String(def.name || '').trim()
+        };
+      }
+    }
+
+    if (meta && meta.source) {
+      return {
+        source: String(meta.port_id || meta.source || '').trim(),
+        klass: String(meta.entity_class || '').trim().toUpperCase() || '',
+        note: 'Imported external native metadata.',
+        name: String(meta.name || '').trim()
+      };
+    }
+
+    var directPort = installerFindPortMatch(profile, rawCandidates, '');
+    if (directPort && directPort.port) {
+      return {
+        source: String(directPort.port.id || directPort.port.label || '').trim(),
+        klass: installerClassFromPortGroup(directPort.port.group) || '',
+        note: 'Matched board port alias: ' + (directPort.port.label || directPort.port.id || directPort.alias),
+        name: installerPortFriendly(directPort.port.label || directPort.port.id || '')
+      };
+    }
+
+    var directBus = installerFindBusMatch(profile, rawCandidates);
+    if (directBus && directBus.bus) {
+      return {
+        source: String(directBus.bus.id || directBus.bus.label || '').trim(),
+        klass: 'AI',
+        note: 'Matched board bus alias: ' + (directBus.bus.label || directBus.bus.id || directBus.alias),
+        name: String(directBus.bus.label || directBus.bus.id || '').trim()
+      };
+    }
+
     var m = key.match(/^relay_(\d+)$/);
-    if (m) return { source: 'DO' + m[1], klass: 'DO', note: 'Matched relay channel from key.' };
+    if (m) return { source: 'DO' + m[1], klass: 'DO', note: 'Matched relay channel from key.', name: 'Relay ' + m[1] };
     m = key.match(/^di_(\d+)$/);
-    if (m) return { source: 'DI' + m[1], klass: 'DI', note: 'Matched digital input from key.' };
+    if (m) return { source: 'DI' + m[1], klass: 'DI', note: 'Matched digital input from key.', name: 'DI ' + m[1] };
     m = key.match(/^ai_(\d+)$/);
-    if (m) return { source: 'AI' + m[1], klass: 'AI', note: 'Matched analog input from key.' };
+    if (m) return { source: 'AI' + m[1], klass: 'AI', note: 'Matched analog input from key.', name: 'AI ' + m[1] };
     m = key.match(/^ht_(\d+)$/);
-    if (m) return { source: 'HT' + m[1], klass: 'AI', note: 'Matched sensor port from key.' };
-    return { source: '', klass: '', note: '' };
+    if (m) return { source: 'HT' + m[1], klass: 'AI', note: 'Matched sensor port from key.', name: 'HT ' + m[1] };
+    return { source: '', klass: '', note: '', name: '' };
   }
 
   function boardBindingsForClass(profile, klass){
@@ -635,7 +829,7 @@
         </td>
         <td><div class="boardPathWrap"></div></td>
         <td>${zoneSelectHtml("")}</td>
-        <td><input class="nameInp" value="${escHTML(defaultPendingName(p))}" /></td>
+        <td><input class="nameInp" value="${escHTML(defaultPendingName(p, inferred))}" /></td>
         <td style="text-align:right; white-space:nowrap;">
           <button class="btn btnPrimary approveBtn">Approve</button>
           <button class="btn deleteBtn">Delete</button>
@@ -649,9 +843,12 @@
       let bindingSel = null;
 
       const syncBinding = () => {
+        const currentDefaultName = defaultPendingName(p, inferred);
         const preferred = (String(typeSel.value || '').toUpperCase() === inferred.klass) ? inferred.source : '';
         bindingSel = renderBoardBinding(bindingWrap, p, profile, typeSel.value, preferred, inferred.note || (profile ? ('Board profile: ' + profile.label) : ''));
-        if (bindingSel && preferred && (!nameInp.value.trim() || nameInp.value.trim() === defaultPendingName(p))) nameInp.value = installerPortFriendly(preferred);
+        if (bindingSel && preferred && (!nameInp.value.trim() || nameInp.value.trim() === currentDefaultName || nameInp.value.trim() === defaultPendingName(p))) {
+          nameInp.value = inferred.name || installerPortFriendly(preferred);
+        }
       };
       syncBinding();
       typeSel.addEventListener('change', syncBinding);
@@ -844,6 +1041,45 @@
     });
   }
 
+  async function forceMqttResync(opts){
+    opts = opts || {};
+    const fresh = !!opts.fresh;
+    const btn = $(fresh ? 'freshImportBtn' : 'mqttResyncBtn');
+    const ctx = getInstallerContext();
+    const hinted = String((ctx && ctx.deviceName) || pendingFilter || '').trim();
+    const raw = window.prompt(fresh ? 'Device name for fresh import (clears blocked + pending first):' : 'Device name to resync from cached MQTT state:', hinted);
+    const deviceId = String(raw || '').trim();
+    if (!deviceId) {
+      setMsg(fresh ? 'Fresh import cancelled.' : 'MQTT resync cancelled.');
+      return;
+    }
+    if (fresh && !window.confirm(`Fresh import for ${deviceId}? This clears pending + blocked discovery rows for that device, then reseeds from MQTT cache and board profile.`)) {
+      setMsg('Fresh import cancelled.');
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.textContent = fresh ? 'Fresh importing…' : 'Resyncing…'; }
+    try {
+      const out = await api('/pending-io/resync', { method:'POST', body: JSON.stringify({ device_id: deviceId, clear_blocked: fresh, clear_pending: fresh, seed_from_profile: true }) });
+      const note = out.note ? (' — ' + out.note) : '';
+      const extras = fresh
+        ? ` · cleared ${out.cleared_blocked || 0} blocked / ${out.cleared_pending || 0} pending · profile seeded ${out.profile_seeded || 0}`
+        : (out.profile_seeded ? ` · profile seeded ${out.profile_seeded}` : '');
+      setMsg(`${fresh ? 'Fresh import' : 'MQTT resync'} for ${out.device_id}: ${out.imported} imported, ${out.skipped} skipped from ${out.scanned} cached keys${extras}${note}`);
+      if (searchInput && !searchInput.value.trim()) {
+        searchInput.value = out.device_id || deviceId;
+        pendingFilter = searchInput.value;
+      }
+      await loadPending();
+      await loadBlocked();
+    } catch(e) {
+      setMsg((fresh ? 'Fresh import failed: ' : 'MQTT resync failed: ') + e.message, true);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = fresh ? 'Fresh Import (clear blocked)' : 'Force MQTT Resync'; }
+    }
+  }
+
+  $("mqttResyncBtn").onclick = ()=> forceMqttResync();
+  $("freshImportBtn").onclick = ()=> forceMqttResync({ fresh:true });
   $("reloadBtn").onclick = ()=> loadPending();
   $("refreshBtn").onclick = ()=> boot();
 

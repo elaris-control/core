@@ -31,6 +31,29 @@ function stableStringify(obj) {
   return JSON.stringify(obj, Object.keys(obj).sort(), 2);
 }
 
+function normalizeIntegrationKey(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return raw || 'esphome';
+}
+
+function normalizeOwnershipMode(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'external_readonly' || raw === 'external_native' || raw === 'managed_internal') return raw;
+  return 'managed_internal';
+}
+
+function normalizeConfigSource(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (['board_profile', 'use_my_yaml_overlay', 'ota_managed_edit', 'external_yaml', 'native_api', 'saved_config'].includes(raw)) return raw;
+  return 'board_profile';
+}
+
+function normalizeReadOnly(value, ownershipMode) {
+  if (value === true || value === 1 || String(value).trim() === '1') return 1;
+  if (ownershipMode === 'external_readonly') return 1;
+  return 0;
+}
+
 function normalizeEntity(raw, index) {
   const type = String(raw?.type || '').trim().toLowerCase();
   const name = String(raw?.name || `Entity ${index + 1}`).trim() || `Entity ${index + 1}`;
@@ -74,6 +97,10 @@ function normalizePayload(body) {
     framework: String(body?.framework || '').trim() || null,
     client_id: String(body?.client_id || '').trim() || null,
     existing_device_id: Number(body?.existing_device_id) || null,
+    integration_key: normalizeIntegrationKey(body?.integration_key),
+    ownership_mode: normalizeOwnershipMode(body?.ownership_mode),
+    config_source: normalizeConfigSource(body?.config_source),
+    read_only: normalizeReadOnly(body?.read_only, normalizeOwnershipMode(body?.ownership_mode)),
     entities: Array.isArray(body?.entities) ? body.entities.map(normalizeEntity) : [],
   };
 }
@@ -86,4 +113,8 @@ module.exports = {
   stableStringify,
   normalizeEntity,
   normalizePayload,
+  normalizeIntegrationKey,
+  normalizeOwnershipMode,
+  normalizeConfigSource,
+  normalizeReadOnly,
 };

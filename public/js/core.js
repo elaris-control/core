@@ -8,6 +8,7 @@ window.$ = id => document.getElementById(id);
 window.escapeHTML = s =>
   String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
                  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+window.escHtml = window.escapeHTML; // alias used across esphome JS files
 
 // ── Fetch wrapper — always sends to /api, adds CSRF via csrf.js ───────────────
 window.api = async function api(path, opts) {

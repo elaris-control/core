@@ -2,7 +2,7 @@
 // src/api/entities_routes.js — /api/entities, /api/pending-io, /api/blocked-io
 const express = require('express');
 const { getCatalogProfile } = require('../esphome/profile_registry');
-const { findBoardPort, findBoardBus } = require('../esphome/board_port_registry');
+const { findBoardPort, findBoardBus, matchBoardPathFromText } = require('../esphome/board_port_registry');
 
 function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
   const router = express.Router();
@@ -32,6 +32,99 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
     res.json({ ok: true, pending: dbApi.listPendingIO.all() });
   });
 
+  router.post('/pending-io/resync', requireEngineerAccess, (req, res) => {
+    try {
+      const requested = String(req.body?.device_id || req.body?.deviceId || '').trim();
+      if (!requested) return res.status(400).json({ ok: false, error: 'device_id_required' });
+      const clearBlocked = !!req.body?.clear_blocked;
+      const clearPending = !!req.body?.clear_pending;
+      const seedFromProfile = req.body?.seed_from_profile !== false;
+
+      const deviceRow = dbApi.db.prepare(`
+        SELECT * FROM esphome_devices
+        WHERE deleted_at IS NULL
+          AND (
+            lower(name)=lower(?) OR
+            lower(COALESCE(friendly_name,''))=lower(?) OR
+            lower(COALESCE(hostname,''))=lower(?)
+          )
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+      `).get(requested, requested, requested) || null;
+
+      const canonicalDeviceId = String(deviceRow?.name || requested).trim();
+      const siteId = deviceRow?.site_id != null ? Number(deviceRow.site_id) : null;
+      const rows = dbApi.db.prepare(`SELECT key, value, ts FROM device_state WHERE device_id=? ORDER BY ts DESC`).all(canonicalDeviceId);
+      const isBlocked = dbApi.db.prepare(`SELECT 1 FROM blocked_io WHERE device_id=? AND group_name=? AND key=? LIMIT 1`);
+      const isApproved = dbApi.db.prepare(`SELECT 1 FROM io WHERE device_id=? AND group_name=? AND key=? LIMIT 1`);
+      const upsert = dbApi.db.prepare(`
+        INSERT INTO pending_io(device_id, key, group_name, first_seen, last_seen, last_value, site_id)
+        VALUES(?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(device_id, group_name, key)
+        DO UPDATE SET last_seen=excluded.last_seen, last_value=excluded.last_value, site_id=COALESCE(excluded.site_id, pending_io.site_id)
+      `);
+
+      let imported = 0;
+      let skipped = 0;
+      let scanned = 0;
+      let profileSeeded = 0;
+      let clearedBlocked = 0;
+      let clearedPending = 0;
+      const acceptedGroups = new Set(['state', 'tele']);
+
+      if (clearBlocked || clearPending) {
+        const reset = typeof dbApi.resetPendingForDevice === 'function'
+          ? dbApi.resetPendingForDevice(canonicalDeviceId, { clearBlocked, clearPending })
+          : { cleared_blocked: 0, cleared_pending: 0 };
+        clearedBlocked = Number(reset?.cleared_blocked || 0);
+        clearedPending = Number(reset?.cleared_pending || 0);
+      }
+
+      dbApi.db.transaction(() => {
+        for (const row of rows) {
+          const stateKey = String(row?.key || '').trim();
+          if (!stateKey || stateKey.indexOf('.') < 0) { skipped++; continue; }
+          const idx = stateKey.indexOf('.');
+          const group = stateKey.slice(0, idx).trim();
+          const key = stateKey.slice(idx + 1).trim();
+          if (!acceptedGroups.has(group) || !key) { skipped++; continue; }
+          scanned++;
+          if (isBlocked.get(canonicalDeviceId, group, key)) { skipped++; continue; }
+          if (isApproved.get(canonicalDeviceId, group, key)) { skipped++; continue; }
+          const ts = Number(row?.ts) || Date.now();
+          upsert.run(canonicalDeviceId, key, group, ts, ts, row?.value == null ? null : String(row.value), siteId);
+          imported++;
+        }
+      })();
+
+      if (seedFromProfile && deviceRow?.board_profile_id && typeof dbApi.seedPendingFromBoardProfile === 'function') {
+        const before = Number(dbApi.db.prepare(`SELECT COUNT(*) AS c FROM pending_io WHERE device_id=?`).get(canonicalDeviceId)?.c || 0);
+        dbApi.seedPendingFromBoardProfile(canonicalDeviceId, deviceRow.board_profile_id, Date.now());
+        const after = Number(dbApi.db.prepare(`SELECT COUNT(*) AS c FROM pending_io WHERE device_id=?`).get(canonicalDeviceId)?.c || 0);
+        profileSeeded = Math.max(0, after - before);
+      }
+
+      const note = scanned
+        ? null
+        : 'No cached MQTT state rows found for this device yet.';
+
+      res.json({
+        ok: true,
+        device_id: canonicalDeviceId,
+        scanned,
+        imported,
+        skipped,
+        profile_seeded: profileSeeded,
+        cleared_blocked: clearedBlocked,
+        cleared_pending: clearedPending,
+        board_profile_id: deviceRow?.board_profile_id || null,
+        note,
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   router.post('/pending-io/:id/approve', requireEngineerAccess, (req, res) => {
     try {
       const pending_id = Number(req.params.id);
@@ -40,7 +133,11 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
       let board_profile_id = String(req.body?.board_profile_id || '').trim() || null;
       if (!name || !(type || entity_class)) return res.status(400).json({ ok: false, error: 'missing_fields' });
       let device_id = null;
-      try { device_id = dbApi.db.prepare('SELECT device_id FROM pending_io WHERE id=?').get(pending_id)?.device_id || null; } catch {}
+      let pendingRow = null;
+      try {
+        pendingRow = dbApi.db.prepare('SELECT * FROM pending_io WHERE id=?').get(pending_id) || null;
+        device_id = pendingRow?.device_id || null;
+      } catch {}
       if (!board_profile_id && device_id) {
         try {
           const dev = dbApi.db.prepare(`SELECT board_profile_id FROM esphome_devices WHERE name=? OR friendly_name=? OR hostname=? ORDER BY updated_at DESC, id DESC LIMIT 1`).get(device_id, device_id, device_id);
@@ -50,13 +147,25 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
       let source = source_hint || null;
       let port_id = null;
       let bus_id = null;
-      if (board_profile_id && source_hint) {
+      if (board_profile_id) {
         const profile = getCatalogProfile(dbApi.db, board_profile_id);
         if (profile) {
-          const port = findBoardPort(profile, source_hint);
-          const bus = port ? null : findBoardBus(profile, source_hint);
-          if (port) { port_id = String(port.id || source_hint).trim() || null; source = String(port.id || source_hint).trim() || null; }
-          else if (bus) { bus_id = String(bus.id || source_hint).trim() || null; source = String(bus.id || source_hint).trim() || null; }
+          const preferClass = String(entity_class || '').trim().toUpperCase() || null;
+          let port = source_hint ? findBoardPort(profile, source_hint) : null;
+          let bus = (!port && source_hint) ? findBoardBus(profile, source_hint) : null;
+          let matched = null;
+          if (!port && !bus) {
+            matched = matchBoardPathFromText(profile, [source_hint, pendingRow?.key, `${pendingRow?.group_name || ''}.${pendingRow?.key || ''}`], { entityClass: preferClass });
+            if (matched?.kind === 'port') port = matched.port;
+            else if (matched?.kind === 'bus') bus = matched.bus;
+          }
+          if (port) {
+            port_id = String(port.id || source_hint || matched?.source || '').trim() || null;
+            source = String(port.id || source_hint || matched?.source || '').trim() || null;
+          } else if (bus) {
+            bus_id = String(bus.id || source_hint || matched?.source || '').trim() || null;
+            source = String(bus.id || source_hint || matched?.source || '').trim() || null;
+          }
         }
       }
       const klass = String(entity_class || '').trim().toUpperCase();

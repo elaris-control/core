@@ -117,6 +117,12 @@ function sendPeripheralLog(wsApi, clientId, level, text, action) {
   if (clientId && wsApi?.sendToClient) wsApi.sendToClient(clientId, { type: 'esphome_peripheral_log', level, text, action });
 }
 
+function deviceAllowsManagedEdit(device) {
+  if (!device) return false;
+  if (Number(device.read_only || 0) === 1) return false;
+  return String(device.ownership_mode || 'managed_internal').trim().toLowerCase() !== 'external_readonly';
+}
+
 function sendPeripheralDone(wsApi, clientId, payload) {
   if (clientId && wsApi?.sendToClient) {
     wsApi.sendToClient(clientId, { type: 'esphome_add_done', ...payload });
@@ -130,6 +136,7 @@ function runPeripheralFlash({ action, req, res, db, wsApi, dataDir, cfgDir, stat
   if (!bin) return res.status(503).json({ ok: false, error: 'esphome_not_installed' });
   const device = stmts.getDeviceById.get(deviceId);
   if (!ensureDeviceAccess(req, device, res, access)) return null;
+  if (!deviceAllowsManagedEdit(device)) return res.status(409).json({ ok: false, error: 'device_is_read_only' });
   if (!device.yaml_path) return res.status(400).json({ ok: false, error: 'device_has_no_yaml_path' });
   if (!fs.existsSync(device.yaml_path)) return res.status(400).json({ ok: false, error: 'yaml_file_not_found' });
 

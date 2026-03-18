@@ -151,6 +151,29 @@ function mergeInstallerDeviceRows(rows) {
   return merged;
 }
 
+function integrationPill(row) {
+  var key = String((row && row.integration_key) || 'esphome').trim().toLowerCase();
+  return summaryPill('Adapter: ' + (key || 'unknown'), '#1d8cff', 'rgba(29,140,255,.20)');
+}
+
+function ownershipPill(row) {
+  var mode = String((row && row.ownership_mode) || 'managed_internal').toLowerCase();
+  var readOnly = Number((row && row.read_only) || 0) === 1;
+  if (mode === 'external_native') return summaryPill(readOnly ? 'External native · read-only' : 'External native', '#1d8cff', 'rgba(29,140,255,.28)');
+  if (mode === 'external_readonly' || readOnly) return summaryPill('External read-only', '#f59e0b', 'rgba(245,158,11,.28)');
+  return summaryPill('ELARIS managed', '#22d97a', 'rgba(34,217,122,.28)');
+}
+
+function configSourcePill(row) {
+  var src = String((row && row.config_source) || '').toLowerCase();
+  if (src === 'use_my_yaml_overlay') return summaryPill('Use My YAML overlay', '#22d97a', 'rgba(34,217,122,.20)');
+  if (src === 'ota_managed_edit') return summaryPill('Managed OTA edit', '#1d8cff', 'rgba(29,140,255,.20)');
+  if (src === 'external_yaml') return summaryPill('External YAML', '#f59e0b', 'rgba(245,158,11,.28)');
+  if (src === 'native_api') return summaryPill('Native API', '#1d8cff', 'rgba(29,140,255,.28)');
+  if (src === 'saved_config') return summaryPill('Saved config', 'var(--text)', 'var(--line)');
+  return summaryPill('Board profile', '#1d8cff', 'rgba(29,140,255,.28)');
+}
+
 function statusChip(status, row) {
   var s = String(status || '').toLowerCase();
   if (s === 'online') {
@@ -188,7 +211,8 @@ function showSelectedCardBanner(d) {
   el.innerHTML = '<strong>Reflash target:</strong> ' + escHtml(d.friendly_name || d.name || ('Device #' + d.id))
     + ' &nbsp;•&nbsp; ' + escHtml(d.board_profile_id || '—')
     + ((d.ip_address || d.target_ip) ? ' &nbsp;•&nbsp; ' + escHtml(d.ip_address || d.target_ip) : '')
-    + '<div style="margin-top:6px;font-size:11px">This wizard overwrites the generated YAML/config for the selected card. Auxiliary panels do nothing until you click their own Import/Add buttons.</div>';
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">' + integrationPill(d) + ownershipPill(d) + configSourcePill(d) + '</div>'
+    + '<div style="margin-top:6px;font-size:11px">This wizard overwrites the generated YAML/config for the selected card. In this patch, the selected card is treated as the managed internal device path.</div>';
   renderEspModeBanner();
 }
 
@@ -217,6 +241,10 @@ function optimisticUpdateInstallerDevice(payload, jobId) {
       status: 'running',
       updated_at: now,
       job_status: 'running',
+      integration_key: payload.integration_key || row.integration_key || 'esphome',
+      ownership_mode: payload.ownership_mode || row.ownership_mode || 'managed_internal',
+      config_source: payload.config_source || row.config_source || 'board_profile',
+      read_only: Number(payload.read_only != null ? payload.read_only : (row.read_only || 0)),
       _flashJobId: jobId || row._flashJobId || null
     });
   });
@@ -319,6 +347,7 @@ function renderSavedPanel() {
       return '<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-size:12px">' +
         '<span style="font-weight:700">' + escHtml(c.device_name) + '</span>' +
         '<span style="color:var(--muted);font-size:10px">' + escHtml(c.board_profile_id || c.board_id || '') + '</span>' +
+        integrationPill(c) + ownershipPill(c) + configSourcePill(c) +
         '<button class="btn" style="padding:2px 8px;font-size:10px" onclick="loadConfig(' + i + ')">Load</button>' +
         '<button class="entity-remove" onclick="deleteConfig(' + i + ')" title="Delete">&#215;</button>' +
       '</div>';

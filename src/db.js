@@ -89,6 +89,12 @@ db.exec(`
       assigned_ts INTEGER NOT NULL,
       FOREIGN KEY(site_id) REFERENCES sites(id)
     );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_ts INTEGER NOT NULL
+    );
   `);
 
   // Ensure optional columns exist (safe for older DBs)
@@ -141,6 +147,20 @@ db.exec(`
     if (!esCols.includes('deleted_at'))     db.exec(`ALTER TABLE esphome_devices ADD COLUMN deleted_at TEXT`);
     if (!esCols.includes('deleted_reason')) db.exec(`ALTER TABLE esphome_devices ADD COLUMN deleted_reason TEXT`);
   } catch (_) {}
+  try {
+    const esCols2 = db.prepare('PRAGMA table_info(esphome_devices)').all().map(r => r.name);
+    if (!esCols2.includes('integration_key')) db.exec(`ALTER TABLE esphome_devices ADD COLUMN integration_key TEXT NOT NULL DEFAULT 'esphome'`);
+    if (!esCols2.includes('ownership_mode')) db.exec(`ALTER TABLE esphome_devices ADD COLUMN ownership_mode TEXT NOT NULL DEFAULT 'managed_internal'`);
+    if (!esCols2.includes('config_source'))  db.exec(`ALTER TABLE esphome_devices ADD COLUMN config_source TEXT`);
+    if (!esCols2.includes('read_only'))      db.exec(`ALTER TABLE esphome_devices ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0`);
+  } catch (_) {}
+  try {
+    const cfgCols = db.prepare('PRAGMA table_info(esphome_generated_configs)').all().map(r => r.name);
+    if (!cfgCols.includes('integration_key')) db.exec(`ALTER TABLE esphome_generated_configs ADD COLUMN integration_key TEXT NOT NULL DEFAULT 'esphome'`);
+    if (!cfgCols.includes('ownership_mode')) db.exec(`ALTER TABLE esphome_generated_configs ADD COLUMN ownership_mode TEXT NOT NULL DEFAULT 'managed_internal'`);
+    if (!cfgCols.includes('config_source'))  db.exec(`ALTER TABLE esphome_generated_configs ADD COLUMN config_source TEXT`);
+    if (!cfgCols.includes('read_only'))      db.exec(`ALTER TABLE esphome_generated_configs ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0`);
+  } catch (_) {}
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS esphome_devices (
@@ -163,6 +183,10 @@ db.exec(`
       yaml_path TEXT,
       yaml_hash TEXT,
       last_validation_json TEXT,
+      integration_key TEXT NOT NULL DEFAULT 'esphome',
+      ownership_mode TEXT NOT NULL DEFAULT 'managed_internal',
+      config_source TEXT,
+      read_only INTEGER NOT NULL DEFAULT 0,
       last_seen_at TEXT,
       deleted_at TEXT,
       deleted_reason TEXT,
@@ -185,6 +209,10 @@ db.exec(`
       yaml_text TEXT NOT NULL,
       yaml_hash TEXT,
       validation_json TEXT,
+      integration_key TEXT NOT NULL DEFAULT 'esphome',
+      ownership_mode TEXT NOT NULL DEFAULT 'managed_internal',
+      config_source TEXT,
+      read_only INTEGER NOT NULL DEFAULT 0,
       generated_by TEXT DEFAULT 'system',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (esphome_device_id) REFERENCES esphome_devices(id) ON DELETE CASCADE
@@ -455,6 +483,18 @@ db.exec(`
     db.prepare(`DELETE FROM blocked_io WHERE device_id=? AND group_name=? AND key=?`).run(deviceId, groupName, key);
   }
 
+  function resetPendingForDevice(deviceId, { clearBlocked = true, clearPending = true } = {}) {
+    const id = String(deviceId || '').trim();
+    if (!id) return { ok: false, error: 'device_required', cleared_blocked: 0, cleared_pending: 0 };
+    let clearedBlocked = 0;
+    let clearedPending = 0;
+    db.transaction(() => {
+      if (clearBlocked) clearedBlocked = db.prepare(`DELETE FROM blocked_io WHERE device_id=?`).run(id).changes || 0;
+      if (clearPending) clearedPending = db.prepare(`DELETE FROM pending_io WHERE device_id=?`).run(id).changes || 0;
+    })();
+    return { ok: true, device_id: id, cleared_blocked: clearedBlocked, cleared_pending: clearedPending };
+  }
+
   function approvePending({ pending_id, name, type, zone_id, hw_type, kind, unit, source, port_id, bus_id, board_profile_id }) {
     const row = db.prepare(`SELECT * FROM pending_io WHERE id=?`).get(pending_id);
     if (!row) return { ok: false, error: 'not_found' };
@@ -472,11 +512,12 @@ db.exec(`
     return { ok: true, io_id: info.lastInsertRowid };
   }
 
-  function noteDeviceAndMaybePendingIO({ deviceId, group, key, value, ts, retained }) {
-    if (retained) return;
-    if (isApprovedIO.get(deviceId, group, key)) return;
-    if (isBlockedIO.get(deviceId, group, key)) return;
+  function noteDeviceAndMaybePendingIO({ deviceId, group, key, value, ts, retained, allowRetained = false }) {
+    if (retained && !allowRetained) return { ok: false, reason: 'retained_ignored' };
+    if (isApprovedIO.get(deviceId, group, key)) return { ok: false, reason: 'already_approved' };
+    if (isBlockedIO.get(deviceId, group, key)) return { ok: false, reason: 'blocked' };
     upsertPendingIO.run({ device_id: deviceId, key, group_name: group, ts, last_value: value });
+    return { ok: true, reason: 'pending_upserted' };
   }
 
   function noteDeviceConfig({ deviceId, config, ts, retained }) {
@@ -490,7 +531,7 @@ db.exec(`
       if (isBlockedIO.get(deviceId, group, e.key)) continue;
       upsertPendingIO.run({ device_id: deviceId, key: e.key, group_name: group, ts, last_value: null });
     }
-    upsertEspHomeRegistry({ deviceId, retained, ts });
+    upsertEspHomeRegistry({ deviceId, retained, reviveDeleted: !retained, ts });
   }
 
   // ── Zones ──────────────────────────────────────────────────────────────────
@@ -633,10 +674,57 @@ db.exec(`
     return row.id ? { id: row.id } : row;
   }
 
+  function touchEspHomeRegistry(deviceId, { status = 'online', ts = Date.now(), friendlyName = null, hostname = null, firmwareVersion = null, transport = null, networkMode = null, macAddress = null, ipAddress = null } = {}) {
+    if (!deviceId) return null;
+    return upsertEspHomeRegistry({
+      deviceId,
+      friendlyName,
+      status,
+      hostname,
+      firmwareVersion,
+      transport,
+      networkMode,
+      macAddress,
+      ipAddress,
+      retained: false,
+      reviveDeleted: false,
+      ts,
+    });
+  }
+
   function isEspHomeRegistrySuppressed(deviceId) {
     const topicRoot = `elaris/${deviceId}`;
     const row = getEspHomeAnyByName.get(deviceId) || getEspHomeAnyByTopicRoot.get(topicRoot) || null;
     return !!(row && row.deleted_at);
+  }
+
+  function _repointEsphomeChildren(canonicalId, dupIds) {
+    if (!canonicalId || !Array.isArray(dupIds) || !dupIds.length) return;
+    const placeholders = dupIds.map(() => '?').join(',');
+    db.prepare(`UPDATE esphome_generated_configs SET esphome_device_id=? WHERE esphome_device_id IN (${placeholders})`).run(canonicalId, ...dupIds);
+    db.prepare(`UPDATE esphome_install_jobs SET esphome_device_id=? WHERE esphome_device_id IN (${placeholders})`).run(canonicalId, ...dupIds);
+    db.prepare(`UPDATE esphome_device_overrides SET esphome_device_id=? WHERE esphome_device_id IN (${placeholders})`).run(canonicalId, ...dupIds);
+  }
+
+  function _cleanupEsphomeDuplicatesForCanonical(canonicalId) {
+    if (!canonicalId) return [];
+    const canonical = db.prepare('SELECT * FROM esphome_devices WHERE id=?').get(canonicalId);
+    if (!canonical) return [];
+    const norm = (v) => String(v || '').trim().toLowerCase();
+    const strong = new Set([canonical.mac_address, canonical.ip_address, canonical.serial_port, canonical.hostname, canonical.mqtt_topic_root].map(norm).filter(Boolean));
+    if (!strong.size) return [];
+    const rows = db.prepare('SELECT * FROM esphome_devices WHERE id<>? ORDER BY updated_at DESC, id DESC').all(canonicalId);
+    const dupIds = [];
+    for (const row of rows) {
+      const hits = [row.mac_address, row.ip_address, row.serial_port, row.hostname, row.mqtt_topic_root].map(norm).filter(Boolean);
+      if (hits.some(v => strong.has(v))) dupIds.push(row.id);
+    }
+    if (!dupIds.length) return [];
+    db.transaction(() => {
+      _repointEsphomeChildren(canonicalId, dupIds);
+      db.prepare(`UPDATE esphome_devices SET deleted_at=?, deleted_reason=?, status=?, updated_at=? WHERE id IN (${dupIds.map(() => '?').join(',')})`).run(new Date().toISOString(), 'merged_duplicate', 'deleted', new Date().toISOString(), ...dupIds)
+    })()
+    return dupIds;
   }
 
   function updateEspHomeIdentity(deviceId, fields = {}) {
@@ -649,6 +737,7 @@ db.exec(`
     const host = String(fields.hostname || '').trim() || null;
     const nowIso = new Date(Number.isFinite(Number(fields.ts)) ? Number(fields.ts) : Date.now()).toISOString();
     db.prepare(`UPDATE esphome_devices SET mac_address=COALESCE(?, mac_address), ip_address=COALESCE(?, ip_address), firmware_version=COALESCE(?, firmware_version), hostname=COALESCE(?, hostname), updated_at=? WHERE id=?`).run(mac, ip, fw, host, nowIso, row.id);
+    try { _cleanupEsphomeDuplicatesForCanonical(row.id); } catch (_) {}
     return row.id;
   }
 
@@ -683,6 +772,38 @@ db.exec(`
     ON CONFLICT(device_id, key) DO UPDATE SET value=excluded.value, ts=excluded.ts
   `);
 
+  const getAppSettingStmt = db.prepare(`SELECT value, updated_ts FROM app_settings WHERE key = ?`);
+  const setAppSettingStmt = db.prepare(`
+    INSERT INTO app_settings (key, value, updated_ts) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_ts=excluded.updated_ts
+  `);
+  const deleteAppSettingStmt = db.prepare(`DELETE FROM app_settings WHERE key = ?`);
+
+  function getAppSetting(key, fallback = null) {
+    const row = getAppSettingStmt.get(String(key || '').trim());
+    return row ? row.value : fallback;
+  }
+
+  function setAppSetting(key, value, ts = Date.now()) {
+    const k = String(key || '').trim();
+    if (!k) return { ok: false, error: 'missing_key' };
+    if (value == null) {
+      deleteAppSettingStmt.run(k);
+      return { ok: true, deleted: true };
+    }
+    setAppSettingStmt.run(k, String(value), Number.isFinite(Number(ts)) ? Number(ts) : Date.now());
+    return { ok: true };
+  }
+
+  function getBoolAppSetting(key, fallback = false) {
+    const raw = getAppSetting(key, null);
+    if (raw == null) return !!fallback;
+    const v = String(raw).trim().toLowerCase();
+    if (['1','true','yes','on','enabled'].includes(v)) return true;
+    if (['0','false','no','off','disabled'].includes(v)) return false;
+    return !!fallback;
+  }
+
   return {
     db,
 
@@ -701,6 +822,8 @@ db.exec(`
     deletePendingIOAndBlock,
     unblockPendingIO,
     hideBlockedIO,
+    resetPendingForDevice,
+    seedPendingFromBoardProfile,
 
     createZone,
     listZones,
@@ -734,7 +857,11 @@ db.exec(`
     findEspHomeRegistry: (deviceId) => getEspHomeByName.get(deviceId) || getEspHomeByTopicRoot.get(`elaris/${deviceId}`) || null,
     findEspHomeRegistryAny: (deviceId) => getEspHomeAnyByName.get(deviceId) || getEspHomeAnyByTopicRoot.get(`elaris/${deviceId}`) || null,
     isEspHomeRegistrySuppressed,
+    touchEspHomeRegistry,
     updateEspHomeIdentity,
+    getAppSetting,
+    setAppSetting,
+    getBoolAppSetting,
   };
 }
 

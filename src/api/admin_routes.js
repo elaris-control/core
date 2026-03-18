@@ -46,6 +46,38 @@ function initAdminRoutes({ db, users, requireAdmin }) {
     res.json({ ok: true });
   });
 
+  // ── Runtime toggles ───────────────────────────────────────────────────
+  router.get('/runtime/debug', requireAdmin, (_req, res) => {
+    try {
+      const raw = db.prepare(`SELECT value, updated_ts FROM app_settings WHERE key = ?`).get('mqtt_debug_enabled') || null;
+      let enabled = process.env.ELARIS_MQTT_DEBUG === '0' ? false : true;
+      let source = process.env.ELARIS_MQTT_DEBUG === '0' ? 'env' : 'default';
+      if (raw && raw.value != null) {
+        const v = String(raw.value).trim().toLowerCase();
+        if (['1','true','yes','on','enabled'].includes(v)) enabled = true;
+        else if (['0','false','no','off','disabled'].includes(v)) enabled = false;
+        source = 'db';
+      }
+      res.json({ ok: true, mqtt_debug_enabled: enabled, source, updated_ts: raw?.updated_ts || null });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  router.patch('/runtime/debug', requireAdmin, (req, res) => {
+    try {
+      const enabled = !!req.body?.mqtt_debug_enabled;
+      const ts = Date.now();
+      db.prepare(`
+        INSERT INTO app_settings (key, value, updated_ts) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_ts=excluded.updated_ts
+      `).run('mqtt_debug_enabled', enabled ? '1' : '0', ts);
+      res.json({ ok: true, mqtt_debug_enabled: enabled, updated_ts: ts });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // ── DB management ─────────────────────────────────────────────────────
   router.get('/db/devices', requireAdmin, (req, res) => {
     try {

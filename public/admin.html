@@ -68,6 +68,14 @@ body {
 .search-input:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(29,140,255,.12); }
 .search-input::placeholder { color:var(--muted); }
 .helper-note { font-size:11px; color:var(--muted2); }
+.runtime-card {
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:16px 18px; box-shadow:var(--shadow-sm);
+}
+.runtime-row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.runtime-title { font-size:14px; font-weight:800; }
+.runtime-sub { font-size:12px; color:var(--muted2); margin-top:4px; line-height:1.55; }
+.runtime-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 
 /* ── Topbar pills ── */
 .pills { display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap; }
@@ -416,6 +424,25 @@ option { background:#0d1221; color:var(--text); }
         <button class="btn" onclick="closeSiteModal()">Cancel</button>
         <button class="btn btn-primary" onclick="saveSite()">Save</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Runtime Debug ──────────────────────────────────────────────────── -->
+  <div class="section" style="margin-top:36px">
+    <div class="section-title">Runtime Debug</div>
+    <div class="runtime-card">
+      <div class="runtime-row">
+        <div>
+          <div class="runtime-title">MQTT Debug Logging</div>
+          <div class="runtime-sub">Enable verbose inbound MQTT logs only when you need them. Changes apply immediately and stay saved for later restarts.</div>
+        </div>
+        <div class="runtime-actions">
+          <span class="pill" id="mqttDebugPill">Loading...</span>
+          <button class="btn btn-sm" id="mqttDebugEnableBtn" onclick="setMqttDebug(true)">Enable</button>
+          <button class="btn btn-sm btn-danger" id="mqttDebugDisableBtn" onclick="setMqttDebug(false)">Disable</button>
+        </div>
+      </div>
+      <div class="helper-note" id="mqttDebugMeta" style="margin-top:12px">—</div>
     </div>
   </div>
 
@@ -815,6 +842,80 @@ async function doLogout() {
   window.location.href = "/login.html";
 }
 
+// ── Runtime debug ───────────────────────────────────────────────────────
+let mqttDebugEnabled = null;
+
+function renderMqttDebugCard() {
+  const pill = document.getElementById('mqttDebugPill');
+  const meta = document.getElementById('mqttDebugMeta');
+  const enableBtn = document.getElementById('mqttDebugEnableBtn');
+  const disableBtn = document.getElementById('mqttDebugDisableBtn');
+  if (!pill || !meta || !enableBtn || !disableBtn) return;
+  if (mqttDebugEnabled == null) {
+    pill.className = 'pill';
+    pill.textContent = 'Loading...';
+    meta.textContent = 'Loading current runtime setting…';
+    enableBtn.disabled = true;
+    disableBtn.disabled = true;
+    return;
+  }
+  pill.className = mqttDebugEnabled ? 'pill ok' : 'pill';
+  pill.textContent = mqttDebugEnabled ? 'MQTT DEBUG ON' : 'MQTT DEBUG OFF';
+  const source = meta.dataset.source || 'runtime';
+  const stampRaw = meta.dataset.updatedTs || '';
+  const stamp = stampRaw ? new Date(Number(stampRaw)).toLocaleString() : '';
+  meta.textContent = (mqttDebugEnabled ? 'Verbose MQTT logs are enabled.' : 'Verbose MQTT logs are disabled.') +
+    ` Source: ${source}` + (stamp ? ` · Updated: ${stamp}` : '');
+  enableBtn.disabled = mqttDebugEnabled === true;
+  disableBtn.disabled = mqttDebugEnabled === false;
+}
+
+async function loadRuntimeDebug() {
+  try {
+    const d = await api('/api/admin/runtime/debug');
+    mqttDebugEnabled = !!d.mqtt_debug_enabled;
+    const meta = document.getElementById('mqttDebugMeta');
+    if (meta) {
+      meta.dataset.updatedTs = d.updated_ts || '';
+      meta.dataset.source = d.source || 'runtime';
+    }
+    renderMqttDebugCard();
+  } catch (e) {
+    const meta = document.getElementById('mqttDebugMeta');
+    if (meta) {
+      meta.dataset.updatedTs = '';
+      meta.dataset.source = 'runtime';
+      meta.textContent = 'Failed to load runtime debug setting: ' + e.message;
+    }
+    mqttDebugEnabled = false;
+    renderMqttDebugCard();
+  }
+}
+
+async function setMqttDebug(enabled) {
+  const enableBtn = document.getElementById('mqttDebugEnableBtn');
+  const disableBtn = document.getElementById('mqttDebugDisableBtn');
+  if (enableBtn) enableBtn.disabled = true;
+  if (disableBtn) disableBtn.disabled = true;
+  try {
+    const d = await api('/api/admin/runtime/debug', {
+      method: 'PATCH',
+      body: JSON.stringify({ mqtt_debug_enabled: !!enabled })
+    });
+    mqttDebugEnabled = !!d.mqtt_debug_enabled;
+    const meta = document.getElementById('mqttDebugMeta');
+    if (meta) {
+      meta.dataset.updatedTs = d.updated_ts || String(Date.now());
+      meta.dataset.source = 'db';
+    }
+    renderMqttDebugCard();
+    toast(mqttDebugEnabled ? '✓ MQTT debug enabled' : '✓ MQTT debug disabled');
+  } catch (e) {
+    renderMqttDebugCard();
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
 // ── DB Management ─────────────────────────────────────────────────────────
 let dbDevices = [], dbPending = [], dbProfiles = [];
 let activeDbTab = 'devices';
@@ -1133,6 +1234,7 @@ document.getElementById("siteModal")?.addEventListener("click", e => {
 
     await loadUsers();
     await loadAdminSites();
+    await loadRuntimeDebug();
     switchDbTab('devices');
     if (window.location.hash === '#sites') {
       document.getElementById('sitesSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

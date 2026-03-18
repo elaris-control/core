@@ -18,6 +18,12 @@
   <a href="https://elariscontrol.online">🌐 elariscontrol.online</a>
 </p>
 
+<p align="center">
+  <a href="https://buymeacoffee.com/elariscontrol">
+    <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%E2%98%95-yellow?logo=buy-me-a-coffee&logoColor=white" alt="Buy Me A Coffee">
+  </a>
+</p>
+
 ELARIS Core is the open foundation of the ELARIS ecosystem — a runtime automation platform built around MQTT device integration, a role-aware control model, and a modular logic system designed for real installations.
 
 ---

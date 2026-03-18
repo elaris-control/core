@@ -93,6 +93,8 @@ function renderFlashReviewSummary(mode) {
   html += summaryPill('Board: ' + boardLabel, '#1d8cff', 'rgba(29,140,255,.28)');
   html += summaryPill(transport, '#f59e0b', 'rgba(245,158,11,.35)');
   html += summaryPill('Entities: ' + entityCount, 'var(--text)', 'var(--line)');
+  html += summaryPill('Adapter: ' + (payload.integration_key || 'esphome'), '#1d8cff', 'rgba(29,140,255,.20)');
+  html += summaryPill(payload.config_source === 'use_my_yaml_overlay' ? 'Managed YAML overlay' : 'Managed board profile', '#22d97a', 'rgba(34,217,122,.20)');
   if (payload.existing_device_id) html += summaryPill('Reflash existing card', '#22d97a', 'rgba(34,217,122,.20)');
   html += '</div>';
   if (mode === 'running') {
@@ -246,6 +248,10 @@ function buildPayload() {
       : (document.getElementById('portSelect').value || null),
     entities: collectEntities(),
     existing_device_id: null,
+    integration_key: 'esphome',
+    ownership_mode: 'managed_internal',
+    config_source: 'board_profile',
+    read_only: 0,
   };
   payload.existing_device_id = autoMatchExistingDeviceId(payload);
   return payload;

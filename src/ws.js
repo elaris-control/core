@@ -36,10 +36,14 @@ function initWS(server, { db, access, getRole } = {}) {
   function sendToClient(clientId, obj) {
     if (!clientId) return broadcast(obj);
     const msg = JSON.stringify(obj);
+    let sent = 0;
     for (const client of wss.clients) {
       if (client.readyState !== WebSocket.OPEN) continue;
       if (!client._role) continue; // never send to unauthenticated connections
-      if (client._clientId === clientId) client.send(msg);
+      if (client._clientId === clientId) { client.send(msg); sent++; }
+    }
+    if (sent === 0 && obj.type && obj.type.startsWith('esphome')) {
+      console.warn(`[WS] sendToClient(${clientId}): no matching client found (type=${obj.type}, total_clients=${wss.clients.size})`);
     }
   }
 

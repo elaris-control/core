@@ -14,7 +14,8 @@ function esphomeAuxPanelIds() {
     'deviceBrowserPanel',
     'yamlImportPanel',
     'profileManagerPanel',
-    'useMyYamlPanel'
+    'useMyYamlPanel',
+    'nativeImportPanel'
   ];
 }
 
@@ -30,8 +31,8 @@ function closeEspPanels(exceptId) {
 function flashReviewModeText() {
   try {
     return (typeof window !== 'undefined' && window.selectedInstallerDeviceId)
-      ? 'Reflash mode — this run updates the selected card and overwrites its generated YAML/config.'
-      : 'New flash mode — a new installer device card will be created when the board comes online.';
+      ? 'Reflash mode — this run updates the selected managed internal card and overwrites its generated YAML/config.'
+      : 'New flash mode — a new managed internal installer device card will be created when the board comes online.';
   } catch (e) {
     return 'Review the target and config below before flashing.';
   }
@@ -56,11 +57,25 @@ function espModeState() {
         action: 'exitEspModifyMode()'
       };
     }
+    var nativePanel = document.getElementById('nativeImportPanel');
+    var nativeVisible = !!(nativePanel && nativePanel.style.display !== 'none');
+    if (nativeVisible) {
+      return {
+        key: 'external_native',
+        title: 'External native import',
+        detail: 'Import an already-described external device as a read-only card. This does not provision or rewrite the device; it only creates the ELARIS card and pending approval rows.',
+        pill: 'External native import',
+        color: '#1d8cff',
+        border: 'rgba(29,140,255,.30)',
+        actionText: 'Close import panel',
+        action: "document.getElementById('nativeImportPanel').style.display='none';renderEspModeBanner();"
+      };
+    }
     if (typeof window !== 'undefined' && window.selectedInstallerDeviceId) {
       return {
         key: 'reflash',
         title: 'Reflash mode',
-        detail: 'This wizard updates the selected installer card and overwrites its generated YAML/config. It should not create a second card when the same physical board is rebound correctly.',
+        detail: 'This wizard updates the selected managed internal installer card and overwrites its generated YAML/config. It should not create a second card when the same physical board is rebound correctly.',
         pill: 'Reflash existing card',
         color: '#22d97a',
         border: 'rgba(34,217,122,.28)',
@@ -71,7 +86,7 @@ function espModeState() {
     return {
       key: 'new',
       title: 'New flash mode',
-      detail: 'This wizard creates a new installer device card when the board comes online. Use this for a brand new board or when you intentionally want a brand new device identity.',
+      detail: 'This wizard creates a new managed internal installer device card when the board comes online. Use this for a brand new board or when you intentionally want a brand new device identity.',
       pill: 'New flash',
       color: '#1d8cff',
       border: 'rgba(29,140,255,.30)',

@@ -15,6 +15,7 @@
   <script src="/js/esphome/yaml_import.js?v=1"></script>
 <script src="/js/esphome/profiles.js?v=1"></script>
   <script src="/js/esphome/use_my_yaml.js?v=1"></script>
+  <script src="/js/esphome/native_import.js?v=1"></script>
   <script src="/js/esphome/peripheral.js?v=1"></script>
   <title>ELARIS — ESPHome Installer</title>
   <link rel="icon" href="/favicon.ico">
@@ -265,6 +266,7 @@
         <button class="btn" onclick="toggleAddPeripheral()" style="font-size:12px">&#10133; Add Sensor to Device</button>
         <button class="btn" onclick="toggleProfileManager()" style="font-size:12px">&#128736; Board Profiles</button>
         <span style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-left:12px;margin-right:4px">Flash</span>
+        <button class="btn" onclick="toggleNativeImportPanel()" style="font-size:12px">&#128279; External Native Import</button>
         <button class="btn btnPrimary" onclick="toggleUseMyYaml()" style="font-size:12px">&#128196; Paste &amp; Flash YAML</button>
       </div>
 
@@ -461,6 +463,87 @@
         </div>
       </div>
 
+      <!-- ── External native import (read-only card + pending IO) ── -->
+      <div class="card-step" id="nativeImportPanel" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h2 style="margin:0">&#128279; External Native Import</h2>
+          <button class="btn" onclick="toggleNativeImportPanel()">&#215; Close</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:14px">
+          Step 1 for the native API path: create an <strong>external read-only card</strong> for a device that already exists outside ELARIS, then inject its normalized channels as pending IO for approval.
+        </p>
+        <div id="nativeImportCapability" style="margin-bottom:12px"></div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Site</label>
+            <select id="nativeImportSite"></select>
+            <span class="form-hint">The imported card and pending IO rows will be attached to this site.</span>
+          </div>
+          <div class="form-row">
+            <label>Board profile (optional)</label>
+            <select id="nativeImportBoard"></select>
+            <span class="form-hint">Pick a board profile if you want board-aware labels like HT1 / Y01 during approval.</span>
+          </div>
+          <div class="form-row">
+            <label>Device name</label>
+            <input type="text" id="nativeImportDeviceName" placeholder="e.g. kc868-yard-external">
+            <span class="form-hint">Used as the ELARIS device ID for pending/approved IO.</span>
+          </div>
+          <div class="form-row">
+            <label>Friendly name</label>
+            <input type="text" id="nativeImportFriendlyName" placeholder="Optional display label">
+            <span class="form-hint">Optional UI label for the installer card.</span>
+          </div>
+          <div class="form-row">
+            <label>Device IP</label>
+            <input type="text" id="nativeImportIp" placeholder="e.g. 192.168.1.70">
+            <span class="form-hint">Stored on the card for identity / future sync. No write/provisioning is done in this step.</span>
+          </div>
+          <div class="form-row">
+            <label>Hostname (optional)</label>
+            <input type="text" id="nativeImportHostname" placeholder="e.g. kc868-yard.local">
+            <span class="form-hint">Optional secondary identity key.</span>
+          </div>
+          <div class="form-row">
+            <label>Native API host</label>
+            <input type="text" id="nativeImportApiHost" placeholder="Defaults to Device IP">
+            <span class="form-hint">Saved as metadata for the future live native sync path.</span>
+          </div>
+          <div class="form-row">
+            <label>Native API port</label>
+            <input type="number" id="nativeImportApiPort" value="6053" min="1" max="65535">
+            <span class="form-hint">Default ESPHome native API port is 6053.</span>
+          </div>
+          <div class="form-row">
+            <label>Encryption key / API secret (optional)</label>
+            <input type="text" id="nativeImportEncryption" placeholder="Stored only as metadata flag in this step">
+            <span class="form-hint">This step does not connect yet; it only marks that a key exists for the future native sync path.</span>
+          </div>
+          <div class="form-row">
+            <label>MQTT topic root (optional)</label>
+            <input type="text" id="nativeImportMqttRoot" placeholder="Optional">
+            <span class="form-hint">Optional identity hint if the device also talks MQTT.</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 0 8px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:11px;font-weight:800;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em">Normalized channels</div>
+            <div style="font-size:11px;color:var(--muted)">Add the channels you want to send into pending approval. Port/Source accepts hints like <code>HT1</code>, <code>Y01</code>, <code>X16</code>, <code>GPIO32</code>.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" type="button" onclick="nativeImportAddRow({ entity_class:'DO' })">+ DO</button>
+            <button class="btn" type="button" onclick="nativeImportAddRow({ entity_class:'DI' })">+ DI</button>
+            <button class="btn" type="button" onclick="nativeImportAddRow({ entity_class:'AI' })">+ AI</button>
+            <button class="btn" type="button" onclick="nativeImportAddRow({ entity_class:'AO' })">+ AO</button>
+          </div>
+        </div>
+        <div id="nativeImportRows" class="entity-list"></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px">
+          <button class="btn btnPrimary" type="button" onclick="submitNativeImport()">Import as external native</button>
+          <span id="nativeImportMsg" style="font-size:12px;color:var(--muted)">This creates a read-only card and pending IO rows. No OTA/compile/write happens here.</span>
+        </div>
+      </div>
+
       <!-- ── Use my YAML (Paste → Add peripherals → Flash) ── -->
       <div class="card-step" id="useMyYamlPanel" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -555,8 +638,14 @@
             </div>
             <div class="form-row">
               <label>USB port or OTA IP</label>
-              <input type="text" id="umyPort" placeholder="/dev/ttyUSB0 or 192.168.1.x">
-              <span class="form-hint">USB for first flash; IP for OTA re-flash</span>
+              <div style="display:flex;gap:6px;align-items:center">
+                <select id="umyPortSelect" style="flex:1;min-width:0" onchange="document.getElementById('umyPort').value=this.value">
+                  <option value="">— select USB port —</option>
+                </select>
+                <button class="btn" style="white-space:nowrap;padding:4px 10px;font-size:12px" onclick="umyRefreshPorts()">&#8635; Refresh</button>
+              </div>
+              <input type="text" id="umyPort" placeholder="or type IP for OTA (192.168.1.x)" style="margin-top:4px">
+              <span class="form-hint">Select USB port above for first flash, or type device IP for OTA re-flash</span>
             </div>
           </div>
         </div>
@@ -853,6 +942,7 @@ var ws          = null;
 var generatedYaml = '';
 var lastValidation = null;
 var esphomeClientId = 'esph_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+window.__elarisWsClientId = esphomeClientId;
 
 // ── WebSocket for flash logs ───────────────────────────────────────────────
 function connectWS() {

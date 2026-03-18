@@ -23,7 +23,8 @@ const { initAccess }        = require('./access');
 const { initNotifications } = require('./notifications');
 const { initScenes }        = require('./scenes');
 const { AutomationEngine }  = require('./automation/engine');
-const { initEsphomeRoutes } = require('./esphome_routes');
+const { createIntegrationRegistry } = require('./integrations/registry');
+const { createEspHomeAdapter } = require('./integrations/esphome');
 const { getModule }         = require('./modules/index');
 
 // ── Domain route files ────────────────────────────────────────────────────
@@ -230,8 +231,12 @@ async function main() {
   // 5. Nav
   app.use('/api/nav', initNavRoutes({ db: dbApi.db, requireLogin, access }));
 
+  // Integration adapters
+  const integrationRegistry = createIntegrationRegistry();
+  integrationRegistry.register(createEspHomeAdapter());
+
   // 6. Domain API routes — all require login (applied per-router or per-route)
-  const apiCtx = { dbApi, db: dbApi.db, access, auth, hasFeature, engine, mqttApi, wsApi, notifyApi, scenesApi, users, requireLogin, requireEngineerAccess, requireAdmin, ...moduleHelpers };
+  const apiCtx = { dbApi, db: dbApi.db, access, auth, hasFeature, engine, mqttApi, wsApi, notifyApi, scenesApi, users, requireLogin, requireEngineerAccess, requireAdmin, integrationRegistry, ...moduleHelpers };
 
   app.use('/api/automation',    initAutomationRoutes(apiCtx));
   app.use('/api/scenes',        initScenesRoutes(apiCtx));
@@ -248,8 +253,8 @@ async function main() {
   // Core (health, me alias, engineer unlock)
   app.use('/api', initRoutes({ auth, hasFeature, requireLogin, users }));
 
-  // ESPHome
-  initEsphomeRoutes(app, { wsApi, dataDir: path.join(process.cwd(), 'data'), db: dbApi.db, requireLogin, requireEngineerAccess, access });
+  // Integration adapters (mount protocol-specific route trees)
+  integrationRegistry.mountAll(app, { wsApi, dataDir: path.join(process.cwd(), 'data'), db: dbApi.db, requireLogin, requireEngineerAccess, access });
 
   // Auto-load module route handlers from src/modules/
   const modulesDir = path.join(__dirname, 'modules');

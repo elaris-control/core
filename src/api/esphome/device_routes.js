@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { safeName } = require('../../esphome/schema');
 const { redactSavedConfig, configSiteId, cleanupStaleEsphomeDuplicates } = require('../../esphome/helpers');
+const { normalizeIntegrationKey, normalizeOwnershipMode, normalizeConfigSource, normalizeReadOnly } = require('../../esphome/schema');
 
 function mountDeviceRoutes({ app, db, cfgDir, requireEngineerAccess, access, stmts }) {
 
@@ -22,6 +23,7 @@ function mountDeviceRoutes({ app, db, cfgDir, requireEngineerAccess, access, stm
         SELECT d.id, d.site_id, d.name, d.friendly_name, d.board_profile_id, d.transport, d.network_mode,
                d.status, d.serial_port, d.mac_address, d.ip_address, d.hostname, d.mqtt_topic_root,
                d.firmware_version, d.last_seen_at, d.created_at, d.updated_at,
+               d.integration_key, d.ownership_mode, d.config_source, d.read_only,
                j.target_port, j.target_ip, j.status AS job_status, j.finished_at AS job_finished_at
         FROM esphome_devices d
         LEFT JOIN esphome_install_jobs j ON j.id = (

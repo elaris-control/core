@@ -2,10 +2,84 @@
 var _umyCurrentYaml = '';
 var _umyAddedPeripherals = [];
 
+function umySelectedInstallerCard() {
+  try {
+    var id = Number((typeof window !== 'undefined' && window.selectedInstallerDeviceId) || 0);
+    if (!id || !Array.isArray(installerDevices)) return null;
+    return installerDevices.find(function(d) { return Number(d.id) === id; }) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function umyDetectNetwork(yamlText) {
+  var text = String(yamlText || '');
+  return {
+    hasWifi: /^wifi:\s*(?:$|\n)/mi.test(text),
+    hasEthernet: /^ethernet:\s*(?:$|\n)/mi.test(text),
+  };
+}
+
+function umyApplyContextDefaults() {
+  var card = umySelectedInstallerCard();
+  if (!card) return;
+  var nameEl = document.getElementById('umyDeviceName');
+  var portEl = document.getElementById('umyPort');
+  var ssidEl = document.getElementById('umyWifiSsid');
+  var passEl = document.getElementById('umyWifiPass');
+  if (nameEl && !nameEl.value.trim()) nameEl.value = card.name || card.friendly_name || '';
+  if (portEl && !portEl.value.trim()) portEl.value = card.ip_address || card.target_ip || card.serial_port || card.target_port || '';
+  if (card.network_mode === 'ethernet') {
+    if (ssidEl) ssidEl.disabled = true;
+    if (passEl) passEl.disabled = true;
+  }
+}
+
+function umySetFlashButton(mode) {
+  var btn = document.getElementById('umyFlashBtn');
+  if (!btn) return;
+  if (mode === 'running') {
+    btn.innerHTML = '&#9203; Flashing…';
+    btn.disabled = true;
+    btn.onclick = function(){};
+  } else if (mode === 'done') {
+    btn.innerHTML = '&#10003; Open Installer';
+    btn.disabled = false;
+    btn.onclick = function() { try { location.href = (typeof installerContextUrl === 'function') ? installerContextUrl() : '/installer.html'; } catch(e) { location.href = '/installer.html'; } };
+  } else if (mode === 'retry') {
+    btn.innerHTML = '&#9889; Flash Again';
+    btn.disabled = false;
+    btn.onclick = umyFlash;
+  } else {
+    btn.innerHTML = '&#9889; Flash';
+    btn.disabled = false;
+    btn.onclick = umyFlash;
+  }
+}
+
+
+async function umyRefreshPorts() {
+  var sel = document.getElementById('umyPortSelect');
+  if (!sel) return;
+  try {
+    var r = await api('/esphome/ports', {});
+    var ports = r.ports || [];
+    sel.innerHTML = '<option value="">— select USB port —</option>' +
+      ports.map(function(p) { return '<option value="' + p + '">' + p + '</option>'; }).join('');
+    if (ports.length === 1) {
+      sel.value = ports[0];
+      document.getElementById('umyPort').value = ports[0];
+    }
+  } catch(e) {
+    sel.innerHTML = '<option value="">Could not scan ports</option>';
+  }
+}
+
 function toggleUseMyYaml() {
   var p = document.getElementById('useMyYamlPanel');
   if (p.style.display === 'none') {
     closeEspPanels('useMyYamlPanel');
+    umyRefreshPorts();
     // Hide wizard steps so they don't show alongside the UMY panel
     for (var i = 1; i <= 5; i++) {
       var s = document.getElementById('step' + i);
@@ -14,6 +88,7 @@ function toggleUseMyYaml() {
     p.style.display = '';
     _umyCurrentYaml = '';
     _umyAddedPeripherals = [];
+    umySetFlashButton('idle');
     document.getElementById('umyYamlText').value = '';
     document.getElementById('umyParseMsg').textContent = '';
     document.getElementById('umyPreview').style.display = 'none';
@@ -21,6 +96,7 @@ function toggleUseMyYaml() {
     document.getElementById('umyStep3').style.display = 'none';
     document.getElementById('umyStep4').style.display = 'none';
     document.getElementById('umyTerminal').style.display = 'none';
+    umyApplyContextDefaults();
   } else {
     p.style.display = 'none';
     // Restore the current wizard step
@@ -46,8 +122,15 @@ async function umyParse() {
     document.getElementById('umyStep2').style.display = 'block';
     document.getElementById('umyStep3').style.display = 'block';
     document.getElementById('umyStep4').style.display = 'block';
-    document.getElementById('umyDeviceName').value = (r.parsed.id || r.parsed.label || '').replace(/[^a-z0-9_-]/gi, '-').toLowerCase() || 'my-device';
-    document.getElementById('umyParseMsg').textContent = 'Parsed. You can add peripherals below or go to Step 3.';
+    var parsedName = (r.parsed.id || r.parsed.label || '').replace(/[^a-z0-9_-]/gi, '-').toLowerCase() || 'my-device';
+    var card = umySelectedInstallerCard();
+    document.getElementById('umyDeviceName').value = (card && (card.name || card.friendly_name)) || parsedName;
+    var net = umyDetectNetwork(text);
+    if (net.hasWifi && net.hasEthernet) document.getElementById('umyParseMsg').textContent = 'Parsed, but this YAML contains both WiFi and Ethernet. Keep only one before flashing.';
+    else if (net.hasEthernet) document.getElementById('umyParseMsg').textContent = 'Parsed. Ethernet YAML detected — ELARIS will ignore WiFi, inject its managed MQTT announce overlay, and keep this device in the internal managed path.';
+    else if (net.hasWifi) document.getElementById('umyParseMsg').textContent = 'Parsed. ELARIS will keep WiFi, inject its managed MQTT announce overlay, and keep this device in the internal managed path.';
+    else document.getElementById('umyParseMsg').textContent = 'Parsed. ELARIS will inject its managed MQTT announce overlay before flashing and keep this device in the internal managed path.';
+    umyApplyContextDefaults();
   } catch(e) {
     document.getElementById('umyParseMsg').textContent = 'Error: ' + e.message;
   }
@@ -87,7 +170,9 @@ async function umyFlash() {
   var port = document.getElementById('umyPort').value.trim();
   if (!device_name) { alert('Enter device name.'); return; }
   if (!port) { alert('Enter USB port or OTA IP.'); return; }
-  document.getElementById('umyFlashBtn').disabled = true;
+  var net = umyDetectNetwork(_umyCurrentYaml);
+  if (net.hasWifi && net.hasEthernet) { alert('This YAML contains both WiFi and Ethernet. Keep only one before flashing.'); return; }
+  umySetFlashButton('running');
   document.getElementById('umyFlashMsg').textContent = 'Flashing…';
   document.getElementById('umyTerminal').style.display = 'block';
   document.getElementById('umyTerminal').innerHTML = '<span class="tl-info">Starting flash…</span>\n';
@@ -101,19 +186,25 @@ async function umyFlash() {
         wifi_pass: wifi_pass,
         mqtt_host: mqtt_host,
         port: port,
-        client_id: window.__elarisWsClientId || null,
+        client_id: (typeof esphomeClientId !== 'undefined' ? esphomeClientId : null) || window.__elarisWsClientId || null,
+        existing_device_id: (umySelectedInstallerCard() || {}).id || null,
+        board_profile_id: (umySelectedInstallerCard() || {}).board_profile_id || ((document.getElementById('boardSelect') || {}).value || null),
+        integration_key: 'esphome',
+        ownership_mode: 'managed_internal',
+        config_source: 'use_my_yaml_overlay',
+        read_only: 0,
       }),
     });
     if (!r.ok) throw new Error(r.error);
     document.getElementById('umyFlashMsg').textContent = 'Flash started. Watch the log below.';
   } catch(e) {
-    document.getElementById('umyFlashBtn').disabled = false;
+    umySetFlashButton('retry');
     document.getElementById('umyFlashMsg').textContent = 'Error: ' + e.message;
     document.getElementById('umyTerminal').innerHTML += '<span class="tl-error">' + escHtml(e.message) + '</span>\n';
   }
 }
 
 function onEsphomeDoneFromUseMyYaml(ok, code) {
-  document.getElementById('umyFlashBtn').disabled = false;
-  document.getElementById('umyFlashMsg').textContent = ok ? 'Flash complete. Device will appear in Installer.' : 'Flash failed (exit ' + code + ').';
+  umySetFlashButton(ok ? 'done' : 'retry');
+  document.getElementById('umyFlashMsg').textContent = ok ? 'Flash complete. Open Installer to continue with the managed internal device card.' : 'Flash failed (exit ' + code + ').';
 }

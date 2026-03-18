@@ -7,10 +7,10 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const { listCatalogSummaries, getCatalogProfile } = require('./profile_registry');
-const { normalizePayload, safeName, sha256, parseGpio, toGpioLabel } = require('./schema');
+const { normalizePayload, safeName, sha256, parseGpio, toGpioLabel, normalizeIntegrationKey, normalizeOwnershipMode, normalizeConfigSource, normalizeReadOnly } = require('./schema');
 const { validateConfig } = require('./validator');
 const { generateYAML } = require('./generator');
-const { resolvePeripheralSelection } = require('./board_port_registry');
+const { resolvePeripheralSelection, findBoardPort } = require('./board_port_registry');
 
 // ── GPIO constants ────────────────────────────────────────────────────────────
 const COMMON_ESP32_GPIO_PINS = [0, 1, 2, 3, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33, 34, 35, 36, 39];
@@ -290,6 +290,15 @@ function getDefaultI2cBus(profile) {
   return null;
 }
 
+function describeProfilePin(profile, pinText) {
+  const pin = normalizePinInput(pinText);
+  if (!pin || !profile) return pin || String(pinText || '').trim().toUpperCase();
+  const port = findBoardPort(profile, pin);
+  if (!port) return pin;
+  const label = String(port.label || port.id || '').trim();
+  return label && label.toUpperCase() !== pin ? `${label} (${pin})` : pin;
+}
+
 function isDs18b20SharedBusUsage(kinds) {
   const allow = new Set(['one_wire:gpio', 'sensor:dallas_temp']);
   for (const kind of kinds || []) { if (!allow.has(kind)) return false; }
@@ -316,7 +325,7 @@ function validatePeripheralEntity({ profile, yamlText, entity }) {
     for (const gpio of [sda, scl]) {
       const label = toGpioLabel(gpio);
       if (rules.flashPins.includes(gpio)) errors.push(`${label} is a flash pin and cannot be used for I2C.`);
-      if (rules.reserved.includes(gpio) && !allowReservedBus) errors.push(`${label} is reserved by the board/profile.`);
+      if (rules.reserved.includes(gpio) && !allowReservedBus) errors.push(`${describeProfilePin(profile, label)} is reserved by the board/profile.`);
       if (rules.strapping.includes(gpio)) warnings.push(`${label} is a strapping pin; use with care.`);
     }
     const defaultBus = getDefaultI2cBus(profile);
@@ -337,7 +346,7 @@ function validatePeripheralEntity({ profile, yamlText, entity }) {
   const caps = getPinCapabilities(profile, gpio);
   const label = toGpioLabel(gpio);
   if (rules.flashPins.includes(gpio)) errors.push(`${label} is a flash pin and cannot be used.`);
-  if (rules.reserved.includes(gpio) && !allowReservedPin) errors.push(`${label} is reserved by the board/profile.`);
+  if (rules.reserved.includes(gpio) && !allowReservedPin) errors.push(`${describeProfilePin(profile, label)} is reserved by the board/profile.`);
   if (!caps.includes(type)) {
     if (type === 'analog') errors.push(`${label} does not support ADC on this board/profile.`);
     else if ((type === 'dht' || type === 'dht11' || type === 'ds18b20') && rules.inputOnly.includes(gpio)) errors.push(`${label} is input-only and cannot be used for ${type.toUpperCase()} sensors.`);
@@ -348,8 +357,8 @@ function validatePeripheralEntity({ profile, yamlText, entity }) {
   const usage = collectYamlPinUsage(yamlText).get(pinText);
   if (usage) {
     const sharedDs = type === 'ds18b20' && isDs18b20SharedBusUsage(usage.kinds);
-    if (!sharedDs) errors.push(`pin_conflict — ${pinText} is already used in this device YAML.`);
-    else warnings.push(`Shared 1-Wire bus detected on ${pinText}; adding another DS18B20 on the same pin is allowed.`);
+    if (!sharedDs) errors.push(`pin_conflict — ${describeProfilePin(profile, pinText)} is already used in this device YAML.`);
+    else warnings.push(`Shared 1-Wire bus detected on ${describeProfilePin(profile, pinText)}; adding another DS18B20 on the same pin is allowed.`);
   }
   return {
     ok: errors.length === 0,
@@ -427,6 +436,10 @@ function ensureEsphomeTables(db) {
       yaml_path TEXT,
       yaml_hash TEXT,
       last_validation_json TEXT,
+      integration_key TEXT NOT NULL DEFAULT 'esphome',
+      ownership_mode TEXT NOT NULL DEFAULT 'managed_internal',
+      config_source TEXT,
+      read_only INTEGER NOT NULL DEFAULT 0,
       last_seen_at TEXT,
       deleted_at TEXT,
       deleted_reason TEXT,
@@ -448,6 +461,10 @@ function ensureEsphomeTables(db) {
       yaml_text TEXT NOT NULL,
       yaml_hash TEXT,
       validation_json TEXT,
+      integration_key TEXT NOT NULL DEFAULT 'esphome',
+      ownership_mode TEXT NOT NULL DEFAULT 'managed_internal',
+      config_source TEXT,
+      read_only INTEGER NOT NULL DEFAULT 0,
       generated_by TEXT DEFAULT 'system',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (esphome_device_id) REFERENCES esphome_devices(id) ON DELETE CASCADE
@@ -674,6 +691,10 @@ function persistInstallState(db, { payload, profile, validation, yaml, yamlPath,
   const now = new Date().toISOString();
   const validationJson = JSON.stringify(validation);
   const mqttRoot = `elaris/${canonicalName}`;
+  const integrationKey = normalizeIntegrationKey(payload.integration_key);
+  const ownershipMode = normalizeOwnershipMode(payload.ownership_mode);
+  const configSource = normalizeConfigSource(payload.config_source);
+  const readOnly = normalizeReadOnly(payload.read_only, ownershipMode);
   const byExplicitId = payload.existing_device_id
     ? db.prepare('SELECT * FROM esphome_devices WHERE id=? LIMIT 1').get(payload.existing_device_id)
     : null;
@@ -690,7 +711,7 @@ function persistInstallState(db, { payload, profile, validation, yaml, yamlPath,
     const nameChanged = String(existing?.name || '').trim().toLowerCase() !== canonicalName.toLowerCase();
     const topicChanged = String(existing?.mqtt_topic_root || '').trim().toLowerCase() !== mqttRoot.toLowerCase();
     const resetLastSeen = !!(nameChanged || topicChanged);
-    db.prepare(`UPDATE esphome_devices SET name=?, friendly_name=?, board_profile_id=?, chip=?, framework=?, transport=?, network_mode=?, status=?, serial_port=?, ip_address=COALESCE(?, ip_address), hostname=?, mqtt_topic_root=?, yaml_path=?, yaml_hash=?, last_validation_json=?, last_seen_at=?, updated_at=? WHERE id=?`).run(
+    db.prepare(`UPDATE esphome_devices SET name=?, friendly_name=?, board_profile_id=?, chip=?, framework=?, transport=?, network_mode=?, status=?, serial_port=?, ip_address=COALESCE(?, ip_address), hostname=?, mqtt_topic_root=?, yaml_path=?, yaml_hash=?, last_validation_json=?, integration_key=?, ownership_mode=?, config_source=?, read_only=?, last_seen_at=?, updated_at=?, deleted_at=NULL, deleted_reason=NULL WHERE id=?`).run(
       canonicalName,
       payload.device_name || canonicalName, profile.id, profile.platform,
       payload.framework || profile.frameworkDefault || null,
@@ -700,10 +721,10 @@ function persistInstallState(db, { payload, profile, validation, yaml, yamlPath,
       /^\/dev\//.test(port || '') ? port : null,
       port && !/^\/dev\//.test(port || '') ? port : null,
       canonicalName,
-      mqttRoot, yamlPath || null, yamlHash, validationJson, resetLastSeen ? null : (existing?.last_seen_at || null), now, deviceId,
+      mqttRoot, yamlPath || null, yamlHash, validationJson, integrationKey, ownershipMode, configSource, readOnly, resetLastSeen ? null : (existing?.last_seen_at || null), now, deviceId,
     );
   } else {
-    const ins = db.prepare(`INSERT INTO esphome_devices (site_id, name, friendly_name, board_profile_id, chip, framework, transport, network_mode, status, serial_port, ip_address, hostname, mqtt_topic_root, yaml_path, yaml_hash, last_validation_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    const ins = db.prepare(`INSERT INTO esphome_devices (site_id, name, friendly_name, board_profile_id, chip, framework, transport, network_mode, status, serial_port, ip_address, hostname, mqtt_topic_root, yaml_path, yaml_hash, last_validation_json, integration_key, ownership_mode, config_source, read_only, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       siteId, canonicalName, payload.device_name || canonicalName, profile.id, profile.platform,
       payload.framework || profile.frameworkDefault || null,
       port && /^\/dev\//.test(port) ? 'usb' : 'ota',
@@ -712,7 +733,7 @@ function persistInstallState(db, { payload, profile, validation, yaml, yamlPath,
       /^\/dev\//.test(port || '') ? port : null,
       port && !/^\/dev\//.test(port || '') ? port : null,
       canonicalName,
-      mqttRoot, yamlPath || null, yamlHash, validationJson, now, now,
+      mqttRoot, yamlPath || null, yamlHash, validationJson, integrationKey, ownershipMode, configSource, readOnly, now, now,
     );
     deviceId = ins.lastInsertRowid;
   }
@@ -746,7 +767,7 @@ function persistInstallState(db, { payload, profile, validation, yaml, yamlPath,
   cleanupStaleEsphomeDuplicates(db);
   let configId = null;
   if (yaml) {
-    const cfg = db.prepare(`INSERT INTO esphome_generated_configs (esphome_device_id, config_mode, board_profile_id, yaml_text, yaml_hash, validation_json, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(deviceId, 'full', profile.id, yaml, yamlHash, validationJson, 'system');
+    const cfg = db.prepare(`INSERT INTO esphome_generated_configs (esphome_device_id, config_mode, board_profile_id, yaml_text, yaml_hash, validation_json, integration_key, ownership_mode, config_source, read_only, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(deviceId, 'full', profile.id, yaml, yamlHash, validationJson, integrationKey, ownershipMode, configSource, readOnly, 'system');
     configId = cfg.lastInsertRowid;
   }
   const job = db.prepare(`INSERT INTO esphome_install_jobs (esphome_device_id, config_id, job_type, target_port, target_ip, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(

@@ -37,6 +37,92 @@ function normalizeSupports(items) {
   return [...new Set((items || []).map(v => String(v || '').trim().toLowerCase()).filter(Boolean))];
 }
 
+function normalizeBoardToken(value) {
+  return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '');
+}
+
+function addAliasToken(set, value) {
+  const raw = String(value || '').trim().toUpperCase();
+  if (!raw) return;
+  set.add(raw);
+  const flat = raw.replace(/[\s._\-/]+/g, '');
+  if (flat) set.add(flat);
+  const compact = raw.replace(/\s+/g, ' ');
+  if (compact) set.add(compact);
+  const numbered = raw.match(/^([A-Z]+)0+(\d+)$/);
+  if (numbered) set.add(`${numbered[1]}${Number(numbered[2])}`);
+}
+
+function inferIndexedPortNumber(raw = {}) {
+  const candidates = [raw.id, raw.label, raw.source].concat(Array.isArray(raw.aliases) ? raw.aliases : []);
+  for (const item of candidates) {
+    const m = String(item || '').trim().toUpperCase().match(/(?:^|[^A-Z])(DI|DO|AI|AO|HT|DS|IN|OUT|X|Y|AN|ADC|RELAY|TEMP|INPUT)0*(\d+)$/);
+    if (m) return Number(m[2]);
+  }
+  return null;
+}
+
+function addIndexedAliases(set, group, index) {
+  const n = Number(index);
+  if (!Number.isFinite(n) || n < 0) return;
+  const plain = String(n);
+  const padded = String(n).padStart(2, '0');
+  const families = {
+    do: ['DO', 'OUT', 'Y', 'RELAY'],
+    di: ['DI', 'IN', 'X', 'INPUT'],
+    ai: ['AI', 'AN', 'ADC'],
+    ao: ['AO', 'PWM'],
+    ht: ['HT', 'DS', 'TEMP', 'ONEWIRE'],
+    onewire: ['HT', 'DS', 'TEMP', 'ONEWIRE'],
+  };
+  for (const prefix of (families[String(group || '').toLowerCase()] || [])) {
+    addAliasToken(set, `${prefix}${plain}`);
+    addAliasToken(set, `${prefix}${padded}`);
+  }
+}
+
+function buildPortAliases(raw = {}, derived = {}) {
+  const set = new Set();
+  [raw.id, raw.label, raw.source, raw.pin, derived.id, derived.label, derived.pin].forEach(v => addAliasToken(set, v));
+  for (const alias of (raw.aliases || [])) addAliasToken(set, alias);
+  for (const alias of (derived.aliases || [])) addAliasToken(set, alias);
+  const gpio = parseGpio(raw.pin != null ? raw.pin : derived.pin);
+  if (gpio !== null) {
+    addAliasToken(set, toGpioLabel(gpio));
+    addAliasToken(set, String(gpio));
+  }
+  addIndexedAliases(set, derived.group || raw.group || raw.kind, inferIndexedPortNumber(raw));
+  return [...set];
+}
+
+function buildBusAliases(raw = {}, derived = {}) {
+  const set = new Set();
+  [raw.id, raw.label, raw.protocol, derived.id, derived.label, derived.protocol].forEach(v => addAliasToken(set, v));
+  for (const alias of (raw.aliases || [])) addAliasToken(set, alias);
+  for (const alias of (derived.aliases || [])) addAliasToken(set, alias);
+  if (derived.protocol === 'i2c' && derived.sda && derived.scl) {
+    addAliasToken(set, `${derived.sda}/${derived.scl}`);
+    addAliasToken(set, `I2C${derived.sda}${derived.scl}`);
+  }
+  if ((derived.protocol === 'uart' || derived.protocol === 'rs485') && derived.tx && derived.rx) {
+    addAliasToken(set, `${derived.tx}/${derived.rx}`);
+  }
+  return [...set];
+}
+
+function extractLookupTokens(value) {
+  const out = new Set();
+  const push = (candidate) => {
+    const raw = String(candidate || '').trim().toUpperCase();
+    if (!raw) return;
+    addAliasToken(out, raw);
+    raw.split(/[^A-Z0-9]+/).filter(Boolean).forEach(part => addAliasToken(out, part));
+  };
+  if (Array.isArray(value)) value.forEach(push);
+  else push(value);
+  return [...out].map(normalizeBoardToken).filter(Boolean);
+}
+
 function clone(obj) {
   return JSON.parse(JSON.stringify(obj || null));
 }
@@ -59,9 +145,10 @@ function deriveBoardPorts(profile) {
         range: raw.range || null,
         multi_instance: raw.multi_instance !== false,
         shared_bus: !!raw.shared_bus,
-        aliases: [...new Set((raw.aliases || []).map(v => String(v || '').trim().toUpperCase()).filter(Boolean))],
+        aliases: [],
         meta: raw.meta || {},
       });
+      ports[ports.length - 1].aliases = buildPortAliases(raw, ports[ports.length - 1]);
     }
   }
   if (Array.isArray(profile?.boardBuses)) {
@@ -75,8 +162,7 @@ function deriveBoardPorts(profile) {
         addresses: (raw.addresses || []).map(a => String(a).trim().toLowerCase()).filter(Boolean),
         hint: String(raw.hint || '').trim() || null,
         shared_bus: raw.shared_bus !== false,
-        aliases: [...new Set((raw.aliases || []).map(v => String(v || '').trim().toUpperCase()).filter(Boolean))],
-        aliases: [...new Set((raw.aliases || []).map(v => String(v || '').trim().toUpperCase()).filter(Boolean))],
+        aliases: [],
         meta: raw.meta || {},
       };
       if (protocol === 'i2c') {
@@ -93,6 +179,7 @@ function deriveBoardPorts(profile) {
         const rx = parseGpio(raw.rx);
         if (rx !== null) bus.rx = toGpioLabel(rx);
       }
+      bus.aliases = buildBusAliases(raw, bus);
       buses.push(bus);
     }
   }
@@ -115,8 +202,10 @@ function deriveBoardPorts(profile) {
         scl: toGpioLabel(scl),
         hint: raw.scan ? 'Shared scan-enabled I²C bus.' : 'Shared I²C bus.',
         shared_bus: true,
+        aliases: [],
         meta: { derived: true },
       });
+      buses[buses.length - 1].aliases = buildBusAliases(raw, buses[buses.length - 1]);
     }
   }
 
@@ -149,8 +238,10 @@ function deriveBoardPorts(profile) {
       range: null,
       multi_instance: kind === 'ds18b20',
       shared_bus: kind === 'ds18b20',
+      aliases: [],
       meta: { derived: true },
     });
+    ports[ports.length - 1].aliases = buildPortAliases(e, ports[ports.length - 1]);
     seenPortIds.add(portId);
   }
 
@@ -204,23 +295,95 @@ function filterBoardPorts(profile, type) {
 }
 
 function findBoardPort(profile, portId) {
-  const id = String(portId || '').trim().toUpperCase();
-  if (!id) return null;
+  const tokens = extractLookupTokens(portId);
+  if (!tokens.length) return null;
+  const wanted = new Set(tokens);
   return deriveBoardPorts(profile).ports.find(p =>
-    String(p.id || '').trim().toUpperCase() === id ||
-    String(p.label || '').trim().toUpperCase() === id ||
-    (Array.isArray(p.aliases) && p.aliases.includes(id))
+    [p.id, p.label, p.pin].concat(Array.isArray(p.aliases) ? p.aliases : [])
+      .map(normalizeBoardToken)
+      .filter(Boolean)
+      .some(token => wanted.has(token))
   ) || null;
 }
 
 function findBoardBus(profile, busId) {
-  const id = String(busId || '').trim().toUpperCase();
-  if (!id) return null;
+  const tokens = extractLookupTokens(busId);
+  if (!tokens.length) return null;
+  const wanted = new Set(tokens);
   return deriveBoardPorts(profile).buses.find(b =>
-    String(b.id || '').trim().toUpperCase() === id ||
-    String(b.label || '').trim().toUpperCase() === id ||
-    (Array.isArray(b.aliases) && b.aliases.includes(id))
+    [b.id, b.label].concat(Array.isArray(b.aliases) ? b.aliases : [])
+      .map(normalizeBoardToken)
+      .filter(Boolean)
+      .some(token => wanted.has(token))
   ) || null;
+}
+
+function classToPortGroups(kind) {
+  const upper = String(kind || '').trim().toUpperCase();
+  if (upper === 'DO') return ['do'];
+  if (upper === 'DI') return ['di'];
+  if (upper === 'AO') return ['ao'];
+  if (upper === 'AI') return ['ai', 'ht', 'onewire'];
+  return [];
+}
+
+function matchBoardPathFromText(profile, rawText, opts = {}) {
+  const runtime = deriveBoardPorts(profile);
+  const tokens = extractLookupTokens(rawText);
+  if (!tokens.length) return null;
+  const wanted = new Set(tokens);
+  const preferGroups = new Set(classToPortGroups(opts.entityClass || opts.kind));
+  let best = null;
+
+  const consider = (kind, item, aliasToken, score) => {
+    if (!item || !aliasToken || score <= 0) return;
+    if (!best || score > best.score) best = { kind, item, alias: aliasToken, score };
+  };
+
+  for (const port of runtime.ports) {
+    const group = String(port.group || '').toLowerCase();
+    const aliases = [port.id, port.label, port.pin].concat(Array.isArray(port.aliases) ? port.aliases : []);
+    for (const alias of aliases) {
+      const aliasToken = normalizeBoardToken(alias);
+      if (!aliasToken || !wanted.has(aliasToken)) continue;
+      let score = 100 + aliasToken.length;
+      if (preferGroups.size && preferGroups.has(group)) score += 25;
+      consider('port', port, aliasToken, score);
+    }
+  }
+
+  for (const bus of runtime.buses) {
+    const aliases = [bus.id, bus.label].concat(Array.isArray(bus.aliases) ? bus.aliases : []);
+    for (const alias of aliases) {
+      const aliasToken = normalizeBoardToken(alias);
+      if (!aliasToken || !wanted.has(aliasToken)) continue;
+      let score = 80 + aliasToken.length;
+      if (String(opts.entityClass || '').trim().toUpperCase() === 'AI') score += 10;
+      consider('bus', bus, aliasToken, score);
+    }
+  }
+
+  if (!best) return null;
+  if (best.kind === 'port') {
+    return {
+      kind: 'port',
+      port: best.item,
+      source: String(best.item.id || best.item.label || '').trim() || null,
+      port_id: String(best.item.id || best.item.label || '').trim() || null,
+      bus_id: null,
+      score: best.score,
+      alias: best.alias,
+    };
+  }
+  return {
+    kind: 'bus',
+    bus: best.item,
+    source: String(best.item.id || best.item.label || '').trim() || null,
+    port_id: null,
+    bus_id: String(best.item.id || best.item.label || '').trim() || null,
+    score: best.score,
+    alias: best.alias,
+  };
 }
 
 function resolvePeripheralSelection(profile, rawEntity = {}) {
@@ -271,5 +434,6 @@ module.exports = {
   filterBoardPorts,
   findBoardPort,
   findBoardBus,
+  matchBoardPathFromText,
   resolvePeripheralSelection,
 };

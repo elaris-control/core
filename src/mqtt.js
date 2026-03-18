@@ -4,6 +4,28 @@ const mqtt = require("mqtt");
 function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto = null }) {
   const client = mqtt.connect(url);
 
+  function isMqttDebugEnabled() {
+    try {
+      if (typeof dbApi?.getAppSetting === 'function') {
+        const raw = dbApi.getAppSetting('mqtt_debug_enabled', null);
+        if (raw != null) {
+          const v = String(raw).trim().toLowerCase();
+          if (['1','true','yes','on','enabled'].includes(v)) return true;
+          if (['0','false','no','off','disabled'].includes(v)) return false;
+        }
+      }
+    } catch (_) {}
+    return process.env.ELARIS_MQTT_DEBUG === '0' ? false : true;
+  }
+
+  function mqttDebug(label, meta = null) {
+    if (!isMqttDebugEnabled()) return;
+    try {
+      if (meta == null) console.log(`[MQTT DEBUG] ${label}`);
+      else console.log(`[MQTT DEBUG] ${label}`, meta);
+    } catch (_) {}
+  }
+
   function withSiteScope(payload = {}) {
     const deviceId = payload?.deviceId ? String(payload.deviceId) : "";
     if (!deviceId) return payload;
@@ -36,6 +58,10 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
     client.subscribe("+/text_sensor/+/state");
 
     console.log("[MQTT] connected & subscribed");
+    mqttDebug('subscriptions_ready', {
+      custom: ['elaris/+/config','elaris/+/tele/+','elaris/+/state/+','elaris/+/cmnd/+'],
+      standard: ['+/status','+/switch/+/state','+/binary_sensor/+/state','+/sensor/+/state','+/text_sensor/+/state']
+    });
     emit("mqtt_status", { status: "connected" });
   });
 
@@ -51,6 +77,14 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
     const retained = !!packet?.retain;
 
     const parts = topic.split("/");
+    const looksInteresting = (
+      parts[0] === 'elaris' ||
+      (parts.length === 2 && parts[1] === 'status') ||
+      (parts.length === 4 && ['switch','binary_sensor','sensor','text_sensor'].includes(parts[1]) && parts[3] === 'state')
+    );
+    if (looksInteresting) {
+      mqttDebug('rx', { topic, retained, payload: String(trimmedPayload || payload || '').slice(0, 180) });
+    }
 
     // ELARIS custom topics: elaris/<device>/<group>/<key>
     if (parts[0] === 'elaris') {
@@ -86,7 +120,8 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
         return;
       }
 
-      dbApi.noteDeviceAndMaybePendingIO({ deviceId, group, key, value: payload, ts, retained });
+      const noteResult = dbApi.noteDeviceAndMaybePendingIO({ deviceId, group, key, value: payload, ts, retained });
+      mqttDebug('custom_topic_processed', { deviceId, group, key, retained, result: noteResult?.reason || null, pending: !!noteResult?.ok });
 
       if (group === "tele" || group === "state") {
         dbApi.upsertState.run({
@@ -95,6 +130,7 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
           value: payload,
           ts,
         });
+        mqttDebug('state_cache_upsert', { deviceId, state_key: `${group}.${key}`, retained, from: 'custom' });
       }
 
       dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
@@ -108,10 +144,21 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
     // Standard ESPHome topics: <device>/status, <device>/switch/<key>/state, etc.
     const deviceId = parts[0] || 'unknown';
     const known = typeof dbApi.findEspHomeRegistry === 'function' ? dbApi.findEspHomeRegistry(deviceId) : null;
-    if (!known) return;
+    if (!known) {
+      if (looksInteresting) mqttDebug('standard_topic_registry_miss', { deviceId, topic, retained });
+      return;
+    }
+    mqttDebug('standard_topic_registry_hit', { deviceId, topic, retained, registry_id: known?.id || null, board_profile_id: known?.board_profile_id || null, mqtt_topic_root: known?.mqtt_topic_root || null });
 
     if (parts.length === 2 && parts[1] === 'status') {
-      dbApi.noteDeviceAndMaybePendingIO({ deviceId, group: 'meta', key: 'status', value: payload, ts, retained });
+      const noteResult = dbApi.noteDeviceAndMaybePendingIO({ deviceId, group: 'meta', key: 'status', value: payload, ts, retained, allowRetained: true });
+      mqttDebug('status_processed', { deviceId, retained, payload: trimmedPayload || payload, result: noteResult?.reason || null, pending: !!noteResult?.ok });
+      if (typeof dbApi.touchEspHomeRegistry === 'function') {
+        const lower = String(trimmedPayload || '').toLowerCase();
+        const status = lower === 'offline' ? 'offline' : 'online';
+        dbApi.touchEspHomeRegistry(deviceId, { status, ts });
+        mqttDebug('registry_touch', { deviceId, status, retained, from: 'status_topic' });
+      }
       dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
       emit("mqtt", { topic, deviceId, group: 'meta', key: 'status', payload });
       return;
@@ -122,18 +169,21 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
       if (diagKey) {
         if ((/mac/.test(diagKey) || diagKey.endsWith('mac_address')) && typeof dbApi.updateEspHomeIdentity === 'function') {
           dbApi.updateEspHomeIdentity(deviceId, { mac_address: trimmedPayload, ts });
+          mqttDebug('identity_update', { deviceId, field: 'mac_address', value: trimmedPayload });
           dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
           emit("mqtt", { topic, deviceId, group: 'meta', key: 'mac_address', payload });
           return;
         }
         if ((diagKey === 'ip_address' || diagKey.endsWith('_ip') || diagKey.endsWith('_ip_address')) && typeof dbApi.updateEspHomeIdentity === 'function') {
           dbApi.updateEspHomeIdentity(deviceId, { ip_address: trimmedPayload, ts });
+          mqttDebug('identity_update', { deviceId, field: 'ip_address', value: trimmedPayload });
           dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
           emit("mqtt", { topic, deviceId, group: 'meta', key: 'ip_address', payload });
           return;
         }
         if ((diagKey === 'version' || diagKey === 'esphome_version' || diagKey === 'firmware_version') && typeof dbApi.updateEspHomeIdentity === 'function') {
           dbApi.updateEspHomeIdentity(deviceId, { firmware_version: trimmedPayload, ts });
+          mqttDebug('identity_update', { deviceId, field: 'firmware_version', value: trimmedPayload });
           dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
           emit("mqtt", { topic, deviceId, group: 'meta', key: 'firmware_version', payload });
           return;
@@ -161,8 +211,14 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
       return;
     }
 
-    dbApi.noteDeviceAndMaybePendingIO({ deviceId, group, key, value: payload, ts, retained });
+    const noteResult = dbApi.noteDeviceAndMaybePendingIO({ deviceId, group, key, value: payload, ts, retained, allowRetained: true });
+    mqttDebug('standard_state_processed', { deviceId, group, key, retained, result: noteResult?.reason || null, pending: !!noteResult?.ok });
+    if (typeof dbApi.touchEspHomeRegistry === 'function') {
+      dbApi.touchEspHomeRegistry(deviceId, { status: 'online', ts });
+      mqttDebug('registry_touch', { deviceId, status: 'online', retained, from: 'standard_state' });
+    }
     dbApi.upsertState.run({ device_id: deviceId, key: `${group}.${key}`, value: payload, ts });
+    mqttDebug('state_cache_upsert', { deviceId, state_key: `${group}.${key}`, retained, from: 'standard' });
     dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
     if (solarAuto) solarAuto.onSensorUpdate(deviceId, `${group}.${key}`);
     emit("mqtt", { topic, deviceId, group, key: `${group}.${key}`, payload });
