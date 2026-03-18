@@ -2,7 +2,8 @@
 const Database = require("better-sqlite3");
 const { getDBPath, ensureDirForFile } = require("./paths");
 const { getProfile } = require("./esphome/board_profiles");
-const { ensureProfileCatalogTables, seedProfileCatalog } = require("./esphome/profile_registry");
+const { ensureProfileCatalogTables, seedProfileCatalog, getCatalogProfile } = require("./esphome/profile_registry");
+const { findBoardPort } = require("./esphome/board_port_registry");
 
 function initDB(dbPath) {
   if (!dbPath) dbPath = getDBPath();
@@ -459,10 +460,29 @@ db.exec(`
   const listPendingIO = db.prepare(`SELECT * FROM pending_io ORDER BY last_seen DESC`);
   const isApprovedIO = db.prepare(`SELECT 1 FROM io WHERE device_id=? AND group_name=? AND key=? LIMIT 1`);
   const isBlockedIO = db.prepare(`SELECT 1 FROM blocked_io WHERE device_id=? AND group_name=? AND key=? LIMIT 1`);
+  const findApprovedIOByPath = db.prepare(`
+    SELECT 1 FROM io
+    WHERE device_id=?
+      AND (
+        upper(COALESCE(port_id,''))=upper(?) OR
+        upper(COALESCE(source,''))=upper(?) OR
+        upper(COALESCE(bus_id,''))=upper(?)
+      )
+    LIMIT 1
+  `);
   const upsertPendingIO = db.prepare(`
     INSERT INTO pending_io (device_id, key, group_name, first_seen, last_seen, last_value)
     VALUES (@device_id, @key, @group_name, @ts, @ts, @last_value)
     ON CONFLICT(device_id, group_name, key) DO UPDATE SET last_seen=excluded.last_seen, last_value=excluded.last_value
+  `);
+  const upsertPendingIOWithSite = db.prepare(`
+    INSERT INTO pending_io (device_id, key, group_name, first_seen, last_seen, last_value, site_id)
+    VALUES (@device_id, @key, @group_name, @first_seen, @last_seen, @last_value, @site_id)
+    ON CONFLICT(device_id, group_name, key) DO UPDATE SET
+      first_seen=MIN(pending_io.first_seen, excluded.first_seen),
+      last_seen=MAX(pending_io.last_seen, excluded.last_seen),
+      last_value=COALESCE(excluded.last_value, pending_io.last_value),
+      site_id=COALESCE(excluded.site_id, pending_io.site_id)
   `);
   const hideBlockedIO = db.prepare(`UPDATE blocked_io SET hidden=1 WHERE device_id=? AND group_name=? AND key=?`);
 
@@ -495,6 +515,116 @@ db.exec(`
     return { ok: true, device_id: id, cleared_blocked: clearedBlocked, cleared_pending: clearedPending };
   }
 
+  function getRuntimeBoardProfile(boardProfileId) {
+    const id = String(boardProfileId || '').trim();
+    if (!id) return null;
+    return getCatalogProfile(db, id) || getProfile(id) || null;
+  }
+
+  function getDeviceBoardProfileId(deviceId) {
+    const id = String(deviceId || '').trim();
+    if (!id) return null;
+    const row = getEspHomeByName.get(id) || getEspHomeAnyByName.get(id) || null;
+    return row?.board_profile_id ? String(row.board_profile_id).trim() : null;
+  }
+
+  function canonicalGroupFromPortGroup(group, fallback) {
+    const g = String(group || '').trim().toLowerCase();
+    if (g === 'do' || g === 'ao') return 'state';
+    if (g) return 'tele';
+    return String(fallback || '').trim().toLowerCase() === 'state' ? 'state' : 'tele';
+  }
+
+  function canonicalizePendingIdentity({ deviceId, group, key, source = null, boardProfileId = null } = {}) {
+    const rawGroup = String(group || '').trim().toLowerCase() || 'tele';
+    const rawKey = String(key || '').trim();
+    const rawSource = String(source || '').trim();
+    const resolvedProfileId = String(boardProfileId || getDeviceBoardProfileId(deviceId) || '').trim();
+    const profile = getRuntimeBoardProfile(resolvedProfileId);
+    if (!profile || (!rawKey && !rawSource)) {
+      return {
+        group_name: rawGroup === 'state' ? 'state' : 'tele',
+        key: rawKey,
+        source: rawSource || null,
+        port_id: null,
+        board_profile_id: resolvedProfileId || null,
+        canonical: false,
+      };
+    }
+
+    const port = findBoardPort(profile, [rawSource, rawKey]);
+    if (!port) {
+      return {
+        group_name: rawGroup === 'state' ? 'state' : 'tele',
+        key: rawKey,
+        source: rawSource || null,
+        port_id: null,
+        board_profile_id: resolvedProfileId || null,
+        canonical: false,
+      };
+    }
+
+    const canonicalKey = String(port.id || port.label || rawKey || rawSource || '').trim() || rawKey;
+    return {
+      group_name: canonicalGroupFromPortGroup(port.group, rawGroup),
+      key: canonicalKey,
+      source: canonicalKey,
+      port_id: canonicalKey,
+      board_profile_id: resolvedProfileId || null,
+      canonical: true,
+      port_group: String(port.group || '').trim().toLowerCase() || null,
+      raw_key: rawKey || null,
+      raw_source: rawSource || null,
+    };
+  }
+
+  function normalizePendingRowsForDevice(deviceId) {
+    const id = String(deviceId || '').trim();
+    if (!id) return { ok: false, device_id: id, before: 0, after: 0, deduped: 0 };
+    const rows = db.prepare(`SELECT * FROM pending_io WHERE device_id=? ORDER BY last_seen DESC, id DESC`).all(id);
+    if (!rows.length) return { ok: true, device_id: id, before: 0, after: 0, deduped: 0 };
+
+    const aggregated = new Map();
+    for (const row of rows) {
+      const meta = canonicalizePendingIdentity({ deviceId: id, group: row.group_name, key: row.key });
+      const canonicalGroup = String(meta.group_name || row.group_name || 'tele').trim();
+      const canonicalKey = String(meta.key || row.key || '').trim();
+      if (!canonicalKey) continue;
+      const mapKey = `${canonicalGroup}::${canonicalKey}`;
+      const firstSeen = Number(row.first_seen) || Number(row.last_seen) || Date.now();
+      const lastSeen = Number(row.last_seen) || firstSeen;
+      const siteId = row.site_id == null ? null : row.site_id;
+      const current = aggregated.get(mapKey);
+      if (!current) {
+        aggregated.set(mapKey, {
+          device_id: id,
+          group_name: canonicalGroup,
+          key: canonicalKey,
+          first_seen: firstSeen,
+          last_seen: lastSeen,
+          last_value: row.last_value == null ? null : String(row.last_value),
+          site_id: siteId,
+        });
+        continue;
+      }
+      current.first_seen = Math.min(current.first_seen, firstSeen);
+      if (lastSeen >= current.last_seen) {
+        current.last_seen = lastSeen;
+        current.last_value = row.last_value == null ? current.last_value : String(row.last_value);
+      }
+      if (current.site_id == null && siteId != null) current.site_id = siteId;
+    }
+
+    db.transaction(() => {
+      db.prepare(`DELETE FROM pending_io WHERE device_id=?`).run(id);
+      for (const row of aggregated.values()) {
+        upsertPendingIOWithSite.run(row);
+      }
+    })();
+
+    return { ok: true, device_id: id, before: rows.length, after: aggregated.size, deduped: Math.max(0, rows.length - aggregated.size) };
+  }
+
   function approvePending({ pending_id, name, type, zone_id, hw_type, kind, unit, source, port_id, bus_id, board_profile_id }) {
     const row = db.prepare(`SELECT * FROM pending_io WHERE id=?`).get(pending_id);
     if (!row) return { ok: false, error: 'not_found' };
@@ -512,25 +642,36 @@ db.exec(`
     return { ok: true, io_id: info.lastInsertRowid };
   }
 
-  function noteDeviceAndMaybePendingIO({ deviceId, group, key, value, ts, retained, allowRetained = false }) {
+  function noteDeviceAndMaybePendingIO({ deviceId, group, key, value, ts, retained, allowRetained = false, source = null, boardProfileId = null }) {
     if (retained && !allowRetained) return { ok: false, reason: 'retained_ignored' };
-    if (isApprovedIO.get(deviceId, group, key)) return { ok: false, reason: 'already_approved' };
-    if (isBlockedIO.get(deviceId, group, key)) return { ok: false, reason: 'blocked' };
-    upsertPendingIO.run({ device_id: deviceId, key, group_name: group, ts, last_value: value });
-    return { ok: true, reason: 'pending_upserted' };
+    const canonical = canonicalizePendingIdentity({ deviceId, group, key, source, boardProfileId });
+    const finalGroup = canonical.group_name;
+    const finalKey = canonical.key;
+    if (isApprovedIO.get(deviceId, finalGroup, finalKey)) return { ok: false, reason: 'already_approved' };
+    if (canonical.port_id && findApprovedIOByPath.get(deviceId, canonical.port_id, canonical.source || canonical.port_id, canonical.port_id)) {
+      return { ok: false, reason: 'already_approved' };
+    }
+    if (isBlockedIO.get(deviceId, finalGroup, finalKey)) return { ok: false, reason: 'blocked' };
+    upsertPendingIO.run({ device_id: deviceId, key: finalKey, group_name: finalGroup, ts, last_value: value });
+    normalizePendingRowsForDevice(deviceId);
+    return { ok: true, reason: 'pending_upserted', canonical };
   }
 
   function noteDeviceConfig({ deviceId, config, ts, retained }) {
     if (!config || !deviceId) return;
     ensureDeviceAssigned(deviceId);
     const entities = Array.isArray(config.entities) ? config.entities : [];
+    const boardProfileId = String(config?.board_profile_id || getDeviceBoardProfileId(deviceId) || '').trim() || null;
     for (const e of entities) {
       if (!e?.key) continue;
       const group = e.group || (e.type === 'relay' ? 'state' : 'tele');
-      if (isApprovedIO.get(deviceId, group, e.key)) continue;
-      if (isBlockedIO.get(deviceId, group, e.key)) continue;
-      upsertPendingIO.run({ device_id: deviceId, key: e.key, group_name: group, ts, last_value: null });
+      const canonical = canonicalizePendingIdentity({ deviceId, group, key: e.key, source: e.source || e.port_id || e.bus_id || e.pin || null, boardProfileId });
+      if (isApprovedIO.get(deviceId, canonical.group_name, canonical.key)) continue;
+      if (canonical.port_id && findApprovedIOByPath.get(deviceId, canonical.port_id, canonical.source || canonical.port_id, canonical.port_id)) continue;
+      if (isBlockedIO.get(deviceId, canonical.group_name, canonical.key)) continue;
+      upsertPendingIO.run({ device_id: deviceId, key: canonical.key, group_name: canonical.group_name, ts, last_value: null });
     }
+    normalizePendingRowsForDevice(deviceId);
     upsertEspHomeRegistry({ deviceId, retained, reviveDeleted: !retained, ts });
   }
 
@@ -597,22 +738,25 @@ db.exec(`
   `);
 
   function seedPendingFromBoardProfile(deviceId, boardProfileId, ts) {
-    const profile = getProfile(boardProfileId);
+    const profile = getRuntimeBoardProfile(boardProfileId);
     const defaults = Array.isArray(profile?.entityDefaults) ? profile.entityDefaults : [];
     for (const e of defaults) {
       const group = e.type === 'relay' ? 'state' : 'tele';
-      const alreadyApproved = isApprovedIO.get(deviceId, group, e.key);
+      const canonical = canonicalizePendingIdentity({ deviceId, group, key: e.key, source: e.source || e.port_id || e.bus_id || e.pin || null, boardProfileId });
+      const alreadyApproved = isApprovedIO.get(deviceId, canonical.group_name, canonical.key)
+        || (canonical.port_id && findApprovedIOByPath.get(deviceId, canonical.port_id, canonical.source || canonical.port_id, canonical.port_id));
       if (alreadyApproved) continue;
-      const blocked = isBlockedIO.get(deviceId, group, e.key);
+      const blocked = isBlockedIO.get(deviceId, canonical.group_name, canonical.key);
       if (blocked) continue;
       upsertPendingIO.run({
         device_id: deviceId,
-        group_name: group,
-        key: e.key,
+        group_name: canonical.group_name,
+        key: canonical.key,
         ts,
         last_value: null,
       });
     }
+    normalizePendingRowsForDevice(deviceId);
   }
 
   function upsertEspHomeRegistry({ deviceId, friendlyName = null, status = 'online', hostname = null, firmwareVersion = null, transport = null, networkMode = null, macAddress = null, ipAddress = null, retained = false, reviveDeleted = false, ts = Date.now() }) {
@@ -824,6 +968,8 @@ db.exec(`
     hideBlockedIO,
     resetPendingForDevice,
     seedPendingFromBoardProfile,
+    canonicalizePendingIdentity,
+    normalizePendingRowsForDevice,
 
     createZone,
     listZones,

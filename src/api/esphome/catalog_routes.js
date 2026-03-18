@@ -76,28 +76,21 @@ function mountCatalogRoutes({ app, db, dataDir, requireLogin, requireEngineerAcc
     try {
       const profile = getCatalogProfile(db, req.params.boardId);
       if (!profile) return res.status(404).json({ ok: false, error: 'profile_not_found' });
-      const { device_name, site_id } = req.body || {};
+      const { device_name } = req.body || {};
       if (!device_name || !String(device_name).trim())
         return res.status(400).json({ ok: false, error: 'device_name required' });
       const deviceId = String(device_name).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
       const entities = profile.entityDefaults || [];
       if (!entities.length) return res.status(400).json({ ok: false, error: 'profile_has_no_entities' });
-      const now = Date.now();
-      const upsert = db.prepare(`INSERT INTO pending_io(device_id, group_name, key, first_seen, last_seen, last_value, site_id) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(device_id, group_name, key) DO UPDATE SET last_seen=excluded.last_seen`);
-      const isBlocked = db.prepare(`SELECT 1 FROM blocked_io WHERE device_id=? AND group_name=? AND key=?`);
-      const isApproved = db.prepare(`SELECT 1 FROM io WHERE device_id=? AND key=?`);
-      let injected = 0, skipped = 0;
-      db.transaction(() => {
-        for (const e of entities) {
-          if (!e?.key) continue;
-          const group = e.type === 'relay' ? 'state' : 'tele';
-          if (isBlocked.get(deviceId, group, e.key)) { skipped++; continue; }
-          if (isApproved.get(deviceId, e.key)) { skipped++; continue; }
-          upsert.run(deviceId, group, e.key, now, now, null, site_id || null);
-          injected++;
-        }
-      })();
-      res.json({ ok: true, device_id: deviceId, injected, skipped, total: entities.length });
+      const before = Number(db.prepare(`SELECT COUNT(*) AS c FROM pending_io WHERE device_id=?`).get(deviceId)?.c || 0);
+      if (typeof db.seedPendingFromBoardProfile === 'function') {
+        db.seedPendingFromBoardProfile(deviceId, profile.id, Date.now());
+      }
+      if (typeof db.normalizePendingRowsForDevice === 'function') {
+        db.normalizePendingRowsForDevice(deviceId);
+      }
+      const after = Number(db.prepare(`SELECT COUNT(*) AS c FROM pending_io WHERE device_id=?`).get(deviceId)?.c || 0);
+      res.json({ ok: true, device_id: deviceId, injected: Math.max(0, after - before), skipped: Math.max(0, entities.length - Math.max(0, after - before)), total: entities.length, canonicalized: true });
     } catch (e) {
       res.status(500).json({ ok: false, error: String(e?.message || e) });
     }

@@ -29,7 +29,15 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
 
   // ── Pending IO ────────────────────────────────────────────────────────
   router.get('/pending-io', requireEngineerAccess, (req, res) => {
-    res.json({ ok: true, pending: dbApi.listPendingIO.all() });
+    try {
+      if (typeof dbApi.normalizePendingRowsForDevice === 'function') {
+        const ids = dbApi.db.prepare(`SELECT DISTINCT device_id FROM pending_io ORDER BY device_id`).all().map(r => String(r.device_id || '').trim()).filter(Boolean);
+        for (const id of ids) dbApi.normalizePendingRowsForDevice(id);
+      }
+      res.json({ ok: true, pending: dbApi.listPendingIO.all() });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
   });
 
   router.post('/pending-io/resync', requireEngineerAccess, (req, res) => {
@@ -57,6 +65,11 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
       const rows = dbApi.db.prepare(`SELECT key, value, ts FROM device_state WHERE device_id=? ORDER BY ts DESC`).all(canonicalDeviceId);
       const isBlocked = dbApi.db.prepare(`SELECT 1 FROM blocked_io WHERE device_id=? AND group_name=? AND key=? LIMIT 1`);
       const isApproved = dbApi.db.prepare(`SELECT 1 FROM io WHERE device_id=? AND group_name=? AND key=? LIMIT 1`);
+      const isApprovedByPath = dbApi.db.prepare(`
+        SELECT 1 FROM io WHERE device_id=?
+          AND (upper(COALESCE(port_id,''))=upper(?) OR upper(COALESCE(source,''))=upper(?) OR upper(COALESCE(bus_id,''))=upper(?))
+        LIMIT 1
+      `);
       const upsert = dbApi.db.prepare(`
         INSERT INTO pending_io(device_id, key, group_name, first_seen, last_seen, last_value, site_id)
         VALUES(?, ?, ?, ?, ?, ?, ?)
@@ -89,10 +102,17 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
           const key = stateKey.slice(idx + 1).trim();
           if (!acceptedGroups.has(group) || !key) { skipped++; continue; }
           scanned++;
-          if (isBlocked.get(canonicalDeviceId, group, key)) { skipped++; continue; }
-          if (isApproved.get(canonicalDeviceId, group, key)) { skipped++; continue; }
+          const canonical = typeof dbApi.canonicalizePendingIdentity === 'function'
+            ? dbApi.canonicalizePendingIdentity({ deviceId: canonicalDeviceId, group, key, boardProfileId: deviceRow?.board_profile_id || null })
+            : { group_name: group, key, port_id: null, source: null };
+          const finalGroup = String(canonical.group_name || group).trim();
+          const finalKey = String(canonical.key || key).trim();
+          if (!finalKey) { skipped++; continue; }
+          if (isBlocked.get(canonicalDeviceId, finalGroup, finalKey)) { skipped++; continue; }
+          if (isApproved.get(canonicalDeviceId, finalGroup, finalKey)) { skipped++; continue; }
+          if (canonical.port_id && isApprovedByPath.get(canonicalDeviceId, canonical.port_id, canonical.source || canonical.port_id, canonical.port_id)) { skipped++; continue; }
           const ts = Number(row?.ts) || Date.now();
-          upsert.run(canonicalDeviceId, key, group, ts, ts, row?.value == null ? null : String(row.value), siteId);
+          upsert.run(canonicalDeviceId, finalKey, finalGroup, ts, ts, row?.value == null ? null : String(row.value), siteId);
           imported++;
         }
       })();
@@ -100,6 +120,7 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
       if (seedFromProfile && deviceRow?.board_profile_id && typeof dbApi.seedPendingFromBoardProfile === 'function') {
         const before = Number(dbApi.db.prepare(`SELECT COUNT(*) AS c FROM pending_io WHERE device_id=?`).get(canonicalDeviceId)?.c || 0);
         dbApi.seedPendingFromBoardProfile(canonicalDeviceId, deviceRow.board_profile_id, Date.now());
+        if (typeof dbApi.normalizePendingRowsForDevice === 'function') dbApi.normalizePendingRowsForDevice(canonicalDeviceId);
         const after = Number(dbApi.db.prepare(`SELECT COUNT(*) AS c FROM pending_io WHERE device_id=?`).get(canonicalDeviceId)?.c || 0);
         profileSeeded = Math.max(0, after - before);
       }
