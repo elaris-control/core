@@ -32,7 +32,18 @@ function mountDeviceRoutes({ app, db, cfgDir, requireEngineerAccess, access, stm
         WHERE d.deleted_at IS NULL
         ORDER BY d.id DESC
       `).all().filter(row => !access || access.canAccessSite(req, row.site_id));
-      res.json({ devices: rows });
+      const parseMinutes = (key, fallback) => {
+        const raw = db.prepare(`SELECT value FROM app_settings WHERE key = ?`).get(key);
+        const n = Number(raw?.value);
+        return (Number.isFinite(n) && n >= 1 && n <= 10080) ? Math.round(n) : fallback;
+      };
+      res.json({
+        devices: rows,
+        runtime: {
+          online_stale_minutes: parseMinutes('esphome_online_stale_minutes', 15),
+          default_stale_minutes: parseMinutes('esphome_default_stale_minutes', 10)
+        }
+      });
     } catch (e) {
       res.json({ devices: [], error: String(e?.message || e) });
     }

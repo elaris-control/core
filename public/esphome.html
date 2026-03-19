@@ -538,9 +538,52 @@
           </div>
         </div>
         <div id="nativeImportRows" class="entity-list"></div>
+        <div id="nativeCommandPanel" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03)">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+            <div>
+              <div style="font-size:11px;font-weight:800;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em">Native command test</div>
+              <div id="nativeCommandStatus" style="font-size:11px;color:var(--muted)">Connect a native session first to enable live commands for switch, light, cover, select, climate, fan, number, lock and media player.</div>
+            </div>
+            <button class="btn" type="button" onclick="nativeLoadSessionList()">Load sessions</button>
+          </div>
+          <div class="form-grid">
+            <div class="form-row">
+              <label>Entity</label>
+              <select id="nativeCommandEntity" onchange="nativeCommandEntityChanged()"></select>
+            </div>
+            <div class="form-row">
+              <label>Action</label>
+              <select id="nativeCommandAction" onchange="nativeCommandActionChanged()"></select>
+            </div>
+          </div>
+          <div id="nativeCommandFields" class="form-grid" style="margin-top:4px"></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+            <button class="btn btnPrimary" type="button" onclick="nativeSendCommand()">Send native command</button>
+            <span id="nativeCommandMsg" style="font-size:12px;color:var(--muted)">No active live session yet.</span>
+          </div>
+        </div>
+        <div id="nativeStateBrowserPanel" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03)">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+            <div>
+              <div style="font-size:11px;font-weight:800;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em">Live native state browser</div>
+              <div id="nativeStateBrowserStatus" style="font-size:11px;color:var(--muted)">Connect or load a native session to inspect live entity states.</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <input id="nativeStateBrowserSearch" placeholder="Filter entity / value…" oninput="nativeRenderStateBrowser()" style="min-width:220px">
+              <button class="btn" type="button" onclick="nativeRenderStateBrowser()">Refresh view</button>
+            </div>
+          </div>
+          <div id="nativeStateBrowserBody" style="max-height:300px;overflow:auto"></div>
+        </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px">
+          <button class="btn" type="button" onclick="nativeProbeImport()">Probe native host</button>
+          <button class="btn" type="button" onclick="nativeConnectSession()">Connect native session</button>
+          <button class="btn" type="button" onclick="nativeRefreshSession()">Refresh native session</button>
+          <button class="btn" type="button" onclick="nativeDisconnectSession()">Disconnect native</button>
+          <button class="btn" type="button" onclick="nativeDiscoverAssist()">Auto-fill from profile</button>
+          <button class="btn" type="button" onclick="nativeSyncAssist()">Re-sync existing native card</button>
           <button class="btn btnPrimary" type="button" onclick="submitNativeImport()">Import as external native</button>
-          <span id="nativeImportMsg" style="font-size:12px;color:var(--muted)">This creates a read-only card and pending IO rows. No OTA/compile/write happens here.</span>
+          <span id="nativeImportMsg" style="font-size:12px;color:var(--muted)">Native path now has a clean session layer plus probe-assisted connect/refresh. Full protobuf entity/state stream is the next step.</span>
         </div>
       </div>
 

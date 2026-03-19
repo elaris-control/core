@@ -78,6 +78,54 @@ function initAdminRoutes({ db, users, requireAdmin }) {
     }
   });
 
+  router.get('/runtime/esphome-status', requireAdmin, (_req, res) => {
+    try {
+      const onlineRaw = db.prepare(`SELECT value, updated_ts FROM app_settings WHERE key = ?`).get('esphome_online_stale_minutes') || null;
+      const defaultRaw = db.prepare(`SELECT value, updated_ts FROM app_settings WHERE key = ?`).get('esphome_default_stale_minutes') || null;
+      const parseMinutes = (row, fallback) => {
+        const n = Number(row?.value);
+        if (Number.isFinite(n) && n >= 1 && n <= 10080) return Math.round(n);
+        return fallback;
+      };
+      const onlineMinutes = parseMinutes(onlineRaw, 15);
+      const defaultMinutes = parseMinutes(defaultRaw, 10);
+      res.json({
+        ok: true,
+        online_stale_minutes: onlineMinutes,
+        default_stale_minutes: defaultMinutes,
+        updated_ts: Math.max(Number(onlineRaw?.updated_ts || 0), Number(defaultRaw?.updated_ts || 0)) || null,
+        source: (onlineRaw || defaultRaw) ? 'db' : 'default'
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  router.patch('/runtime/esphome-status', requireAdmin, (req, res) => {
+    try {
+      const onlineMinutes = Math.round(Number(req.body?.online_stale_minutes));
+      const defaultMinutes = Math.round(Number(req.body?.default_stale_minutes));
+      if (!Number.isFinite(onlineMinutes) || onlineMinutes < 1 || onlineMinutes > 10080) {
+        return res.status(400).json({ ok: false, error: 'invalid_online_stale_minutes' });
+      }
+      if (!Number.isFinite(defaultMinutes) || defaultMinutes < 1 || defaultMinutes > 10080) {
+        return res.status(400).json({ ok: false, error: 'invalid_default_stale_minutes' });
+      }
+      const ts = Date.now();
+      db.prepare(`
+        INSERT INTO app_settings (key, value, updated_ts) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_ts=excluded.updated_ts
+      `).run('esphome_online_stale_minutes', String(onlineMinutes), ts);
+      db.prepare(`
+        INSERT INTO app_settings (key, value, updated_ts) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_ts=excluded.updated_ts
+      `).run('esphome_default_stale_minutes', String(defaultMinutes), ts);
+      res.json({ ok: true, online_stale_minutes: onlineMinutes, default_stale_minutes: defaultMinutes, updated_ts: ts });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // ── DB management ─────────────────────────────────────────────────────
   router.get('/db/devices', requireAdmin, (req, res) => {
     try {

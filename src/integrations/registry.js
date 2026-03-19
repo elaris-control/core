@@ -34,6 +34,7 @@ function createIntegrationRegistry() {
       supportsProvisioning: !!adapter.supportsProvisioning,
       supportsStateSync: !!adapter.supportsStateSync,
       supportsNativeApi: !!adapter.supportsNativeApi,
+      supportsNativeSessions: !!adapter.supportsNativeSessions,
     }));
   }
 

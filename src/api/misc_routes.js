@@ -3,7 +3,7 @@
 // These span different URL prefixes so we mount directly on app.
 const { getWeather } = require('../weather');
 
-function mountMiscRoutes(app, { db, access, requireLogin, requireEngineerAccess, integrationRegistry }) {
+function mountMiscRoutes(app, { db, access, requireLogin, requireEngineerAccess, integrationRegistry, nativeSessions }) {
 
   // ── Version (public) ─────────────────────────────────────────────────────
   app.get('/api/version', (req, res) => {
@@ -27,6 +27,120 @@ function mountMiscRoutes(app, { db, access, requireLogin, requireEngineerAccess,
       if (!adapter) return res.status(404).json({ ok: false, error: 'integration_not_found' });
       if (typeof adapter.importNative !== 'function') return res.status(400).json({ ok: false, error: 'integration_native_import_unsupported' });
       var out = adapter.importNative({ db: db, access: access, requireEngineerAccess: requireEngineerAccess }, req.body || {});
+      res.json({ ok: true, integration_key: key, ...(out || {}) });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.post('/api/integrations/:key/native-probe', requireEngineerAccess, async (req, res) => {
+    try {
+      var key = String(req.params.key || '').trim().toLowerCase();
+      if (!integrationRegistry) return res.status(404).json({ ok: false, error: 'integration_registry_unavailable' });
+      var adapter = integrationRegistry.get(key);
+      if (!adapter) return res.status(404).json({ ok: false, error: 'integration_not_found' });
+      if (typeof adapter.probeNative !== 'function') return res.status(400).json({ ok: false, error: 'integration_native_probe_unsupported' });
+      var out = await adapter.probeNative({ db: db, access: access, requireEngineerAccess: requireEngineerAccess }, req.body || {});
+      res.json({ ok: !!out?.reachable, integration_key: key, ...(out || {}) });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.post('/api/integrations/:key/discover-native', requireEngineerAccess, (req, res) => {
+    try {
+      var key = String(req.params.key || '').trim().toLowerCase();
+      if (!integrationRegistry) return res.status(404).json({ ok: false, error: 'integration_registry_unavailable' });
+      var adapter = integrationRegistry.get(key);
+      if (!adapter) return res.status(404).json({ ok: false, error: 'integration_not_found' });
+      if (typeof adapter.discoverNative !== 'function') return res.status(400).json({ ok: false, error: 'integration_native_discover_unsupported' });
+      var out = adapter.discoverNative({ db: db, access: access, requireEngineerAccess: requireEngineerAccess }, req.body || {});
+      res.json({ ok: true, integration_key: key, ...(out || {}) });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+
+  app.get('/api/integrations/:key/native-sessions', requireEngineerAccess, (req, res) => {
+    try {
+      var key = String(req.params.key || '').trim().toLowerCase();
+      if (!integrationRegistry) return res.status(404).json({ ok: false, error: 'integration_registry_unavailable' });
+      var adapter = integrationRegistry.get(key);
+      if (!adapter) return res.status(404).json({ ok: false, error: 'integration_not_found' });
+      if (!nativeSessions) return res.status(404).json({ ok: false, error: 'native_sessions_unavailable' });
+      res.json({ ok: true, integration_key: key, sessions: nativeSessions.list(key) });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.post('/api/integrations/:key/native-connect', requireEngineerAccess, async (req, res) => {
+    try {
+      var key = String(req.params.key || '').trim().toLowerCase();
+      if (!integrationRegistry) return res.status(404).json({ ok: false, error: 'integration_registry_unavailable' });
+      var adapter = integrationRegistry.get(key);
+      if (!adapter) return res.status(404).json({ ok: false, error: 'integration_not_found' });
+      if (!nativeSessions) return res.status(404).json({ ok: false, error: 'native_sessions_unavailable' });
+      if (typeof adapter.createNativeClient !== 'function') return res.status(400).json({ ok: false, error: 'integration_native_client_unsupported' });
+      var out = await nativeSessions.connect(adapter, key, { ...(req.body || {}), integration_key: key });
+      res.json({ ok: true, integration_key: key, session: out });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.post('/api/integrations/:key/native-refresh', requireEngineerAccess, async (req, res) => {
+    try {
+      var key = String(req.params.key || '').trim().toLowerCase();
+      if (!integrationRegistry) return res.status(404).json({ ok: false, error: 'integration_registry_unavailable' });
+      var adapter = integrationRegistry.get(key);
+      if (!adapter) return res.status(404).json({ ok: false, error: 'integration_not_found' });
+      if (!nativeSessions) return res.status(404).json({ ok: false, error: 'native_sessions_unavailable' });
+      var out = await nativeSessions.refresh(key, { ...(req.body || {}), integration_key: key });
+      res.json({ ok: true, integration_key: key, session: out });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.post('/api/integrations/:key/native-disconnect', requireEngineerAccess, async (req, res) => {
+    try {
+      var key = String(req.params.key || '').trim().toLowerCase();
+      if (!integrationRegistry) return res.status(404).json({ ok: false, error: 'integration_registry_unavailable' });
+      var adapter = integrationRegistry.get(key);
+      if (!adapter) return res.status(404).json({ ok: false, error: 'integration_not_found' });
+      if (!nativeSessions) return res.status(404).json({ ok: false, error: 'native_sessions_unavailable' });
+      var out = await nativeSessions.disconnect(key, { ...(req.body || {}), integration_key: key });
+      res.json({ ok: true, integration_key: key, session: out });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.post('/api/integrations/:key/native-command', requireEngineerAccess, async (req, res) => {
+    try {
+      var key = String(req.params.key || '').trim().toLowerCase();
+      if (!integrationRegistry) return res.status(404).json({ ok: false, error: 'integration_registry_unavailable' });
+      var adapter = integrationRegistry.get(key);
+      if (!adapter) return res.status(404).json({ ok: false, error: 'integration_not_found' });
+      if (!nativeSessions) return res.status(404).json({ ok: false, error: 'native_sessions_unavailable' });
+      var body = req.body || {};
+      var command = body.command && typeof body.command === 'object' ? body.command : body;
+      var out = await nativeSessions.execute(adapter, key, { ...(body || {}), integration_key: key }, command);
+      res.json({ ok: true, integration_key: key, session: out, command_result: out?.last_command_result || null });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+  app.post('/api/integrations/:key/sync-native', requireEngineerAccess, (req, res) => {
+    try {
+      var key = String(req.params.key || '').trim().toLowerCase();
+      if (!integrationRegistry) return res.status(404).json({ ok: false, error: 'integration_registry_unavailable' });
+      var adapter = integrationRegistry.get(key);
+      if (!adapter) return res.status(404).json({ ok: false, error: 'integration_not_found' });
+      if (typeof adapter.syncNative !== 'function') return res.status(400).json({ ok: false, error: 'integration_native_sync_unsupported' });
+      var out = adapter.syncNative({ db: db, access: access, requireEngineerAccess: requireEngineerAccess }, req.body || {});
       res.json({ ok: true, integration_key: key, ...(out || {}) });
     } catch (e) {
       res.status(400).json({ ok: false, error: String(e?.message || e) });

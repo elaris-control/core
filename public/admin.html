@@ -444,6 +444,31 @@ option { background:#0d1221; color:var(--text); }
       </div>
       <div class="helper-note" id="mqttDebugMeta" style="margin-top:12px">—</div>
     </div>
+    <div class="runtime-card" style="margin-top:12px">
+      <div class="runtime-row">
+        <div>
+          <div class="runtime-title">ESPHome stale thresholds</div>
+          <div class="runtime-sub">Control when device cards switch from recent activity to stale/quiet. Online devices use the online threshold; all other states use the default threshold.</div>
+        </div>
+        <div class="runtime-actions">
+          <span class="pill" id="staleRuntimePill">Loading...</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;align-items:flex-end">
+        <label style="display:flex;flex-direction:column;gap:6px;min-width:180px">
+          <span class="helper-note">Online stale after (minutes)</span>
+          <input id="onlineStaleMinutes" class="search-input" type="number" min="1" max="10080" step="1" value="15" style="min-width:180px">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;min-width:180px">
+          <span class="helper-note">Default stale after (minutes)</span>
+          <input id="defaultStaleMinutes" class="search-input" type="number" min="1" max="10080" step="1" value="10" style="min-width:180px">
+        </label>
+        <div class="runtime-actions">
+          <button class="btn btn-sm btn-primary" id="staleSaveBtn" onclick="saveEsphomeStatusRuntime()">Save thresholds</button>
+        </div>
+      </div>
+      <div class="helper-note" id="staleRuntimeMeta" style="margin-top:12px">—</div>
+    </div>
   </div>
 
   <!-- ── DB Management ─────────────────────────────────────────────────── -->
@@ -844,6 +869,8 @@ async function doLogout() {
 
 // ── Runtime debug ───────────────────────────────────────────────────────
 let mqttDebugEnabled = null;
+let esphomeOnlineStaleMinutes = null;
+let esphomeDefaultStaleMinutes = null;
 
 function renderMqttDebugCard() {
   const pill = document.getElementById('mqttDebugPill');
@@ -912,6 +939,94 @@ async function setMqttDebug(enabled) {
     toast(mqttDebugEnabled ? '✓ MQTT debug enabled' : '✓ MQTT debug disabled');
   } catch (e) {
     renderMqttDebugCard();
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+function renderEsphomeStatusRuntimeCard() {
+  const pill = document.getElementById('staleRuntimePill');
+  const meta = document.getElementById('staleRuntimeMeta');
+  const onlineInput = document.getElementById('onlineStaleMinutes');
+  const defaultInput = document.getElementById('defaultStaleMinutes');
+  const saveBtn = document.getElementById('staleSaveBtn');
+  if (!pill || !meta || !onlineInput || !defaultInput || !saveBtn) return;
+  if (esphomeOnlineStaleMinutes == null || esphomeDefaultStaleMinutes == null) {
+    pill.className = 'pill';
+    pill.textContent = 'Loading...';
+    meta.textContent = 'Loading current ESPHome stale thresholds…';
+    onlineInput.disabled = true;
+    defaultInput.disabled = true;
+    saveBtn.disabled = true;
+    return;
+  }
+  pill.className = 'pill ok';
+  pill.textContent = `Online ${esphomeOnlineStaleMinutes}m · Default ${esphomeDefaultStaleMinutes}m`;
+  onlineInput.disabled = false;
+  defaultInput.disabled = false;
+  saveBtn.disabled = false;
+  onlineInput.value = String(esphomeOnlineStaleMinutes);
+  defaultInput.value = String(esphomeDefaultStaleMinutes);
+  const source = meta.dataset.source || 'runtime';
+  const stampRaw = meta.dataset.updatedTs || '';
+  const stamp = stampRaw ? new Date(Number(stampRaw)).toLocaleString() : '';
+  meta.textContent = `These thresholds are used by the ESPHome page when deciding whether a card looks quiet/stale. Source: ${source}` + (stamp ? ` · Updated: ${stamp}` : '');
+}
+
+async function loadEsphomeStatusRuntime() {
+  try {
+    const d = await api('/api/admin/runtime/esphome-status');
+    esphomeOnlineStaleMinutes = Number(d.online_stale_minutes) || 15;
+    esphomeDefaultStaleMinutes = Number(d.default_stale_minutes) || 10;
+    const meta = document.getElementById('staleRuntimeMeta');
+    if (meta) {
+      meta.dataset.updatedTs = d.updated_ts || '';
+      meta.dataset.source = d.source || 'runtime';
+    }
+    renderEsphomeStatusRuntimeCard();
+  } catch (e) {
+    const meta = document.getElementById('staleRuntimeMeta');
+    if (meta) {
+      meta.dataset.updatedTs = '';
+      meta.dataset.source = 'runtime';
+      meta.textContent = 'Failed to load ESPHome stale thresholds: ' + e.message;
+    }
+    esphomeOnlineStaleMinutes = 15;
+    esphomeDefaultStaleMinutes = 10;
+    renderEsphomeStatusRuntimeCard();
+  }
+}
+
+async function saveEsphomeStatusRuntime() {
+  const onlineInput = document.getElementById('onlineStaleMinutes');
+  const defaultInput = document.getElementById('defaultStaleMinutes');
+  const saveBtn = document.getElementById('staleSaveBtn');
+  const onlineMinutes = Math.round(Number(onlineInput?.value));
+  const defaultMinutes = Math.round(Number(defaultInput?.value));
+  if (!Number.isFinite(onlineMinutes) || onlineMinutes < 1 || onlineMinutes > 10080) {
+    toast('Online stale minutes must be between 1 and 10080', 'err');
+    return;
+  }
+  if (!Number.isFinite(defaultMinutes) || defaultMinutes < 1 || defaultMinutes > 10080) {
+    toast('Default stale minutes must be between 1 and 10080', 'err');
+    return;
+  }
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const d = await api('/api/admin/runtime/esphome-status', {
+      method: 'PATCH',
+      body: JSON.stringify({ online_stale_minutes: onlineMinutes, default_stale_minutes: defaultMinutes })
+    });
+    esphomeOnlineStaleMinutes = Number(d.online_stale_minutes) || onlineMinutes;
+    esphomeDefaultStaleMinutes = Number(d.default_stale_minutes) || defaultMinutes;
+    const meta = document.getElementById('staleRuntimeMeta');
+    if (meta) {
+      meta.dataset.updatedTs = d.updated_ts || String(Date.now());
+      meta.dataset.source = 'db';
+    }
+    renderEsphomeStatusRuntimeCard();
+    toast('✓ ESPHome stale thresholds saved');
+  } catch (e) {
+    renderEsphomeStatusRuntimeCard();
     toast('Error: ' + e.message, 'err');
   }
 }
@@ -1235,6 +1350,7 @@ document.getElementById("siteModal")?.addEventListener("click", e => {
     await loadUsers();
     await loadAdminSites();
     await loadRuntimeDebug();
+    await loadEsphomeStatusRuntime();
     switchDbTab('devices');
     if (window.location.hash === '#sites') {
       document.getElementById('sitesSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

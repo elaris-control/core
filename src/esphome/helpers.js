@@ -554,6 +554,11 @@ function _normIdentity(value) {
 }
 
 
+function _deviceStaleThresholdMs(row) {
+  const status = String((row && row.status) || '').trim().toLowerCase();
+  return status === 'online' ? (24 * 60 * 60 * 1000) : (10 * 60 * 1000);
+}
+
 function _deviceScore(row) {
   if (!row) return -1;
   let s = 0;
@@ -561,7 +566,7 @@ function _deviceScore(row) {
   if (row.deleted_at) s -= 200;
   const lastSeenTs = row.last_seen_at ? new Date(row.last_seen_at).getTime() : 0;
   const updatedTs = row.updated_at ? new Date(row.updated_at).getTime() : 0;
-  const stale = lastSeenTs ? ((Date.now() - lastSeenTs) > 3 * 60 * 1000) : false;
+  const stale = lastSeenTs ? ((Date.now() - lastSeenTs) > _deviceStaleThresholdMs(row)) : false;
   if (status === 'online') s += stale ? 8 : 72;
   else if (status === 'flashed') s += 52;
   else if (status === 'generated' || status === 'queued' || status === 'running') s += 40;

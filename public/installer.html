@@ -770,6 +770,78 @@
     return select;
   }
 
+
+  function parsePendingLastValue(raw){
+    if (raw == null) return null;
+    if (typeof raw === 'object') return raw;
+    const s = String(raw).trim();
+    if (!s || (s[0] !== '{' && s[0] !== '[')) return null;
+    try { return JSON.parse(s); } catch(_) { return null; }
+  }
+
+  function pendingTypePalette(kind){
+    const map = {
+      do:   { bg:'rgba(34,197,94,.18)', border:'rgba(34,197,94,.34)', color:'#4ade80' },
+      di:   { bg:'rgba(245,158,11,.18)', border:'rgba(245,158,11,.34)', color:'#fbbf24' },
+      ai:   { bg:'rgba(168,85,247,.18)', border:'rgba(168,85,247,.34)', color:'#d8b4fe' },
+      ao:   { bg:'rgba(249,115,22,.18)', border:'rgba(249,115,22,.34)', color:'#fdba74' },
+      ht:   { bg:'rgba(139,92,246,.18)', border:'rgba(139,92,246,.34)', color:'#c4b5fd' },
+      warn: { bg:'rgba(245,158,11,.18)', border:'rgba(245,158,11,.34)', color:'#f59e0b' },
+      info: { bg:'rgba(29,140,255,.16)', border:'rgba(140,197,255,.18)', color:'#8cc5ff' }
+    };
+    return map[String(kind || '').toLowerCase()] || map.info;
+  }
+
+  function pendingEntityClassKind(value, portId){
+    const klass = String(value || '').trim().toUpperCase();
+    const port = String(portId || '').trim().toUpperCase();
+    if (klass === 'DO') return 'do';
+    if (klass === 'DI') return 'di';
+    if (klass === 'AO') return 'ao';
+    if (klass === 'AI') return port.startsWith('HT') ? 'ht' : 'ai';
+    return 'info';
+  }
+
+  function applyTypeSelectPalette(sel){
+    if (!sel) return;
+    const kind = pendingEntityClassKind(sel.value || '', sel.dataset.portId || '');
+    const p = pendingTypePalette(kind);
+    sel.style.background = p.bg;
+    sel.style.borderColor = p.border;
+    sel.style.color = p.color;
+    sel.style.fontWeight = '900';
+    sel.style.boxShadow = 'inset 0 0 0 1px transparent';
+  }
+
+  function pendingSourceBadge(label, kind){
+    const pick = pendingTypePalette(kind);
+    return '<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;border:1px solid '+pick.border+';background:'+pick.bg+';color:'+pick.color+';font-size:10px;font-weight:700">'+escHTML(label)+'</span>';
+  }
+
+  function renderPendingMetaSummary(p){
+    const parsed = parsePendingLastValue(p.last_value);
+    const chips = [];
+    let rawNote = '';
+    if (parsed && typeof parsed === 'object') {
+      const discovered = parsed?.metadata?.discovered_from || parsed?.discovered_from || parsed?.source || '';
+      const portId = parsed?.port_id || parsed?.source || '';
+      const pin = parsed?.metadata?.pin || '';
+      const merge = parsed?.metadata?.merge_source || '';
+      if (discovered) chips.push(pendingSourceBadge(String(discovered).replace(/_/g,' '), 'info'));
+      if (parsed.entity_class) chips.push(pendingSourceBadge(parsed.entity_class, pendingEntityClassKind(parsed.entity_class, portId)));
+      if (portId) chips.push(pendingSourceBadge(portId, pendingEntityClassKind(parsed.entity_class, portId)));
+      if (pin) chips.push(pendingSourceBadge(pin, 'warn'));
+      if (merge) chips.push(pendingSourceBadge(merge, 'info'));
+      rawNote = 'raw metadata hidden';
+    } else if (p.last_value != null && p.last_value !== '') {
+      rawNote = 'val: ' + String(p.last_value);
+    }
+    const when = p.last_seen ? (new Date(p.last_seen)).toLocaleTimeString() : '—';
+    return '<div class="muted" style="margin-top:4px">last: '+escHTML(when)+'</div>' +
+      (chips.length ? ('<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'+chips.join('')+'</div>') : '') +
+      (rawNote ? ('<div class="muted" style="font-size:10px;margin-top:4px">'+escHTML(rawNote)+'</div>') : '');
+  }
+
   async function preloadPendingBoardProfiles(pending){
     await ensureInstallerDevices();
     const ctx = getInstallerContext();
@@ -822,7 +894,7 @@
         <td>
           <div style="font-weight:900">${escHTML(p.device_id)}</div>
           <div class="muted">${escHTML(p.group_name)}.${escHTML(p.key)}</div>
-          <div class="muted">last: ${(new Date(p.last_seen)).toLocaleTimeString()} | val: ${escHTML(p.last_value ?? "—")}</div>
+          ${renderPendingMetaSummary(p)}
         </td>
         <td>
           <select class="typeSel">${pendingClassOptions(initialClass)}</select>
@@ -837,6 +909,8 @@
       `;
 
       const typeSel = tr.querySelector(".typeSel");
+      typeSel.dataset.portId = String(inferred.source || inferred.name || '').trim();
+      applyTypeSelectPalette(typeSel);
       const zoneSel = tr.querySelector(".zoneSel");
       const nameInp = tr.querySelector(".nameInp");
       const bindingWrap = tr.querySelector('.boardPathWrap');
@@ -846,12 +920,15 @@
         const currentDefaultName = defaultPendingName(p, inferred);
         const preferred = (String(typeSel.value || '').toUpperCase() === inferred.klass) ? inferred.source : '';
         bindingSel = renderBoardBinding(bindingWrap, p, profile, typeSel.value, preferred, inferred.note || (profile ? ('Board profile: ' + profile.label) : ''));
+        const selectedBinding = bindingSel ? String(bindingSel.value || '').trim() : '';
+        typeSel.dataset.portId = selectedBinding || String(preferred || inferred.source || inferred.name || '').trim();
+        applyTypeSelectPalette(typeSel);
         if (bindingSel && preferred && (!nameInp.value.trim() || nameInp.value.trim() === currentDefaultName || nameInp.value.trim() === defaultPendingName(p))) {
           nameInp.value = inferred.name || installerPortFriendly(preferred);
         }
       };
       syncBinding();
-      typeSel.addEventListener('change', syncBinding);
+      typeSel.addEventListener('change', ()=>{ applyTypeSelectPalette(typeSel); syncBinding(); });
 
       tr.querySelector(".approveBtn").onclick = async ()=>{
         try{

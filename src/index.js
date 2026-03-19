@@ -24,6 +24,7 @@ const { initNotifications } = require('./notifications');
 const { initScenes }        = require('./scenes');
 const { AutomationEngine }  = require('./automation/engine');
 const { createIntegrationRegistry } = require('./integrations/registry');
+const { createNativeSessionManager } = require('./integrations/native/session_manager');
 const { createEspHomeAdapter } = require('./integrations/esphome');
 const { getModule }         = require('./modules/index');
 
@@ -234,9 +235,10 @@ async function main() {
   // Integration adapters
   const integrationRegistry = createIntegrationRegistry();
   integrationRegistry.register(createEspHomeAdapter());
+  const nativeSessions = createNativeSessionManager({ db: dbApi.db, broadcast: wsApi.broadcast });
 
   // 6. Domain API routes — all require login (applied per-router or per-route)
-  const apiCtx = { dbApi, db: dbApi.db, access, auth, hasFeature, engine, mqttApi, wsApi, notifyApi, scenesApi, users, requireLogin, requireEngineerAccess, requireAdmin, integrationRegistry, ...moduleHelpers };
+  const apiCtx = { dbApi, db: dbApi.db, access, auth, hasFeature, engine, mqttApi, wsApi, notifyApi, scenesApi, users, requireLogin, requireEngineerAccess, requireAdmin, integrationRegistry, nativeSessions, ...moduleHelpers };
 
   app.use('/api/automation',    initAutomationRoutes(apiCtx));
   app.use('/api/scenes',        initScenesRoutes(apiCtx));

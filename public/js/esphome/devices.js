@@ -46,11 +46,19 @@ function installerDeviceFingerprint(d) {
   return keys[0] || ('row:' + String((d && d.id) || ''));
 }
 
+var INSTALLER_ONLINE_STALE_MS = 15 * 60 * 1000;
+var INSTALLER_DEFAULT_STALE_MS = 10 * 60 * 1000;
+
+function installerDeviceStaleThresholdMs(row) {
+  var status = String((row && row.status) || '').toLowerCase();
+  return status === 'online' ? INSTALLER_ONLINE_STALE_MS : INSTALLER_DEFAULT_STALE_MS;
+}
+
 function installerDeviceIsStale(row) {
   if (!row || !row.last_seen_at) return false;
   var ts = new Date(row.last_seen_at).getTime();
   if (!Number.isFinite(ts)) return false;
-  return (Date.now() - ts) > 3 * 60 * 1000;
+  return (Date.now() - ts) > installerDeviceStaleThresholdMs(row);
 }
 
 function installerRecencyBonus(ts) {
@@ -151,6 +159,40 @@ function mergeInstallerDeviceRows(rows) {
   return merged;
 }
 
+function parseJsonMaybe(raw, fallback) {
+  if (raw == null || raw === '') return fallback == null ? null : fallback;
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(String(raw)); } catch (_) { return fallback == null ? null : fallback; }
+}
+
+function nativeRuntimeMetaFromRow(row) {
+  var parsed = parseJsonMaybe(row && row.last_validation_json, {}) || {};
+  return parsed && parsed.native_runtime ? parsed.native_runtime : null;
+}
+
+function nativeCardStatusHtml(row) {
+  if (!isExternalNativeDevice(row)) return '';
+  var meta = nativeRuntimeMetaFromRow(row) || {};
+  var encryptedRequired = !!meta.encryption_required || /requires encryption/i.test(String(meta.last_stream_error || ''));
+  var hasEntities = Number(meta.last_native_entity_count || 0) > 0;
+  if (meta.status === 'online' && meta.last_stream_connected_at) return '<span class="pill pill-ok">Native live connected</span>';
+  if (encryptedRequired) return '<span class="pill pill-warn">Encryption required</span>';
+  if (meta.last_probe && meta.last_probe.reachable) return '<span class="pill pill-info">Native reachable</span>';
+  if (hasEntities) return '<span class="pill">Fallback discovery</span>';
+  return '<span class="pill">Native pending</span>';
+}
+
+function nativeCardSubtext(row) {
+  if (!isExternalNativeDevice(row)) return '';
+  var meta = nativeRuntimeMetaFromRow(row) || {};
+  var entities = Number(meta.last_native_entity_count || 0) || 0;
+  if (meta.status === 'online' && meta.last_stream_connected_at) return 'Live stream active' + (entities ? (' • ' + entities + ' entities') : '');
+  if ((meta.last_probe && meta.last_probe.reachable) && (/requires encryption/i.test(String(meta.last_stream_error || '')) || meta.encryption_required)) return 'Host reachable • encryption key required' + (entities ? (' • fallback entities ' + entities) : '');
+  if (meta.last_probe && meta.last_probe.reachable) return 'Probe OK' + (entities ? (' • fallback entities ' + entities) : '');
+  if (entities) return 'Fallback discovery loaded ' + entities + ' entities';
+  return '';
+}
+
 function integrationPill(row) {
   var key = String((row && row.integration_key) || 'esphome').trim().toLowerCase();
   return summaryPill('Adapter: ' + (key || 'unknown'), '#1d8cff', 'rgba(29,140,255,.20)');
@@ -177,14 +219,9 @@ function configSourcePill(row) {
 function statusChip(status, row) {
   var s = String(status || '').toLowerCase();
   if (s === 'online') {
-    // Auto-expire: if last_seen_at > 3 minutes ago → show as offline
-    var stale = true;
-    if (row.last_seen_at) {
-      var diff = Date.now() - new Date(row.last_seen_at).getTime();
-      stale = diff > 3 * 60 * 1000;
-    }
+    var stale = installerDeviceIsStale(row);
     return stale
-      ? '<span class="pill" style="color:#f59e0b;border-color:rgba(245,158,11,.35)">Offline (stale)</span>'
+      ? '<span class="pill" style="color:#f59e0b;border-color:rgba(245,158,11,.35)">Online (quiet)</span>'
       : '<span class="pill pill-ok">Online</span>';
   }
   if (s === 'running' || s === 'queued') return '<span class="pill pill-info">Running</span>';
@@ -197,8 +234,12 @@ function statusChip(status, row) {
 
 function formatInstallerSeenText(row) {
   if (!row) return 'No activity yet';
-  if (String(row.status || '').toLowerCase() === 'running') return 'Flash job running…';
-  if (row.last_seen_at) return 'Last seen ' + String(row.last_seen_at).replace('T',' ').slice(0,19);
+  var status = String(row.status || '').toLowerCase();
+  if (status === 'running') return 'Flash job running…';
+  if (row.last_seen_at) {
+    var label = (status === 'online' && !installerDeviceIsStale(row)) ? 'Online since' : 'Last seen';
+    return label + ' ' + String(row.last_seen_at).replace('T',' ').slice(0,19);
+  }
   if (row.updated_at) return 'Updated ' + String(row.updated_at).replace('T',' ').slice(0,19);
   return 'Waiting for MQTT/config announce';
 }
@@ -271,6 +312,12 @@ async function forgetInstallerDevice(id) {
 async function loadInstallerDevices() {
   try {
     var r = await api('/esphome/devices');
+    if (r && r.runtime) {
+      var onlineMin = Number(r.runtime.online_stale_minutes);
+      var defaultMin = Number(r.runtime.default_stale_minutes);
+      if (Number.isFinite(onlineMin) && onlineMin >= 1) INSTALLER_ONLINE_STALE_MS = Math.round(onlineMin * 60 * 1000);
+      if (Number.isFinite(defaultMin) && defaultMin >= 1) INSTALLER_DEFAULT_STALE_MS = Math.round(defaultMin * 60 * 1000);
+    }
     installerDevicesRaw = r.devices || [];
     installerDevices = mergeInstallerDeviceRows(installerDevicesRaw);
     renderSavedPanel();
@@ -295,6 +342,25 @@ async function loadSavedConfigs() {
     savedConfigs = [];
     renderSavedPanel();
     renderEspModeBanner();
+  }
+}
+
+function isExternalNativeDevice(row) {
+  return String((row && row.ownership_mode) || '').toLowerCase() === 'external_native'
+    || String((row && row.config_source) || '').toLowerCase() === 'native_api';
+}
+
+async function probeInstallerNative(id) {
+  var d = installerDevices.find(function(x) { return Number(x.id) === Number(id); });
+  if (!d) return;
+  try {
+    var out = await api('/integrations/esphome/native-probe', { method: 'POST', body: JSON.stringify({ device_id: Number(d.id), device_name: d.name || '', ip_address: d.ip_address || d.target_ip || '', hostname: d.hostname || '' }) });
+    await loadInstallerDevices();
+    var latency = Number(out && out.probe && out.probe.latency_ms);
+    var text = out && out.reachable ? ('Native probe OK' + (Number.isFinite(latency) ? (' · ' + latency + ' ms') : '')) : ('Native probe failed: ' + String(out && out.probe && out.probe.error || 'unknown'));
+    alert(text);
+  } catch (e) {
+    alert('Native probe failed: ' + (e.message || e));
   }
 }
 
@@ -328,12 +394,16 @@ function renderSavedPanel() {
           '</div>' +
           statusChip(d.status, d) +
         '</div>' +
-        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-          '<div style="font-size:10px;color:var(--muted2)">' + escHtml(formatInstallerSeenText(d)) + (d._mergedCount > 1 ? (' • merged ' + d._mergedCount + ' records') : '') + '</div>' +
-          '<div style="display:flex;gap:6px;align-items:center">' +
-            '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="loadDeviceRecord(' + Number(d.id) + ')">Use</button>' +
-            '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="forgetInstallerDevice(' + Number(d.id) + ')">Delete</button>' +
+        '<div style="display:flex;flex-direction:column;gap:6px">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+            '<div style="font-size:10px;color:var(--muted2)">' + escHtml(formatInstallerSeenText(d)) + (d._mergedCount > 1 ? (' • merged ' + d._mergedCount + ' records') : '') + '</div>' +
+            '<div style="display:flex;gap:6px;align-items:center">' +
+              '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="loadDeviceRecord(' + Number(d.id) + ')">Use</button>' +
+              (isExternalNativeDevice(d) ? '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="probeInstallerNative(' + Number(d.id) + ')">Probe native</button><button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="connectInstallerNative(' + Number(d.id) + ')">Connect</button>' : '') +
+              '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="forgetInstallerDevice(' + Number(d.id) + ')">Delete</button>' +
+            '</div>' +
           '</div>' +
+          (isExternalNativeDevice(d) ? ('<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' + nativeCardStatusHtml(d) + '<span style="font-size:10px;color:var(--muted2)">' + escHtml(nativeCardSubtext(d)) + '</span></div>') : '') +
         '</div>' +
       '</div>';
     }).join('');
@@ -426,4 +496,19 @@ async function saveCurrentConfig() {
     await api('/esphome/configs', { method: 'POST', body: JSON.stringify(payload) });
     await loadSavedConfigs();
   } catch(e) { alert('Save failed: ' + e.message); }
+}
+
+
+async function connectInstallerNative(id) {
+  var d = installerDevices.find(function(x) { return Number(x.id) === Number(id); });
+  if (!d) return;
+  try {
+    var out = await api('/integrations/esphome/native-connect', { method: 'POST', body: JSON.stringify({ device_id: Number(d.id), device_name: d.name || '', ip_address: d.ip_address || d.target_ip || '', hostname: d.hostname || '', board_profile_id: d.board_profile_id || '' }) });
+    await loadInstallerDevices();
+    var session = out.session || {};
+    try { if (typeof window.nativeImportLoadSession === 'function') window.nativeImportLoadSession(session); } catch (_) {}
+    alert('Native session ' + String(session.state || 'connected') + ' · entities ' + String(session.entity_count || 0));
+  } catch (e) {
+    alert('Native connect failed: ' + (e.message || e));
+  }
 }
