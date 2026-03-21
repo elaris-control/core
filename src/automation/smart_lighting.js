@@ -250,13 +250,6 @@ function smartLightingHandler(ctx, send, siteInfo) {
   const nowM      = localMinutes(siteInfo);
   const sun       = siteInfo ? getSun(Number(siteInfo.lat), Number(siteInfo.lon)) : null;
 
-  const isTestMode = ctx.settingStr('test_mode', '0') === '1';
-  if (isTestMode) {
-    send = (key, value, reason) => {
-      console.log(`[SMART_LIGHTING TEST MODE] would send: ${key} = ${value}${reason ? ' // ' + reason : ''}`);
-    };
-  }
-
   // Restore active scenario from DB on first run after restart
   if (!activeScenario.has(instId)) {
     const saved = ctx.settingStr('_active_scenario', '');

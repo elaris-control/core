@@ -110,13 +110,6 @@ function lightingHandler(ctx, send, siteInfo) {
   const now    = Date.now();
   const nowMin = new Date().getHours()*60 + new Date().getMinutes();
 
-  const isTestMode = ctx.settingStr('test_mode', '0') === '1';
-  if (isTestMode) {
-    send = (key, value, reason) => {
-      console.log(`[LIGHTING TEST MODE] would send: ${key} = ${value}${reason ? ' // ' + reason : ''}`);
-    };
-  }
-
   const mode            = ctx.settingStr('mode',            'auto');
   const luxThreshold    = ctx.setting('lux_threshold',       50);
   const luxThresholdOff = ctx.setting('lux_threshold_off',  luxThreshold * 1.15); // OFF threshold (brighter)

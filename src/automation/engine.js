@@ -11,6 +11,7 @@ class AutomationEngine {
     this.overrides = new Map(); // instance_id → { paused, ts }
     this.ioOverrides = new Map(); // io_id → { value, active, ts }
     this.runtimeState = new Map(); // instance_id → latest module broadcast state
+    this.dryRunLog = new Map(); // instance_id → recent dry-run commands
 
     // Ensure automation_log table exists
     db.exec(`
@@ -218,6 +219,18 @@ class AutomationEngine {
       testMode() {
         return engine.isInstanceDryRun(instance.id);
       },
+
+      testLog(limit = 20) {
+        return engine.getDryRunLog(instance.id, limit);
+      },
+
+      clearTestLog() {
+        return engine.clearDryRunLog(instance.id);
+      },
+
+      testLogSummary(limit = 20) {
+        return engine.getDryRunLogSummary(instance.id, limit);
+      },
     };
   }
 
@@ -317,18 +330,76 @@ class AutomationEngine {
     }
   }
 
+  recordDryRun(instance_id, entry) {
+    const id = Number(instance_id);
+    if (!Number.isFinite(id) || !entry) return [];
+    const row = {
+      ts: Number(entry.ts) || Date.now(),
+      inputKey: entry.inputKey || entry.input_key || null,
+      ioKey: entry.ioKey || entry.io_key || null,
+      value: entry.value == null ? '' : String(entry.value),
+      reason: entry.reason == null ? '' : String(entry.reason),
+      moduleId: entry.moduleId || entry.module_id || null,
+      siteId: entry.siteId || entry.site_id || null,
+    };
+    const log = this.dryRunLog.get(id) || [];
+    log.push(row);
+    const maxEntries = 200;
+    if (log.length > maxEntries) log.splice(0, log.length - maxEntries);
+    this.dryRunLog.set(id, log);
+    return log;
+  }
+
+  getDryRunLog(instance_id, limit = 20) {
+    const id = Number(instance_id);
+    if (!Number.isFinite(id)) return [];
+    const log = this.dryRunLog.get(id) || [];
+    const n = Math.max(0, Number(limit) || 0);
+    return n > 0 ? log.slice(-n) : log.slice();
+  }
+
+  clearDryRunLog(instance_id) {
+    const id = Number(instance_id);
+    if (!Number.isFinite(id)) return [];
+    this.dryRunLog.set(id, []);
+    return [];
+  }
+
+  getDryRunLogSummary(instance_id, limit = 20) {
+    const id = Number(instance_id);
+    if (!Number.isFinite(id)) return { count: 0, recent: [] };
+    const log = this.dryRunLog.get(id) || [];
+    const n = Math.max(0, Number(limit) || 0);
+    return {
+      count: log.length,
+      recent: n > 0 ? log.slice(-n) : log.slice(),
+    };
+  }
+
   sendIOCommand(io, value, meta = {}) {
     if (!io) return { ok: false, error: "io_not_found" };
 
     const normalized = this._normalizeOverrideValue(io, value);
     const dryRun = meta.dryRun === true || (!!meta.instanceId && this.isInstanceDryRun(meta.instanceId));
     if (dryRun) {
+      const dryRunTs = Date.now();
+      if (meta.instanceId) {
+        this.recordDryRun(meta.instanceId, {
+          ts: dryRunTs,
+          inputKey: meta.inputKey || null,
+          ioKey: io.key,
+          value: normalized,
+          reason: meta.reason || 'Dry-run command intercepted',
+          moduleId: meta.moduleId || null,
+          siteId: meta.siteId ?? null,
+        });
+      }
       if (meta.instanceId && !meta.fromSendCommand) {
         const actionKey = meta.inputKey || io.key || 'io';
         const actionName = `${actionKey}_DRYRUN_${normalized}`;
         const reason = `[TEST MODE] ${meta.reason || 'Dry-run command intercepted'}`;
         try {
-          this._logAction.run({ instance_id: meta.instanceId, action: actionName, reason, ts: Date.now() });
+          this._logAction.run({ instance_id: meta.instanceId, action: actionName, reason, ts: dryRunTs });
         } catch (_) {}
         try {
           this.broadcast && this.broadcast({
@@ -342,7 +413,7 @@ class AutomationEngine {
             requested_value: normalized,
             site_id: meta.siteId ?? null,
             siteId: meta.siteId ?? null,
-            ts: Date.now(),
+            ts: dryRunTs,
           });
         } catch {}
       }
@@ -643,7 +714,8 @@ class AutomationEngine {
     }
 
     const state = this.runtimeState.get(instance_id) || null;
-    return { found: true, paused, values, settings, lastLog, state, module_id: inst.module_id, test_mode: this.isInstanceDryRun(instance_id) };
+    const dryRunSummary = this.getDryRunLogSummary(instance_id, 20);
+    return { found: true, paused, values, settings, lastLog, state, module_id: inst.module_id, test_mode: this.isInstanceDryRun(instance_id), test_log_count: dryRunSummary.count, test_log_recent: dryRunSummary.recent };
   }
 
   // ── Periodic tick (every 30s) — ensures schedule/sunset triggers fire ─

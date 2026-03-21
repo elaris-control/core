@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "NODE_ENV=development node src/index.js",
-    "recover-admin": "node scripts/recover_admin.js"
+    "recover-admin": "node scripts/recover_admin.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "better-sqlite3": "^11.6.0",
@@ -20,5 +23,9 @@
     "mqtt": "^5.10.4",
     "nodemailer": "^8.0.2",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.4",
+    "vitest": "^3.2.4"
   }
 }

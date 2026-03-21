@@ -18,6 +18,10 @@ const COMMON_ESP32_ADC_PINS = new Set([32, 33, 34, 35, 36, 39]);
 const COMMON_ESP8266_GPIO_PINS = [0, 1, 2, 3, 4, 5, 12, 13, 14, 15, 16];
 
 // ── Pure utils ────────────────────────────────────────────────────────────────
+function toIsoNow() {
+  return new Date().toISOString();
+}
+
 function uniqNums(items) {
   return [...new Set((items || []).map(n => Number(n)).filter(Number.isFinite))].sort((a, b) => a - b);
 }
@@ -842,7 +846,7 @@ async function fetchDeviceYaml(slug) {
 
 module.exports = {
   COMMON_ESP32_GPIO_PINS, COMMON_ESP32_ADC_PINS, COMMON_ESP8266_GPIO_PINS,
-  uniqNums, escapeRegex, normalizePinInput, hasYamlId, redactSavedConfig,
+  toIsoNow, uniqNums, escapeRegex, normalizePinInput, hasYamlId, redactSavedConfig,
   ensureDeviceAccess, configSiteId,
   getProfilePinRules, getCandidatePins, getPinCapabilities,
   collectYamlPinUsage, isDs18b20SharedBusUsage, validatePeripheralEntity,

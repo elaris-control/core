@@ -350,6 +350,15 @@ function isExternalNativeDevice(row) {
     || String((row && row.config_source) || '').toLowerCase() === 'native_api';
 }
 
+function setInstallerNativeStatus(id, html, isError) {
+  var card = document.querySelector('[data-installer-device-id="' + Number(id) + '"]');
+  if (!card) return;
+  var msg = card.querySelector('.native-msg');
+  if (!msg) return;
+  msg.style.color = isError ? 'var(--danger, #e55)' : 'var(--muted2)';
+  msg.innerHTML = html;
+}
+
 async function probeInstallerNative(id) {
   var d = installerDevices.find(function(x) { return Number(x.id) === Number(id); });
   if (!d) return;
@@ -357,10 +366,11 @@ async function probeInstallerNative(id) {
     var out = await api('/integrations/esphome/native-probe', { method: 'POST', body: JSON.stringify({ device_id: Number(d.id), device_name: d.name || '', ip_address: d.ip_address || d.target_ip || '', hostname: d.hostname || '' }) });
     await loadInstallerDevices();
     var latency = Number(out && out.probe && out.probe.latency_ms);
-    var text = out && out.reachable ? ('Native probe OK' + (Number.isFinite(latency) ? (' · ' + latency + ' ms') : '')) : ('Native probe failed: ' + String(out && out.probe && out.probe.error || 'unknown'));
-    alert(text);
+    var ok = !!(out && out.reachable);
+    var text = ok ? ('Native probe OK' + (Number.isFinite(latency) ? (' · ' + latency + ' ms') : '')) : ('Native probe failed: ' + String(out && out.probe && out.probe.error || 'unknown'));
+    setInstallerNativeStatus(id, escHtml(text), !ok);
   } catch (e) {
-    alert('Native probe failed: ' + (e.message || e));
+    setInstallerNativeStatus(id, escHtml('Native probe failed: ' + (e.message || e)), true);
   }
 }
 
@@ -386,7 +396,7 @@ function renderSavedPanel() {
       else if (d.target_port) subtitle.push(d.target_port);
       if (d.hostname) subtitle.push(d.hostname);
       var title = d.friendly_name || d.name || ('Device #' + d.id);
-      return '<div style="min-width:280px;display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)">' +
+      return '<div data-installer-device-id="' + Number(d.id) + '" style="min-width:280px;display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)">' +
         '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">' +
           '<div style="min-width:0">' +
             '<div style="font-weight:800;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(title) + '</div>' +
@@ -404,6 +414,7 @@ function renderSavedPanel() {
             '</div>' +
           '</div>' +
           (isExternalNativeDevice(d) ? ('<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' + nativeCardStatusHtml(d) + '<span style="font-size:10px;color:var(--muted2)">' + escHtml(nativeCardSubtext(d)) + '</span></div>') : '') +
+          '<div class="native-msg" style="font-size:10px;min-height:14px"></div>' +
         '</div>' +
       '</div>';
     }).join('');
@@ -507,8 +518,9 @@ async function connectInstallerNative(id) {
     await loadInstallerDevices();
     var session = out.session || {};
     try { if (typeof window.nativeImportLoadSession === 'function') window.nativeImportLoadSession(session); } catch (_) {}
-    alert('Native session ' + String(session.state || 'connected') + ' · entities ' + String(session.entity_count || 0));
+    var ok = String(session.state || '') !== 'error';
+    setInstallerNativeStatus(id, escHtml('Native session ' + String(session.state || 'connected') + ' · entities ' + String(session.entity_count || 0)), !ok);
   } catch (e) {
-    alert('Native connect failed: ' + (e.message || e));
+    setInstallerNativeStatus(id, escHtml('Native connect failed: ' + (e.message || e)), true);
   }
 }

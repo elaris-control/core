@@ -506,13 +506,6 @@ function legacySingleZoneHandler(ctx, send) {
 }
 
 function thermostatHandler(ctx, send) {
-  const isTestMode = ctx.settingStr('test_mode', '0') === '1';
-  if (isTestMode) {
-    const _realSend = send;
-    send = (key, value, reason) => {
-      console.log(`[THERMOSTAT TEST MODE] would send: ${key} = ${value}${reason ? ' // ' + reason : ''}`);
-    };
-  }
   const hasZones = ctx.mappings.some(m => m && m.input_key && (String(m.input_key).startsWith('zone_') || String(m.input_key) === 'central_pump'));
   if (hasZones) return zonedThermostatHandler(ctx, send);
   return legacySingleZoneHandler(ctx, send);

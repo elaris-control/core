@@ -19,7 +19,6 @@
 const leakState   = new Map(); // instId → runtime state
 const flowHistory = new Map(); // instId → [{ v, ts }]
 const pressHist   = new Map(); // instId → [{ v, ts }]
-const testModeLog = new Map(); // instId -> [{ts, io, value, reason}]
 const FLOW_WINDOW  = 5 * 60 * 1000;  // 5 min
 const PRESS_WINDOW = 2 * 60 * 1000;  // 2 min
 
@@ -115,16 +114,7 @@ function waterManagerHandler(ctx, send) {
   const now    = Date.now();
 
   const isTestMode = ctx.settingStr('test_mode', '0') === '1';
-  if (isTestMode) {
-    const tmLog = testModeLog.get(instId) || [];
-    const _realSend = send;
-    send = (io, value, reason) => {
-      tmLog.push({ ts: now, io, value, reason: reason || '' });
-      if (tmLog.length > 200) tmLog.shift();
-      console.log(`[TEST MODE] ${io} = ${value}${reason ? ' // ' + reason : ''}`);
-    };
-    testModeLog.set(instId, tmLog);
-  }
+  const dryRunSummary = () => (ctx.testLogSummary ? ctx.testLogSummary(20) : { count: 0, recent: [] });
 
   const flowLeakThresh  = Number(ctx.setting('flow_leak_threshold', 2));
   const pressDropThresh = Number(ctx.setting('pressure_drop_thresh', 0.5));
@@ -211,8 +201,8 @@ function waterManagerHandler(ctx, send) {
         total_m3:       Math.round(st.totalLitres) / 1000,
         daily_m3:       Math.round(st.dailyLitres) / 1000,
         test_mode: isTestMode,
-        test_log_count: isTestMode ? (testModeLog.get(instId) || []).length : 0,
-        test_log_recent: isTestMode ? (testModeLog.get(instId) || []).slice(-20) : [],
+        test_log_count: isTestMode ? dryRunSummary().count : 0,
+        test_log_recent: isTestMode ? dryRunSummary().recent : [],
       });
       return;
     }
@@ -343,8 +333,8 @@ function waterManagerHandler(ctx, send) {
       total_m3:       Math.round(st.totalLitres) / 1000,
       daily_m3:       Math.round(st.dailyLitres) / 1000,
       test_mode: isTestMode,
-      test_log_count: isTestMode ? (testModeLog.get(instId) || []).length : 0,
-      test_log_recent: isTestMode ? (testModeLog.get(instId) || []).slice(-20) : [],
+      test_log_count: isTestMode ? dryRunSummary().count : 0,
+      test_log_recent: isTestMode ? dryRunSummary().recent : [],
     });
     return;
   }
@@ -365,8 +355,8 @@ function waterManagerHandler(ctx, send) {
     total_m3:       Math.round(st.totalLitres) / 1000,
     daily_m3:       Math.round(st.dailyLitres) / 1000,
     test_mode: isTestMode,
-    test_log_count: isTestMode ? (testModeLog.get(instId) || []).length : 0,
-    test_log_recent: isTestMode ? (testModeLog.get(instId) || []).slice(-20) : [],
+    test_log_count: isTestMode ? dryRunSummary().count : 0,
+    test_log_recent: isTestMode ? dryRunSummary().recent : [],
   });
 }
 
@@ -483,8 +473,15 @@ const WATER_MANAGER_MODULE = {
       ctx.setSetting('_meter_reset', '1');
       return { success: true };
     },
-    get_test_log:   (ctx, { instId } = {}) => { return { log: testModeLog.get(instId) || [] }; },
-    clear_test_log: (ctx, { instId } = {}) => { testModeLog.set(instId, []); return { ok: true }; },
+    get_test_log:   (ctx, { instId } = {}) => {
+      const id = Number(instId || ctx.instance?.id);
+      return { log: ctx._engine?.getDryRunLog ? ctx._engine.getDryRunLog(id, 200) : [] };
+    },
+    clear_test_log: (ctx, { instId } = {}) => {
+      const id = Number(instId || ctx.instance?.id);
+      if (ctx._engine?.clearDryRunLog) ctx._engine.clearDryRunLog(id);
+      return { ok: true };
+    },
   },
 };
 

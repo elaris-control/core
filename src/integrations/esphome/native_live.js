@@ -5,10 +5,7 @@ const { safeName } = require('../../esphome/schema');
 const { getCatalogProfile } = require('../../esphome/profile_registry');
 const { deriveBoardPorts } = require('../../esphome/board_port_registry');
 const { importNativeDeviceStep1 } = require('./native_import');
-
-function toIsoNow() {
-  return new Date().toISOString();
-}
+const { toIsoNow } = require('../../esphome/helpers');
 
 function parseSiteId(value, fallback) {
   var n = Number(value);

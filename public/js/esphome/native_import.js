@@ -37,6 +37,7 @@ function nativeSessionIdentityPayload() {
   var payload = nativeImportCollectPayload();
   return {
     site_id: payload.site_id,
+    device_id: (_nativeSession && _nativeSession.device_id) ? Number(_nativeSession.device_id) : undefined,
     device_name: payload.device_name,
     friendly_name: payload.friendly_name,
     board_profile_id: payload.board_profile_id,
@@ -44,7 +45,7 @@ function nativeSessionIdentityPayload() {
     hostname: payload.hostname,
     api_host: payload.api_host,
     api_port: payload.api_port,
-    encryption_key: payload.encryption_key,
+    // encryption_key intentionally omitted — stored server-side after connect
     mqtt_topic_root: payload.mqtt_topic_root,
   };
 }
@@ -52,12 +53,20 @@ function nativeSessionIdentityPayload() {
 function nativeAdoptSession(session, opts) {
   _nativeSession = session || null;
   var options = opts || {};
-  if (session && Array.isArray(session.entities) && session.entities.length) {
+  if (!session) {
+    _nativeImportRows = [];
+    nativeImportEnsureRows();
+    renderNativeImportRows();
+    nativeRefreshCommandPanel();
+    nativeRenderStateBrowser();
+    return;
+  }
+  if (Array.isArray(session.entities) && session.entities.length) {
     _nativeImportRows = nativeRowsFromEntities(session.entities);
     nativeImportEnsureRows();
     renderNativeImportRows();
   }
-  if (options.fillInputs && session) {
+  if (options.fillInputs) {
     try {
       if (session.device_name && document.getElementById('nativeImportDeviceName')) document.getElementById('nativeImportDeviceName').value = session.device_name;
       if (session.friendly_name && document.getElementById('nativeImportFriendlyName')) document.getElementById('nativeImportFriendlyName').value = session.friendly_name;
@@ -506,9 +515,13 @@ async function nativeLoadSessionList() {
       return desired.device_name && s.device_name && String(s.device_name).toLowerCase() === String(desired.device_name).toLowerCase();
     }) || sessions.find(function(s) {
       return desired.api_host && s.payload && s.payload.api_host && String(s.payload.api_host).toLowerCase() === String(desired.api_host).toLowerCase();
-    }) || sessions[0] || null;
+    }) || null;
     nativeAdoptSession(chosen, { fillInputs: false });
-    if (msgEl) msgEl.textContent = chosen ? ('Loaded native session ' + (chosen.device_name || chosen.session_key)) : 'No native sessions found.';
+    if (msgEl) {
+      if (chosen) msgEl.textContent = 'Loaded native session ' + (chosen.device_name || chosen.session_key);
+      else if (sessions.length > 0) msgEl.textContent = 'No matching session found. Connect first or check device name / host.';
+      else msgEl.textContent = 'No native sessions found.';
+    }
   } catch (e) {
     if (msgEl) msgEl.textContent = 'Failed to load sessions: ' + (e.message || String(e));
   }

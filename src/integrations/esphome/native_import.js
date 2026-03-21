@@ -1,10 +1,7 @@
 'use strict';
 
 const { safeName, normalizeIntegrationKey, normalizeOwnershipMode, normalizeConfigSource, normalizeReadOnly } = require('../../esphome/schema');
-
-function toIsoNow() {
-  return new Date().toISOString();
-}
+const { toIsoNow } = require('../../esphome/helpers');
 
 function parseSiteId(value) {
   var n = Number(value);

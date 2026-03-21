@@ -12,8 +12,8 @@
   }
 
   function current(){
-    try{ return (localStorage.getItem(KEY) === "dark") ? "dark" : "light"; }
-    catch(e){ return "light"; }
+    try{ const v = localStorage.getItem(KEY); return (v === "light") ? "light" : "dark"; }
+    catch(e){ return "dark"; }
   }
 
   function init(){

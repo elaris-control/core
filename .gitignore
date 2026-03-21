@@ -39,6 +39,14 @@ Thumbs.db
 # ESPHome generated YAMLs
 data/esphome/
 
+# Test coverage output (generated)
+coverage/
+
+# Working notes / AI session artifacts
+DRY_MODE_REFACTOR_NOTES.md
+docs/BUGS_AND_FIXES.md
+docs/superpowers/
+
 # Pro modules (not open source)
 src/automation/pool_spa.js
 src/automation/hydronic_manager.js

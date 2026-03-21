@@ -1,10 +1,7 @@
 'use strict';
 
 const { assertNativeClient } = require('./client_contract');
-
-function toIsoNow() {
-  return new Date().toISOString();
-}
+const { toIsoNow } = require('../../esphome/helpers');
 
 function makeSessionKey(integrationKey, payload) {
   var key = String(integrationKey || '').trim().toLowerCase();
@@ -156,6 +153,13 @@ function createNativeSessionManager(opts) {
       existing.device_name = payload?.device_name || existing.device_name || null;
       existing.friendly_name = payload?.friendly_name || existing.friendly_name || null;
       existing.board_profile_id = payload?.board_profile_id || existing.board_profile_id || null;
+      if (!existing._client) {
+        var freshClient = assertNativeClient(adapter.createNativeClient({ db: opts.db, sessionKey: existing.session_key, onUpdate: attachClientUpdates(existing) }, existing.payload), integrationKey);
+        existing._client = freshClient;
+        existing.transport = freshClient.transport || null;
+        existing.session_mode = freshClient.sessionMode || null;
+        existing.reconnect_interval_ms = Number(freshClient.refreshMs || 0) > 0 ? Number(freshClient.refreshMs) : null;
+      }
       return existing;
     }
     var session = {
@@ -277,6 +281,7 @@ function createNativeSessionManager(opts) {
     session.live_stream = false;
     session.last_disconnect_at = toIsoNow();
     session.updated_at = session.last_disconnect_at;
+    session._client = null; // allow fresh client on next connect
     publish('native_session_update', session);
     return snapshotSession(session);
   }
