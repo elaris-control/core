@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-const { AutomationEngine } = require('../../src/automation/engine');
+import engineModule from '../../src/automation/engine.js';
+
+const { AutomationEngine } = engineModule;
 
 function createFakeDb() {
   const settings = new Map();

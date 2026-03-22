@@ -1087,11 +1087,12 @@ function applyYamlOverrides(yamlText, overrides = {}) {
   const mqttHost = String(overrides.mqtt_host || '').trim();
 
   if (name) {
-    const quoted = `"${yamlStr(name)}"`;
-    out = out.replace(/^(\s{2})name\s*:\s*.*$/m, `$1name: ${quoted}`);
-    out = out.replace(/^(\s{2})friendly_name\s*:\s*.*$/m, `$1friendly_name: ${quoted}`);
+    const nameSafe = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    const quotedFriendly = `"${yamlStr(name)}"`;
+    out = out.replace(/^(\s{2})name\s*:\s*.*$/m, `$1name: ${nameSafe}`);
+    out = out.replace(/^(\s{2})friendly_name\s*:\s*.*$/m, `$1friendly_name: ${quotedFriendly}`);
     if (!/^\s{2}name\s*:/m.test(out) && /^esphome:\s*$/m.test(out)) {
-      out = out.replace(/(^esphome:\s*)\n/m, `$1\n  name: ${quoted}\n  friendly_name: ${quoted}\n`);
+      out = out.replace(/(^esphome:\s*)\n/m, `$1\n  name: ${nameSafe}\n  friendly_name: ${quotedFriendly}\n`);
     }
   }
 

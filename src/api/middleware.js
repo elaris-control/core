@@ -17,7 +17,7 @@ function makeModuleHelpers({ engine, access, auth }) {
   }
 
   function getInstanceWithDefinition(instanceId) {
-    const inst = engine._getInstances.all().find(i => i.id === Number(instanceId));
+    const inst = engine.getInstance(Number(instanceId));
     if (!inst) return { inst: null, def: null, ui: null };
     const def = getModule(inst.module_id);
     return { inst, def, ui: def?.ui || {} };

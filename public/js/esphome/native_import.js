@@ -29,6 +29,29 @@ function nativeRowsFromEntities(entities) {
   });
 }
 
+function nativeImportPrefillFromSelectedInstallerDevice() {
+  try {
+    var id = Number((typeof window !== 'undefined' && window.selectedInstallerDeviceId) || 0);
+    if (!id || !Array.isArray(installerDevices)) return;
+    var d = installerDevices.find(function(x) { return Number(x.id) === id; });
+    if (!d) return;
+    var siteEl = document.getElementById('nativeImportSite');
+    var boardEl = document.getElementById('nativeImportBoard');
+    var nameEl = document.getElementById('nativeImportDeviceName');
+    var friendlyEl = document.getElementById('nativeImportFriendlyName');
+    var ipEl = document.getElementById('nativeImportIp');
+    var hostEl = document.getElementById('nativeImportHostname');
+    var apiHostEl = document.getElementById('nativeImportApiHost');
+    if (siteEl && !siteEl.value && d.site_id) siteEl.value = String(d.site_id);
+    if (boardEl && !boardEl.value && d.board_profile_id) boardEl.value = String(d.board_profile_id);
+    if (nameEl && !nameEl.value && d.name) nameEl.value = d.name;
+    if (friendlyEl && !friendlyEl.value && d.friendly_name) friendlyEl.value = d.friendly_name;
+    if (ipEl && !ipEl.value && d.ip_address) ipEl.value = d.ip_address;
+    if (hostEl && !hostEl.value && d.hostname) hostEl.value = d.hostname;
+    if (apiHostEl && !apiHostEl.value && (d.api_host || d.ip_address)) apiHostEl.value = d.api_host || d.ip_address;
+  } catch (_) {}
+}
+
 function nativeImportEnsureRows() {
   if (!_nativeImportRows.length) _nativeImportRows = [nativeImportDefaultRow()];
 }
@@ -37,7 +60,6 @@ function nativeSessionIdentityPayload() {
   var payload = nativeImportCollectPayload();
   return {
     site_id: payload.site_id,
-    device_id: (_nativeSession && _nativeSession.device_id) ? Number(_nativeSession.device_id) : undefined,
     device_name: payload.device_name,
     friendly_name: payload.friendly_name,
     board_profile_id: payload.board_profile_id,
@@ -45,7 +67,7 @@ function nativeSessionIdentityPayload() {
     hostname: payload.hostname,
     api_host: payload.api_host,
     api_port: payload.api_port,
-    // encryption_key intentionally omitted — stored server-side after connect
+    encryption_key: payload.encryption_key,
     mqtt_topic_root: payload.mqtt_topic_root,
   };
 }
@@ -53,20 +75,12 @@ function nativeSessionIdentityPayload() {
 function nativeAdoptSession(session, opts) {
   _nativeSession = session || null;
   var options = opts || {};
-  if (!session) {
-    _nativeImportRows = [];
-    nativeImportEnsureRows();
-    renderNativeImportRows();
-    nativeRefreshCommandPanel();
-    nativeRenderStateBrowser();
-    return;
-  }
-  if (Array.isArray(session.entities) && session.entities.length) {
+  if (session && Array.isArray(session.entities) && session.entities.length) {
     _nativeImportRows = nativeRowsFromEntities(session.entities);
     nativeImportEnsureRows();
     renderNativeImportRows();
   }
-  if (options.fillInputs) {
+  if (options.fillInputs && session) {
     try {
       if (session.device_name && document.getElementById('nativeImportDeviceName')) document.getElementById('nativeImportDeviceName').value = session.device_name;
       if (session.friendly_name && document.getElementById('nativeImportFriendlyName')) document.getElementById('nativeImportFriendlyName').value = session.friendly_name;
@@ -108,6 +122,7 @@ function nativeSessionSummaryHtml(session) {
   if (session.requires_encryption || (session.device_info && session.device_info.encryption_required) || /requires encryption/i.test(String(session.error || ''))) {
     if (session.probe && session.probe.reachable) parts.push('Host reachable on native API');
     if (entities) parts.push('fallback discovery loaded ' + escHtml(String(entities)) + ' entities');
+    parts.push('<span style="color:var(--warn)">Your device has API encryption enabled. Find <code>api: encryption: key:</code> in your ESPHome YAML and paste it in the Encryption key field above, then Connect again.</span>');
     return parts.join(' · ');
   }
   if (session.probe && session.probe.reachable) {
@@ -130,7 +145,19 @@ function toggleNativeImportPanel() {
   var panel = document.getElementById('nativeImportPanel');
   if (!panel) return;
   var showing = panel.style.display !== 'none';
-  if (!showing) closeEspPanels('nativeImportPanel');
+  if (!showing) {
+    closeEspPanels('nativeImportPanel');
+    // Hide wizard steps when opening
+    for (var i = 1; i <= 5; i++) { var s = document.getElementById('step' + i); if (s) s.style.display = 'none'; }
+  } else {
+    // Reset flow chooser to wizard when closing
+    var _fw = document.getElementById('flowBtnWizard'); if (_fw) _fw.className = 'btn btnPrimary';
+    var _fy = document.getElementById('flowBtnYaml'); if (_fy) _fy.className = 'btn';
+    var _fe = document.getElementById('flowBtnExternal'); if (_fe) _fe.className = 'btn';
+    var _stp = document.getElementById('stepper'); if (_stp) _stp.style.display = '';
+    // Restore current wizard step
+    if (typeof currentStep !== 'undefined') { var cur = document.getElementById('step' + currentStep); if (cur) cur.style.display = ''; }
+  }
   panel.style.display = showing ? 'none' : '';
   if (!showing) {
     nativeImportEnsureRows();
@@ -156,9 +183,11 @@ async function loadNativeImportLookups() {
     var supportsNative = integrations.some(function(x) { return x.key === 'esphome' && x.supportsNativeApi; });
     populateNativeImportSiteSelect();
     populateNativeImportBoardSelect();
+    nativeImportPrefillFromSelectedInstallerDevice();
     renderNativeImportCapability(supportsNative);
     _nativeImportLoaded = true;
-    if (msg) msg.textContent = supportsNative ? 'Read-only external native import is ready.' : 'Registry loaded. Native import support not advertised yet.';
+    var importMode = String((document.getElementById('nativeImportMode') || {}).value || 'readonly').trim().toLowerCase();
+    if (msg) msg.textContent = supportsNative ? (importMode === 'managed' ? 'Managed native import is ready.' : 'Read-only external native import is ready.') : 'Registry loaded. Native import support not advertised yet.';
     nativeRefreshCommandPanel();
     nativeRenderStateBrowser();
   } catch (e) {
@@ -192,12 +221,14 @@ function populateNativeImportBoardSelect() {
 function renderNativeImportCapability(ok) {
   var el = document.getElementById('nativeImportCapability');
   if (!el) return;
+  var importMode = String((document.getElementById('nativeImportMode') || {}).value || 'readonly').trim().toLowerCase();
+  var managed = importMode === 'managed';
   el.innerHTML = ok
     ? ('<div style="display:flex;flex-wrap:wrap;gap:8px">' +
        summaryPill('Adapter: esphome', '#1d8cff', 'rgba(29,140,255,.28)') +
-       summaryPill('Mode: external_native', '#1d8cff', 'rgba(29,140,255,.28)') +
+       summaryPill('Mode: ' + (managed ? 'managed_internal' : 'external_native'), '#1d8cff', 'rgba(29,140,255,.28)') +
        summaryPill('Source: native_api', '#1d8cff', 'rgba(29,140,255,.28)') +
-       summaryPill('Read-only', '#f59e0b', 'rgba(245,158,11,.35)') + '</div>')
+       summaryPill(managed ? 'Managed' : 'Read-only', managed ? '#22d97a' : '#f59e0b', managed ? 'rgba(34,217,122,.28)' : 'rgba(245,158,11,.35)') + '</div>')
     : '<div style="font-size:11px;color:var(--warn)">Adapter registry did not confirm native support, but you can still try the import route if the backend patch is present.</div>';
 }
 
@@ -242,9 +273,22 @@ function renderNativeImportRows() {
   nativeRefreshCommandPanel();
 }
 
+function nativeImportSelectedInstallerDefaults() {
+  try {
+    var id = Number((typeof window !== 'undefined' && window.selectedInstallerDeviceId) || 0);
+    if (!id || !Array.isArray(installerDevices)) return null;
+    return installerDevices.find(function(x) { return Number(x.id) === id; }) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function nativeImportCollectPayload() {
-  var deviceName = String((document.getElementById('nativeImportDeviceName') || {}).value || '').trim();
-  var friendlyName = String((document.getElementById('nativeImportFriendlyName') || {}).value || '').trim();
+  var selected = nativeImportSelectedInstallerDefaults();
+  var importMode = String((document.getElementById('nativeImportMode') || {}).value || 'readonly').trim().toLowerCase();
+  var managed = importMode === 'managed';
+  var deviceName = String((document.getElementById('nativeImportDeviceName') || {}).value || '').trim() || String(selected && selected.name || '').trim();
+  var friendlyName = String((document.getElementById('nativeImportFriendlyName') || {}).value || '').trim() || String(selected && selected.friendly_name || '').trim();
   var rows = _nativeImportRows.map(function(row) {
     row = nativeNormalizeRow(row);
     return {
@@ -258,16 +302,19 @@ function nativeImportCollectPayload() {
     };
   }).filter(function(row) { return row.key || row.name || row.entity_id; });
   return {
-    site_id: Number((document.getElementById('nativeImportSite') || {}).value || 1),
+    site_id: Number((document.getElementById('nativeImportSite') || {}).value || (selected && selected.site_id) || 1),
     device_name: deviceName,
     friendly_name: friendlyName || deviceName,
-    board_profile_id: String((document.getElementById('nativeImportBoard') || {}).value || '').trim(),
-    ip_address: String((document.getElementById('nativeImportIp') || {}).value || '').trim(),
-    hostname: String((document.getElementById('nativeImportHostname') || {}).value || '').trim(),
-    api_host: String((document.getElementById('nativeImportApiHost') || {}).value || '').trim(),
+    board_profile_id: String((document.getElementById('nativeImportBoard') || {}).value || (selected && selected.board_profile_id) || '').trim(),
+    ip_address: String((document.getElementById('nativeImportIp') || {}).value || (selected && selected.ip_address) || '').trim(),
+    hostname: String((document.getElementById('nativeImportHostname') || {}).value || (selected && selected.hostname) || '').trim(),
+    api_host: String((document.getElementById('nativeImportApiHost') || {}).value || (selected && (selected.api_host || selected.ip_address)) || '').trim(),
     api_port: Number((document.getElementById('nativeImportApiPort') || {}).value || 6053),
     encryption_key: String((document.getElementById('nativeImportEncryption') || {}).value || '').trim(),
     mqtt_topic_root: String((document.getElementById('nativeImportMqttRoot') || {}).value || '').trim(),
+    ownership_mode: managed ? 'managed_internal' : 'external_native',
+    config_source: 'native_api',
+    read_only: managed ? 0 : 1,
     entities: rows,
   };
 }
@@ -515,13 +562,9 @@ async function nativeLoadSessionList() {
       return desired.device_name && s.device_name && String(s.device_name).toLowerCase() === String(desired.device_name).toLowerCase();
     }) || sessions.find(function(s) {
       return desired.api_host && s.payload && s.payload.api_host && String(s.payload.api_host).toLowerCase() === String(desired.api_host).toLowerCase();
-    }) || null;
+    }) || sessions[0] || null;
     nativeAdoptSession(chosen, { fillInputs: false });
-    if (msgEl) {
-      if (chosen) msgEl.textContent = 'Loaded native session ' + (chosen.device_name || chosen.session_key);
-      else if (sessions.length > 0) msgEl.textContent = 'No matching session found. Connect first or check device name / host.';
-      else msgEl.textContent = 'No native sessions found.';
-    }
+    if (msgEl) msgEl.textContent = chosen ? ('Loaded native session ' + (chosen.device_name || chosen.session_key)) : 'No native sessions found.';
   } catch (e) {
     if (msgEl) msgEl.textContent = 'Failed to load sessions: ' + (e.message || String(e));
   }
@@ -584,7 +627,7 @@ async function submitNativeImport() {
     if (msg) msg.textContent = 'Importing external native device…';
     var out = await api('/integrations/esphome/import-native', { method: 'POST', body: JSON.stringify(payload) });
     var imported = Number(out.pending_injected || 0);
-    if (msg) msg.innerHTML = '<span style="color:var(--good)">✓ Imported</span> ' + escHtml(payload.device_name) + ' as read-only external native. Pending IO rows: ' + escHtml(imported);
+    if (msg) msg.innerHTML = '<span style="color:var(--good)">✓ Imported</span> ' + escHtml(payload.device_name) + ' as ' + escHtml(payload.read_only ? 'read-only external native' : 'managed native import') + '. Pending IO rows: ' + escHtml(imported);
     try { if (typeof loadInstallerDevices === 'function') await loadInstallerDevices(); } catch (e) {}
   } catch (e) {
     if (msg) msg.innerHTML = '<span style="color:var(--bad)">Import failed:</span> ' + escHtml(e.message || String(e));

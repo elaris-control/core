@@ -231,7 +231,37 @@ Then open: `http://<PI_IP>:8080/esphome.html`
 
 ---
 
-## 10. Mosquitto — Allow LAN devices
+## 10. ESPHome Native API (external devices)
+
+The native API import lets you connect to any existing ESPHome device over TCP (port 6053) without reflashing it. No extra install is needed — ELARIS connects directly.
+
+### Steps
+
+1. Open the installer: `http://<PI_IP>:8080/esphome.html`
+2. Select an existing device card or create a new one (enter IP address)
+3. Click **Native Import**
+4. If the device has no encryption, click **Connect** — entities are discovered automatically
+5. Choose **read-only** (monitor only) or **managed** mode, then click **Sync**
+
+### Encryption
+
+If your ESPHome device has `api: encryption: key:` in its YAML, ELARIS will show a warning after the first connection attempt. To find the key:
+
+```bash
+# If the firmware was built on this machine or via Home Assistant ESPHome addon:
+cat /config/esphome/secrets.yaml   # on Home Assistant
+# or look in the secrets.yaml file next to your device YAML
+```
+
+The key is a base64-encoded string that looks like: `rPOflI7ENv6ZUjnDtcqCMnmBR7tAFGS3j3A25LZi7Ow=`
+
+Enter it once in the **Encryption key** field — ELARIS stores it in the database and uses it automatically from that point on.
+
+> **Recommended for local networks:** Remove the `api: encryption:` block from your device YAML and reflash once. After that, no key is ever needed.
+
+---
+
+## 11. Mosquitto — Allow LAN devices
 
 For ESPHome boards on the LAN (like the KC868-A16) Mosquitto must accept connections from other devices on the network.
 
@@ -252,7 +282,7 @@ and restarts Mosquitto.
 
 ---
 
-## 11. Find Your Pi's IP Address
+## 12. Find Your Pi's IP Address
 
 ```bash
 hostname -I

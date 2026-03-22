@@ -91,10 +91,18 @@ function apBusSupportsType(bus, type) {
   return supports.indexOf(want) >= 0 || supports.length === 0;
 }
 
+function apPortCanReplaceUsage(port, type) {
+  if (!port || !port.inUse || !port.replaceable) return false;
+  var want = apBaseType(type);
+  var allowed = Array.isArray(port.replaceableTypes) ? port.replaceableTypes : [];
+  return allowed.indexOf(want) >= 0;
+}
+
 function apPortHasBlockingUsage(port, type) {
   if (!port || !port.inUse) return false;
   var want = apBaseType(type);
   if (want === 'ds18b20' && port.sharedBus) return false;
+  if (apPortCanReplaceUsage(port, type)) return false;
   return true;
 }
 
@@ -437,7 +445,10 @@ function apBuildPinDropdown(type) {
       opt.value = String(port.portId || port.value || '').trim();
       opt.textContent = port.label || port.portId || port.value;
       if (port.range) opt.textContent += ' · ' + port.range;
-      if (port.inUse) opt.textContent += port.sharedBus ? '  · shared bus' : '  · in use';
+      if (port.inUse) {
+        if (apPortCanReplaceUsage(port, document.getElementById('apType').value)) opt.textContent += '  · replace existing';
+        else opt.textContent += port.sharedBus ? '  · shared bus' : '  · in use';
+      }
       if (port.usageCount) opt.textContent += '  · ' + port.usageCount + ' item' + (port.usageCount === 1 ? '' : 's');
       if (port.hint || (port.usedBy && port.usedBy.length)) opt.title = [port.hint || '', (port.usedBy || []).slice(0, 3).join(', ')].filter(Boolean).join(' · ');
       parent.appendChild(opt);
@@ -578,6 +589,12 @@ function apGetScaleEntity(type) {
   return { scale: scale, scale_factor: factor };
 }
 
+function apSelectedPortReplaceTarget(type) {
+  var port = apSelectedPort();
+  if (!apPortCanReplaceUsage(port, type)) return null;
+  return port && port.replaceTarget ? port.replaceTarget : null;
+}
+
 function apBuildEntity(type, name, key) {
   var spec = apGetTypeSpec(type);
   var entity = Object.assign({ type: apBaseType(type), name: name, key: key }, apGetScaleEntity(type));
@@ -611,8 +628,16 @@ function apRenderPinValidation() {
     hint.textContent = port.label + (port.hint ? ' · ' + port.hint : '') + (port.value ? ' · ' + port.value : '');
     if (port.inUse) {
       var sharedDs = type === 'ds18b20' && port.sharedBus;
+      var replaceable = apPortCanReplaceUsage(port, type);
       var usedText = Array.isArray(port.usedBy) && port.usedBy.length ? (' Used by: ' + port.usedBy.slice(0, 3).join(', ') + '.') : '';
-      messages.push({ level: sharedDs ? 'warn' : 'err', text: sharedDs ? (port.label + ' is already used as a 1-Wire bus. Sharing it for another DS18B20 is allowed.' + usedText) : (port.label + ' is already in use in this device YAML.' + usedText) });
+      messages.push({
+        level: sharedDs || replaceable ? 'warn' : 'err',
+        text: sharedDs
+          ? (port.label + ' is already used as a 1-Wire bus. Sharing it for another DS18B20 is allowed.' + usedText)
+          : replaceable
+            ? (port.label + ' is already in use, but ELARIS can replace the existing peripheral on this port.' + usedText)
+            : (port.label + ' is already in use in this device YAML.' + usedText)
+      });
     }
     if (!messages.length) messages.push({ level: 'ok', text: port.label + ' looks valid for ' + apGetTypeSpec(type).name + '.' });
     apRenderNoticeBox('apPinValidation', 'Port checks', messages);
@@ -735,13 +760,20 @@ async function apPreview() {
   if (apIsI2cType(type) && !bus && (!document.getElementById('apSda').value || !document.getElementById('apScl').value)) { alert('Select a board I²C bus or enter SDA/SCL.'); return; }
   if (_apMode === 'edit' && !_apEditOriginalKey) { alert('Pick a peripheral to edit first.'); return; }
 
+  var replaceTarget = _apMode === 'add' ? apSelectedPortReplaceTarget(type) : null;
+  if (replaceTarget) {
+    var okReplace = confirm('This port already has "' + (replaceTarget.name || replaceTarget.key || 'existing peripheral') + '" (' + (replaceTarget.type || 'unknown') + '). Replace it with this new peripheral?');
+    if (!okReplace) return;
+  }
+
   var btn = document.getElementById('apPreviewBtn');
   btn.disabled = true; btn.textContent = 'Loading…';
   try {
     var entity = apBuildEntity(type, name, key);
-    var endpoint = _apMode === 'edit' ? '/esphome/peripheral/edit/preview' : '/esphome/add-peripheral/preview';
+    var endpoint = (_apMode === 'edit' || replaceTarget) ? '/esphome/peripheral/edit/preview' : '/esphome/add-peripheral/preview';
     var payload = { device_id: Number(deviceId), entity: entity };
     if (_apMode === 'edit') payload.original_key = _apEditOriginalKey;
+    else if (replaceTarget) payload.original_key = replaceTarget.key;
     var r = await api(endpoint, { method: 'POST', body: JSON.stringify(payload) });
     _apPreviewYaml = r.yaml;
     document.getElementById('apYamlPreview').textContent = r.yaml;
@@ -751,8 +783,11 @@ async function apPreview() {
     document.getElementById('apDone').style.display = 'none';
     apRenderPreviewWarnings(r.warnings || []);
   } catch(e) {
-    apRenderPreviewWarnings([{ text: 'Preview failed: ' + e.message, level: 'err' }]);
-    alert('Preview failed: ' + e.message);
+    var msg = String(e && e.message || e || 'Unknown error');
+    if (/esphome_not_installed/i.test(msg)) msg = 'ESPHome is not installed yet. Install ESPHome first, then preview again.';
+    else if (/flash_in_progress/i.test(msg)) msg = 'Another ESPHome flash is already running. Wait for it to finish or cancel it first.';
+    apRenderPreviewWarnings([{ text: 'Preview failed: ' + msg, level: 'err' }]);
+    alert('Preview failed: ' + msg);
   }
   btn.disabled = false; btn.innerHTML = _apMode === 'edit' ? '&#128196; Preview Update' : '&#128196; Preview YAML';
 }
@@ -768,6 +803,12 @@ async function apFlash() {
   var key  = document.getElementById('apKey').value.trim();
   if (!ip) { alert('Enter the device IP address for OTA.'); return; }
   if (_apMode === 'edit' && !_apEditOriginalKey) { alert('Pick a peripheral to edit first.'); return; }
+
+  var replaceTarget = _apMode === 'add' ? apSelectedPortReplaceTarget(type) : null;
+  if (replaceTarget) {
+    var okReplace = confirm('Replace existing peripheral "' + (replaceTarget.name || replaceTarget.key || 'existing peripheral') + '" on this port and flash OTA?');
+    if (!okReplace) return;
+  }
 
   _apFlashing = true;
   var flashBtn = document.getElementById('apFlashBtn');
@@ -787,13 +828,17 @@ async function apFlash() {
       localStorage.setItem('elaris_installer_board_profile_id', (selected && selected.board_profile_id) || '');
       localStorage.setItem('elaris_installer_device_name', (selected && (selected.name || selected.friendly_name)) || '');
     } catch(e) {}
-    var endpoint = _apMode === 'edit' ? '/esphome/peripheral/edit' : '/esphome/add-peripheral';
+    var endpoint = (_apMode === 'edit' || replaceTarget) ? '/esphome/peripheral/edit' : '/esphome/add-peripheral';
     var payload = { device_id: Number(deviceId), ip: ip, client_id: esphomeClientId, entity: entity };
     if (_apMode === 'edit') payload.original_key = _apEditOriginalKey;
+    else if (replaceTarget) payload.original_key = replaceTarget.key;
     await api(endpoint, { method: 'POST', body: JSON.stringify(payload) });
     apTermLine('info', (_apMode === 'edit' ? 'Update' : 'Flash') + ' started — compiling firmware…');
   } catch(e) {
-    apTermLine('error', 'Error: ' + e.message);
+    var msg = String(e && e.message || e || 'Unknown error');
+    if (/esphome_not_installed/i.test(msg)) msg = 'ESPHome is not installed yet. Install ESPHome first, then retry the OTA action.';
+    else if (/flash_in_progress/i.test(msg)) msg = 'Another ESPHome flash is already running. Wait for it to finish or cancel it first.';
+    apTermLine('error', 'Error: ' + msg);
     apResetFlashUI(false, _apMode === 'edit' ? 'edit_peripheral' : 'add_peripheral');
   }
 }
@@ -802,6 +847,21 @@ function apCancel() {
   fetch('/api/esphome/flash', { method: 'DELETE', credentials: 'include' }).catch(function(){});
   apTermLine('warn', '— Cancelled —');
   apResetFlashUI(false);
+}
+
+function apShowDoneState(action, awaitingReport, entityKey) {
+  var box = document.getElementById('apDone');
+  var title = document.getElementById('apDoneTitle');
+  var text = document.getElementById('apDoneText');
+  if (!box || !title || !text) return;
+  var mode = String(action || '').toLowerCase();
+  if (mode === 'remove_peripheral') title.textContent = 'Peripheral removed';
+  else if (mode === 'edit_peripheral') title.textContent = 'Peripheral updated';
+  else title.textContent = 'Peripheral added';
+  text.textContent = awaitingReport
+    ? ('The device will restart and publish its updated MQTT config. ' + (entityKey ? ('Watch for ' + entityKey + ' in Installer within ~30 seconds.') : 'Watch Installer for the updated IO within ~30 seconds.'))
+    : 'The OTA action finished. Refresh Installer if the updated device state does not appear automatically.';
+  box.style.display = '';
 }
 
 function apResetFlashUI(ok, action) {

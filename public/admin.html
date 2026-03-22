@@ -469,6 +469,63 @@ option { background:#0d1221; color:var(--text); }
       </div>
       <div class="helper-note" id="staleRuntimeMeta" style="margin-top:12px">—</div>
     </div>
+    <div class="runtime-card" style="margin-top:12px">
+      <div class="runtime-row">
+        <div>
+          <div class="runtime-title">Sensor / Event retention</div>
+          <div class="runtime-sub">Control how long raw sensor/event history stays in the live database before cleanup. Longer retention keeps more history but grows the DB. For multi-year history, prefer rollups + backups later.</div>
+        </div>
+        <div class="runtime-actions">
+          <span class="pill" id="historyRetentionPill">Loading...</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;align-items:flex-end">
+        <label style="display:flex;flex-direction:column;gap:6px;min-width:180px">
+          <span class="helper-note">Raw event retention (days)</span>
+          <input id="eventsRetentionDays" class="search-input" type="number" min="1" max="3650" step="1" value="30" style="min-width:180px">
+        </label>
+        <div class="runtime-actions">
+          <button class="btn btn-sm btn-primary" id="historyRetentionSaveBtn" onclick="saveHistoryRetentionRuntime()">Save retention</button>
+        </div>
+      </div>
+      <div class="helper-note" id="historyRetentionMeta" style="margin-top:12px">—</div>
+    </div>
+    <div class="runtime-card" style="margin-top:12px">
+      <div class="runtime-row">
+        <div>
+          <div class="runtime-title">History rollups</div>
+          <div class="runtime-sub">Long-term aggregated history used for larger range charts and future long-range sparklines. Keep raw data short-term, keep rollups long-term.</div>
+        </div>
+        <div class="runtime-actions">
+          <span class="pill" id="rollupsPill">Loading...</span>
+          <button class="btn btn-sm" id="rollupsRebuildBtn" onclick="rebuildRollupsNow()">Rebuild now</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;align-items:flex-end">
+        <label style="display:flex;flex-direction:column;gap:6px;min-width:180px">
+          <span class="helper-note">Rollup retention (days)</span>
+          <input id="rollupsRetentionDays" class="search-input" type="number" min="30" max="3650" step="1" value="1095" style="min-width:180px">
+        </label>
+        <div class="runtime-actions">
+          <button class="btn btn-sm btn-primary" id="rollupsSaveBtn" onclick="saveRollupsRuntime()">Save rollups</button>
+        </div>
+      </div>
+      <div class="helper-note" id="rollupsMeta" style="margin-top:12px">—</div>
+    </div>
+    <div class="runtime-card" style="margin-top:12px">
+      <div class="runtime-row">
+        <div>
+          <div class="runtime-title">Stale MQTT Retained Messages</div>
+          <div class="runtime-sub">Topics published by devices not registered in ELARIS (e.g. old ESPHome firmware). These are stored in the broker as retained messages and arrive on every restart. Clear them to stop the noise.</div>
+        </div>
+        <div class="runtime-actions">
+          <button class="btn btn-sm" onclick="loadStaleRetained()">Refresh</button>
+        </div>
+      </div>
+      <div id="staleRetainedList" style="margin-top:12px">
+        <span class="helper-note">Click Refresh to scan for stale retained topics.</span>
+      </div>
+    </div>
   </div>
 
   <!-- ── DB Management ─────────────────────────────────────────────────── -->
@@ -871,6 +928,8 @@ async function doLogout() {
 let mqttDebugEnabled = null;
 let esphomeOnlineStaleMinutes = null;
 let esphomeDefaultStaleMinutes = null;
+let eventsRetentionDays = null;
+let rollupsRetentionDays = null;
 
 function renderMqttDebugCard() {
   const pill = document.getElementById('mqttDebugPill');
@@ -1028,6 +1087,223 @@ async function saveEsphomeStatusRuntime() {
   } catch (e) {
     renderEsphomeStatusRuntimeCard();
     toast('Error: ' + e.message, 'err');
+  }
+}
+
+function renderHistoryRetentionCard() {
+  const pill = document.getElementById('historyRetentionPill');
+  const meta = document.getElementById('historyRetentionMeta');
+  const input = document.getElementById('eventsRetentionDays');
+  const saveBtn = document.getElementById('historyRetentionSaveBtn');
+  if (!pill || !meta || !input || !saveBtn) return;
+  if (eventsRetentionDays == null) {
+    pill.className = 'pill';
+    pill.textContent = 'Loading...';
+    meta.textContent = 'Loading current history retention…';
+    input.disabled = true;
+    saveBtn.disabled = true;
+    return;
+  }
+  pill.className = 'pill ok';
+  pill.textContent = `Raw retention ${eventsRetentionDays}d`;
+  input.disabled = false;
+  saveBtn.disabled = false;
+  input.value = String(eventsRetentionDays);
+  const source = meta.dataset.source || 'runtime';
+  const stampRaw = meta.dataset.updatedTs || '';
+  const stamp = stampRaw ? new Date(Number(stampRaw)).toLocaleString() : '';
+  const rows = meta.dataset.rows || '0';
+  const oldest = meta.dataset.oldest || '—';
+  meta.textContent = `Current live raw retention. Source: ${source}` + (stamp ? ` · Updated: ${stamp}` : '') + ` · Rows: ${rows} · Oldest event: ${oldest}`;
+}
+
+async function loadHistoryRetentionRuntime() {
+  try {
+    const d = await api('/api/admin/runtime/history-retention');
+    eventsRetentionDays = Number(d.events_retention_days) || 30;
+    const meta = document.getElementById('historyRetentionMeta');
+    if (meta) {
+      meta.dataset.updatedTs = d.updated_ts || '';
+      meta.dataset.source = d.source || 'runtime';
+      meta.dataset.rows = String(Number(d.stats?.count || 0));
+      meta.dataset.oldest = d.stats?.oldest_ts ? new Date(Number(d.stats.oldest_ts)).toLocaleString() : '—';
+    }
+    renderHistoryRetentionCard();
+  } catch (e) {
+    const meta = document.getElementById('historyRetentionMeta');
+    if (meta) {
+      meta.dataset.updatedTs = '';
+      meta.dataset.source = 'runtime';
+      meta.dataset.rows = '0';
+      meta.dataset.oldest = '—';
+      meta.textContent = 'Failed to load history retention: ' + e.message;
+    }
+    eventsRetentionDays = 30;
+    renderHistoryRetentionCard();
+  }
+}
+
+async function saveHistoryRetentionRuntime() {
+  const input = document.getElementById('eventsRetentionDays');
+  const saveBtn = document.getElementById('historyRetentionSaveBtn');
+  const retentionDays = Math.round(Number(input?.value));
+  if (!Number.isFinite(retentionDays) || retentionDays < 1 || retentionDays > 3650) {
+    toast('Retention days must be between 1 and 3650', 'err');
+    return;
+  }
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const d = await api('/api/admin/runtime/history-retention', {
+      method: 'PATCH',
+      body: JSON.stringify({ events_retention_days: retentionDays })
+    });
+    eventsRetentionDays = Number(d.events_retention_days) || retentionDays;
+    const meta = document.getElementById('historyRetentionMeta');
+    if (meta) {
+      meta.dataset.updatedTs = d.updated_ts || String(Date.now());
+      meta.dataset.source = 'db';
+    }
+    renderHistoryRetentionCard();
+    toast('✓ History retention saved');
+  } catch (e) {
+    renderHistoryRetentionCard();
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+function renderRollupsCard() {
+  const pill = document.getElementById('rollupsPill');
+  const meta = document.getElementById('rollupsMeta');
+  const input = document.getElementById('rollupsRetentionDays');
+  const saveBtn = document.getElementById('rollupsSaveBtn');
+  const rebuildBtn = document.getElementById('rollupsRebuildBtn');
+  if (!pill || !meta || !input || !saveBtn || !rebuildBtn) return;
+  if (rollupsRetentionDays == null) {
+    pill.className = 'pill';
+    pill.textContent = 'Loading...';
+    meta.textContent = 'Loading current rollup settings…';
+    input.disabled = true;
+    saveBtn.disabled = true;
+    rebuildBtn.disabled = true;
+    return;
+  }
+  pill.className = 'pill ok';
+  pill.textContent = `Hourly rollups ${rollupsRetentionDays}d`;
+  input.disabled = false;
+  saveBtn.disabled = false;
+  rebuildBtn.disabled = false;
+  input.value = String(rollupsRetentionDays);
+  const source = meta.dataset.source || 'runtime';
+  const stampRaw = meta.dataset.updatedTs || '';
+  const stamp = stampRaw ? new Date(Number(stampRaw)).toLocaleString() : '';
+  const rows = meta.dataset.rows || '0';
+  const oldest = meta.dataset.oldest || '—';
+  meta.textContent = `Current long-term hourly rollup retention. Source: ${source}` + (stamp ? ` · Updated: ${stamp}` : '') + ` · Rows: ${rows} · Oldest rollup: ${oldest}`;
+}
+
+async function loadRollupsRuntime() {
+  try {
+    const d = await api('/api/admin/runtime/rollups');
+    rollupsRetentionDays = Number(d.rollups_retention_days) || 1095;
+    const meta = document.getElementById('rollupsMeta');
+    if (meta) {
+      meta.dataset.updatedTs = d.updated_ts || '';
+      meta.dataset.source = d.source || 'runtime';
+      meta.dataset.rows = String(Number(d.stats?.count || 0));
+      meta.dataset.oldest = d.stats?.oldest_ts ? new Date(Number(d.stats.oldest_ts)).toLocaleString() : '—';
+    }
+    renderRollupsCard();
+  } catch (e) {
+    const meta = document.getElementById('rollupsMeta');
+    if (meta) {
+      meta.dataset.updatedTs = '';
+      meta.dataset.source = 'runtime';
+      meta.dataset.rows = '0';
+      meta.dataset.oldest = '—';
+      meta.textContent = 'Failed to load rollups: ' + e.message;
+    }
+    rollupsRetentionDays = 1095;
+    renderRollupsCard();
+  }
+}
+
+async function saveRollupsRuntime() {
+  const input = document.getElementById('rollupsRetentionDays');
+  const saveBtn = document.getElementById('rollupsSaveBtn');
+  const retentionDays = Math.round(Number(input?.value));
+  if (!Number.isFinite(retentionDays) || retentionDays < 30 || retentionDays > 3650) {
+    toast('Rollup retention must be between 30 and 3650 days', 'err');
+    return;
+  }
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const d = await api('/api/admin/runtime/rollups', {
+      method: 'PATCH',
+      body: JSON.stringify({ rollups_retention_days: retentionDays })
+    });
+    rollupsRetentionDays = Number(d.rollups_retention_days) || retentionDays;
+    const meta = document.getElementById('rollupsMeta');
+    if (meta) {
+      meta.dataset.updatedTs = d.updated_ts || String(Date.now());
+      meta.dataset.source = 'db';
+    }
+    renderRollupsCard();
+    toast('✓ Rollup retention saved');
+  } catch (e) {
+    renderRollupsCard();
+    toast('Error: ' + e.message, 'err');
+  }
+}
+
+async function rebuildRollupsNow() {
+  const btn = document.getElementById('rollupsRebuildBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const d = await api('/api/admin/runtime/rollups/rebuild', { method: 'POST' });
+    toast(`✓ Rebuilt rollups (${Number(d.changed || 0)} buckets updated)`);
+    await loadRollupsRuntime();
+  } catch (e) {
+    toast('Error: ' + e.message, 'err');
+    renderRollupsCard();
+  }
+}
+
+// ── Stale Retained MQTT Topics ─────────────────────────────────────────────
+async function loadStaleRetained() {
+  const el = document.getElementById('staleRetainedList');
+  if (!el) return;
+  el.innerHTML = '<span class="helper-note">Loading…</span>';
+  try {
+    const d = await api('/api/admin/mqtt/stale-retained');
+    const devices = d.devices || [];
+    if (!devices.length) {
+      el.innerHTML = '<span class="helper-note" style="color:var(--ok)">✓ No stale retained messages found. (They appear after a device reconnects to the broker.)</span>';
+      return;
+    }
+    el.innerHTML = devices.map(function(dev) {
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line2);gap:12px;flex-wrap:wrap">
+        <div>
+          <span style="font-weight:600;color:var(--text)">${escHtml(dev.deviceId)}</span>
+          <span class="helper-note" style="margin-left:8px">${dev.topics.length} topic${dev.topics.length !== 1 ? 's' : ''}</span>
+          <div class="helper-note" style="margin-top:4px;word-break:break-all">${dev.topics.slice(0,3).map(t => escHtml(t)).join(', ')}${dev.topics.length > 3 ? ` …+${dev.topics.length-3} more` : ''}</div>
+        </div>
+        <button class="btn btn-sm btn-danger" data-device-id="${escHtml(dev.deviceId)}" onclick="clearStaleRetained(this.dataset.deviceId, this)">Clear retained</button>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<span class="helper-note" style="color:var(--err)">Error: ' + escHtml(e.message) + '</span>';
+  }
+}
+
+async function clearStaleRetained(deviceId, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const d = await api('/api/admin/mqtt/stale-retained/clear', { method: 'POST', body: JSON.stringify({ device_id: deviceId }) });
+    toast(`✓ Cleared ${d.topics_cleared} retained topic${d.topics_cleared !== 1 ? 's' : ''} for ${deviceId}`);
+    await loadStaleRetained();
+  } catch(e) {
+    toast('Error: ' + e.message, 'err');
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1351,6 +1627,8 @@ document.getElementById("siteModal")?.addEventListener("click", e => {
     await loadAdminSites();
     await loadRuntimeDebug();
     await loadEsphomeStatusRuntime();
+    await loadHistoryRetentionRuntime();
+    await loadRollupsRuntime();
     switchDbTab('devices');
     if (window.location.hash === '#sites') {
       document.getElementById('sitesSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

@@ -1,3 +1,74 @@
+// ── Flow chooser / mode switching ────────────────────────────────────────
+var _espFlow = 'wizard';
+
+function setEspFlow(mode) {
+  mode = (mode === 'yaml' || mode === 'external') ? mode : 'wizard';
+  _espFlow = mode;
+  try { localStorage.setItem('esphome_flow_mode', mode); } catch (_) {}
+
+  var isWizard = mode === 'wizard';
+  var isYaml = mode === 'yaml';
+  var isExternal = mode === 'external';
+
+  ['flowBtnWizard','flowBtnYaml','flowBtnExternal'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.className = (id === 'flowBtnWizard' && isWizard) || (id === 'flowBtnYaml' && isYaml) || (id === 'flowBtnExternal' && isExternal)
+      ? 'btn btnPrimary'
+      : 'btn';
+  });
+
+  var hint = document.getElementById('espFlowHint');
+  if (hint) {
+    hint.textContent = isWizard
+      ? 'Build and flash firmware using the step-by-step wizard. Select your board, configure IO, review, and flash over USB or OTA.'
+      : isYaml
+        ? 'Bring your own ESPHome YAML, parse it, and flash it with safer transport guidance and validation.'
+        : 'Work with an already existing external ESPHome device using the read-only/native import path.';
+  }
+
+  var stepper = document.getElementById('stepper');
+  if (stepper) stepper.style.display = isWizard ? 'flex' : 'none';
+  var saved = document.getElementById('savedPanel');
+  if (saved) saved.style.display = (isWizard || isExternal) ? '' : 'none';
+  var tools = document.getElementById('espToolsBar');
+  if (tools) tools.style.display = isWizard ? 'flex' : 'none';
+
+  ['step1','step2','step3','step4','step5'].forEach(function(id, idx) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (isWizard) {
+      if (id === 'step1') el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
+  });
+
+  var yamlPanel = document.getElementById('useMyYamlPanel');
+  if (yamlPanel) yamlPanel.style.display = isYaml ? '' : 'none';
+  var externalPanel = document.getElementById('nativeImportPanel');
+  if (externalPanel) externalPanel.style.display = isExternal ? '' : 'none';
+  var browserPanel = document.getElementById('deviceBrowserPanel');
+  if (browserPanel && !isYaml) browserPanel.style.display = 'none';
+
+  ['addPeripheralPanel','peripheralLibraryPanel','profileManagerPanel'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el && !isWizard) el.style.display = 'none';
+  });
+
+  if (isExternal && typeof nativeImportEnsureRows === 'function') nativeImportEnsureRows();
+  if (isExternal && typeof renderNativeImportRows === 'function') renderNativeImportRows();
+  if (isExternal && typeof loadNativeImportLookups === 'function') loadNativeImportLookups();
+  if (isExternal && typeof nativeRefreshCommandPanel === 'function') nativeRefreshCommandPanel();
+  if (isExternal && typeof nativeRenderStateBrowser === 'function') nativeRenderStateBrowser();
+}
+
+function initEspFlowChooser() {
+  var saved = 'wizard';
+  try { saved = localStorage.getItem('esphome_flow_mode') || 'wizard'; } catch (_) {}
+  setEspFlow(saved);
+}
+
 // ── Device Browser ────────────────────────────────────────────────────────
 var _browserDevices = [];
 var _browserCurrentSlug = null;
@@ -127,6 +198,7 @@ function browserFlashDevice() {
   var yaml = _browserCurrentYaml;
   // Close browser, open Use-My-YAML panel (toggleUseMyYaml resets its state)
   document.getElementById('deviceBrowserPanel').style.display = 'none';
+  if (typeof setEspFlow === 'function') setEspFlow('yaml');
   var p = document.getElementById('useMyYamlPanel');
   if (!p) return;
   if (p.style.display !== 'none') { p.style.display = 'none'; } // force close so toggle opens fresh

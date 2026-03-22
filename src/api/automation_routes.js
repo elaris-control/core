@@ -44,16 +44,10 @@ function initAutomationRoutes({ engine, access, auth, hasFeature, requireLogin, 
     } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
-  const _getInstanceForCommand = engine._db
-    ? engine._db.prepare(`SELECT * FROM module_instances WHERE id = ? AND active = 1`)
-    : null;
-
   router.post('/instances/:id/command', requireEngineerAccess, (req, res) => {
     try {
       const instId = Number(req.params.id);
-      const inst = (_getInstanceForCommand || engine._getInstances).get
-        ? _getInstanceForCommand.get(instId)
-        : engine._getInstances.all().find(i => i.id === instId);
+      const inst = engine.getInstance(instId);
       if (!inst) return res.status(404).json({ ok: false, error: 'instance_not_found' });
       const ref = access.getModuleInstanceSiteRef(instId);
       if (!access.canAccessSiteRef(req, ref)) return res.status(403).json({ ok: false, error: 'forbidden' });

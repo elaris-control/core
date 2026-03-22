@@ -59,15 +59,37 @@
 .tz-cell{text-align:center;padding:6px 4px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:8px;}
 .tz-label{font-size:9px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
 .tz-time{font-size:13px;font-weight:700;font-family:monospace;}
-.summary-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;overflow:hidden;}
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;overflow:hidden;}
 .summary-grid>*{min-width:0;overflow:hidden;}
 #wPinnedBody{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));}
-.sum-card{padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.03);cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:10px;text-decoration:none;text-align:left;min-width:0;overflow:hidden;box-sizing:border-box;}
-.sum-card:hover{background:rgba(255,255,255,.06);border-color:var(--line2);transform:translateY(-1px);}
+.sum-card{padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.02));cursor:pointer;transition:all .16s ease;display:flex;align-items:center;gap:10px;text-decoration:none;text-align:left;min-width:0;overflow:hidden;box-sizing:border-box;box-shadow:0 10px 26px rgba(0,0,0,.08);}
+.sum-card:hover{background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));border-color:var(--line2);transform:translateY(-2px);box-shadow:0 16px 34px rgba(0,0,0,.14);}
 .sum-icon{font-size:22px;flex-shrink:0;}
 .sum-info{flex:1;min-width:0;overflow:hidden;}
 .sum-name{font-size:12px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
 .sum-status{font-size:11px;color:var(--muted2);font-family:monospace;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
+.sum-card.page-card{padding:15px 15px 13px;display:flex;align-items:flex-start;gap:12px;min-height:124px;}
+.sum-card.page-card .sum-icon{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:13px;background:rgba(255,255,255,.05);border:1px solid var(--line);font-size:18px;margin-top:1px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04);}
+.sum-card.page-card .sum-info{display:flex;flex-direction:column;gap:0;}
+.sum-card.page-card .sum-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+.sum-card.page-card .sum-top-right{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
+.sum-card.page-card .sum-summary{margin-top:7px;font-size:12px;line-height:1.4;color:var(--text);white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;opacity:.96;}
+.sum-card.page-card .sum-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;}
+.sum-card.page-card .sum-foot{margin-top:auto;padding-top:10px;}
+.sum-card.page-card .sum-kpi{font-size:22px;font-weight:950;letter-spacing:-.03em;color:var(--text);line-height:1;}
+.sum-card.page-card .sum-kpi-sub{font-size:10px;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:.09em;}
+.hero-page-card{position:relative;overflow:hidden;display:flex;flex-direction:column;gap:14px;min-height:192px;padding:20px;border-radius:20px;border:1px solid var(--line);background:radial-gradient(circle at top right, rgba(255,255,255,.06), transparent 30%),linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.025));text-decoration:none;color:inherit;box-shadow:0 18px 44px rgba(0,0,0,.14);}
+.hero-page-card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--hero-accent,var(--blue));opacity:.95;}
+.hero-page-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;position:relative;z-index:1;}
+.hero-page-icon{width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:15px;background:rgba(255,255,255,.06);border:1px solid var(--line);font-size:23px;box-shadow:inset 0 1px 0 rgba(255,255,255,.05);}
+.hero-page-title{font-size:15px;font-weight:900;color:var(--text);}
+.hero-page-summary{font-size:13px;line-height:1.45;color:var(--text);min-height:38px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;position:relative;z-index:1;opacity:.97;}
+.hero-page-mid{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;position:relative;z-index:1;}
+.hero-page-kpi{font-size:32px;font-weight:950;line-height:1;color:var(--text);letter-spacing:-.04em;}
+.hero-page-kpi-sub{font-size:10px;color:var(--muted);margin-top:5px;text-transform:uppercase;letter-spacing:.09em;}
+.hero-page-foot{position:relative;z-index:1;margin-top:auto;padding-top:2px;}
+.hero-page-meta{margin-top:9px;font-size:11px;color:var(--muted2);display:flex;justify-content:space-between;gap:10px;}
+@media(max-width:860px){#featuredPagesHero{grid-template-columns:1fr!important;}}
 .ev-row{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:12px;}
 .ev-time{color:var(--muted);font-family:monospace;flex-shrink:0;font-size:11px;}
 .ev-action{color:var(--text);font-weight:700;flex:1;}
@@ -79,8 +101,17 @@
 #offlineBanner{display:none;padding:10px 20px;background:rgba(255,69,69,.12);border-bottom:1px solid rgba(255,69,69,.2);color:var(--bad);font-size:12px;font-weight:700;text-align:center;}
 @media(max-width:980px){.dash-grid{grid-template-columns:1fr;padding:14px;}.dash-full{grid-column:1;}}
 @media(max-width:640px){
-  .summary-grid{grid-template-columns:repeat(2,1fr);}
+  .summary-grid{grid-template-columns:repeat(2,1fr);gap:10px;}
   #wPinnedBody{grid-template-columns:repeat(2,1fr)!important;}
+  .sum-card.page-card{min-height:116px;padding:13px 13px 12px;}
+  .sum-card.page-card .sum-meta{align-items:flex-start;flex-direction:column;gap:8px;}
+  .sum-card.page-card .sum-top{gap:10px;}
+  .sum-card.page-card .sum-top-right{justify-content:flex-start;}
+  .hero-page-card{min-height:176px;padding:16px;gap:12px;}
+  .hero-page-mid{align-items:flex-start;flex-direction:column;}
+  .hero-page-meta{flex-direction:column;gap:4px;}
+  .modalCard{width:min(94vw,560px)!important;}
+  .modalActions{flex-wrap:wrap;}
   .clock-style-btn{font-size:10px;padding:2px 5px;}
   .ck-a .ck-time{font-size:38px;}
   .ck-a .ck-time .ck-sec{font-size:17px;margin-top:5px;}
@@ -92,6 +123,7 @@
   .tz-row{grid-template-columns:repeat(3,1fr);}
 }
 @media(max-width:400px){
+  .summary-grid{grid-template-columns:1fr;}
   .ck-a .ck-time{font-size:32px;}
   .ck-c .ck-time{font-size:36px;}
   .ck-g .ck-g-word{font-size:17px;}
@@ -246,6 +278,14 @@
         </div>
         <div id="wScenesBody"><div style="color:var(--muted);font-size:12px">Loading&hellip;</div></div>
       </div>
+      <div class="card dash-full" style="--w-accent:#8b5cf6">
+        <div class="cardTitle" style="display:flex;justify-content:space-between;align-items:center">
+          <span>&#128196; My Pages</span>
+          <button class="btn" style="font-size:11px;padding:4px 10px" onclick="openPageManager()">Manage</button>
+        </div>
+        <div id="featuredPagesHero" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px"><div style="color:var(--muted);font-size:12px">Loading&hellip;</div></div>
+        <div class="summary-grid" id="pinnedPagesGrid"><div style="color:var(--muted);font-size:12px">Loading&hellip;</div></div>
+      </div>
       <div class="card dash-full" style="--w-accent:#1d8cff">
         <div class="cardTitle">&#128202; System Overview</div>
         <div class="summary-grid" id="summaryGrid"><div style="color:var(--muted);font-size:12px">Loading&hellip;</div></div>
@@ -263,7 +303,7 @@
   <div class="modalCard" style="max-width:560px;max-height:85vh;display:flex;flex-direction:column">
     <div class="modalHead"><div class="modalTitle">My Pages</div><button class="iconBtn" onclick="closePageManager()">&#10005;</button></div>
     <div style="flex:1;overflow-y:auto;padding:12px 2px">
-      <div style="font-size:12px;color:var(--muted2);margin-bottom:12px">Create custom pages with any combination of modules. Each appears in the sidebar.</div>
+      <div style="font-size:12px;color:var(--muted2);margin-bottom:12px">Create custom pages for spaces and systems, then decide which ones appear on the homepage and which ones become featured hero cards.</div>
       <div id="pmPagesList"></div>
       <button class="btn" style="margin-top:12px;width:100%" onclick="openPageEditor(null)">+ New Page</button>
     </div>
@@ -276,12 +316,75 @@
     <div class="modalHead"><div class="modalTitle" id="peTitle">New Page</div><button class="iconBtn" onclick="closePageEditor()">&#10005;</button></div>
     <div style="flex:1;overflow-y:auto">
       <div class="modalBody">
-        <div style="display:flex;gap:8px">
-          <label class="fLabel" style="flex:0 0 64px">Icon<input class="txt" id="pe_icon" placeholder="&#128196;" maxlength="4"></label>
-          <label class="fLabel" style="flex:1">Page Name<input class="txt" id="pe_name" placeholder="My Solar"></label>
+        <div style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Identity</div>
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <label class="fLabel" style="flex:0 0 72px">Icon<input class="txt" id="pe_icon" placeholder="&#128196;" maxlength="4"></label>
+          <label class="fLabel" style="flex:1">Page Name<input class="txt" id="pe_name" placeholder="Living Room / Garden / Machine Room"></label>
         </div>
+        <div style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Placement</div>
         <div>
-          <div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Modules to show</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+          <label class="fLabel">Page Type
+            <select class="sel" id="pe_type">
+              <option value="custom">Custom</option>
+              <option value="area">Area</option>
+              <option value="system">System</option>
+            </select>
+          </label>
+          <label class="chkRow" style="align-self:end;padding:10px 0 0">
+            <input type="checkbox" id="pe_pinned_home" checked>
+            <span>Show on homepage</span>
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+          <label class="chkRow" style="align-self:end;padding:10px 0 0">
+            <input type="checkbox" id="pe_featured_home">
+            <span>Feature as hero card</span>
+          </label>
+          <label class="fLabel">Hero order
+            <input class="txt" id="pe_hero_order" type="number" min="0" step="1" value="0" placeholder="0">
+          </label>
+        </div>
+        <div style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Homepage summary</div>
+        <div style="font-size:11px;color:var(--muted2);margin:-2px 0 12px">Choose which module instances drive the summary, tone, and metrics shown on homepage cards.</div>
+        <div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+            <label class="fLabel">Primary summary source
+              <select class="sel" id="pe_summary_primary">
+                <option value="">Auto</option>
+              </select>
+            </label>
+            <label class="fLabel">Secondary summary source
+              <select class="sel" id="pe_summary_secondary">
+                <option value="">Auto</option>
+              </select>
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+            <label class="fLabel">Summary mode
+              <select class="sel" id="pe_summary_mode">
+                <option value="auto">Auto</option>
+                <option value="compact">Compact</option>
+                <option value="detailed">Detailed</option>
+              </select>
+            </label>
+            <label class="fLabel">Tone source
+              <select class="sel" id="pe_tone_source">
+                <option value="auto">Auto</option>
+                <option value="primary">Primary</option>
+                <option value="secondary">Secondary</option>
+              </select>
+            </label>
+            <label class="fLabel">Metrics source
+              <select class="sel" id="pe_metrics_source">
+                <option value="auto">Auto</option>
+                <option value="primary">Primary</option>
+                <option value="secondary">Secondary</option>
+              </select>
+            </label>
+          </div>
+          <div style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:4px 0 8px">Modules to show</div>
+          <div style="font-size:11px;color:var(--muted2);margin-bottom:10px">Select the modules that belong to this page. These define both the page content and the homepage summary options.</div>
           <div id="pe_instances" style="display:grid;gap:6px"></div>
         </div>
       </div>

@@ -3,6 +3,26 @@
 // These span different URL prefixes so we mount directly on app.
 const { getWeather } = require('../weather');
 
+function findNativeSessionSnapshot(nativeSessions, integrationKey, body) {
+  if (!nativeSessions || typeof nativeSessions.list !== 'function') return null;
+  var key = String(integrationKey || '').trim().toLowerCase();
+  var payload = body || {};
+  var wantedDeviceId = payload.device_id != null ? String(payload.device_id).trim() : '';
+  var wantedName = String(payload.device_name || '').trim().toLowerCase();
+  var wantedHost = String(payload.api_host || payload.ip_address || payload.hostname || '').trim().toLowerCase();
+  var sessions = nativeSessions.list(key);
+  for (var i = 0; i < sessions.length; i += 1) {
+    var session = sessions[i] || {};
+    var sessionDeviceId = session.device_id != null ? String(session.device_id).trim() : '';
+    var sessionName = String(session.device_name || '').trim().toLowerCase();
+    var sessionHost = String((session.payload && (session.payload.api_host || session.payload.ip_address || session.payload.hostname)) || '').trim().toLowerCase();
+    if (wantedDeviceId && sessionDeviceId && wantedDeviceId === sessionDeviceId) return session;
+    if (wantedName && sessionName && wantedName === sessionName) return session;
+    if (wantedHost && sessionHost && wantedHost === sessionHost) return session;
+  }
+  return null;
+}
+
 function mountMiscRoutes(app, { db, access, requireLogin, requireEngineerAccess, integrationRegistry, nativeSessions }) {
 
   // ── Version (public) ─────────────────────────────────────────────────────
@@ -140,7 +160,12 @@ function mountMiscRoutes(app, { db, access, requireLogin, requireEngineerAccess,
       var adapter = integrationRegistry.get(key);
       if (!adapter) return res.status(404).json({ ok: false, error: 'integration_not_found' });
       if (typeof adapter.syncNative !== 'function') return res.status(400).json({ ok: false, error: 'integration_native_sync_unsupported' });
-      var out = adapter.syncNative({ db: db, access: access, requireEngineerAccess: requireEngineerAccess }, req.body || {});
+      var body = req.body || {};
+      var nativeSession = findNativeSessionSnapshot(nativeSessions, key, body);
+      var out = adapter.syncNative({ db: db, access: access, requireEngineerAccess: requireEngineerAccess }, {
+        ...body,
+        native_session: nativeSession || body.native_session || null,
+      });
       res.json({ ok: true, integration_key: key, ...(out || {}) });
     } catch (e) {
       res.status(400).json({ ok: false, error: String(e?.message || e) });

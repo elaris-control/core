@@ -94,8 +94,21 @@ fi
 
 # ── 4. Python tools (needed for ESPHome) ─────────────────────────────────────
 hdr "Step 4 — Python tools"
-info "Installing python3-pip and python3-venv..."
-apt-get install -y python3-pip python3-venv >/dev/null 2>&1
+PY_VER_RAW="$(python3 --version 2>/dev/null || true)"
+PY_MAJ_MIN="$(printf '%s' "$PY_VER_RAW" | sed -n 's/^Python[[:space:]]\+\([0-9]\+\.[0-9]\+\).*$/\1/p')"
+PY_VENV_PKG="python3-venv"
+if [[ -n "$PY_MAJ_MIN" ]]; then
+  PY_VENV_PKG="python${PY_MAJ_MIN}-venv"
+fi
+info "Installing python3-pip and Python venv support (${PY_VENV_PKG}, with fallback to python3-venv)..."
+if ! apt-get install -y python3-pip "$PY_VENV_PKG" python3-venv >/dev/null 2>&1; then
+  warn "Primary venv package install failed; retrying with generic python3-venv only..."
+  apt-get install -y python3-pip python3-venv >/dev/null 2>&1
+fi
+if ! python3 -c 'import ensurepip' >/dev/null 2>&1; then
+  err "Python venv support is still missing after package install. Expected ensurepip via ${PY_VENV_PKG} or python3-venv."
+  exit 1
+fi
 ok "Python tools ready"
 
 # dialout group for USB serial ports

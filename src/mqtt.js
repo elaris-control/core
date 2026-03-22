@@ -4,6 +4,10 @@ const mqtt = require("mqtt");
 function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto = null }) {
   const client = mqtt.connect(url);
 
+  // In-memory map of retained topics from devices not in ELARIS registry
+  // deviceId → Set<topic>
+  const missedRetained = new Map();
+
   function isMqttDebugEnabled() {
     try {
       if (typeof dbApi?.getAppSetting === 'function') {
@@ -146,6 +150,10 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
     const known = typeof dbApi.findEspHomeRegistry === 'function' ? dbApi.findEspHomeRegistry(deviceId) : null;
     if (!known) {
       if (looksInteresting) mqttDebug('standard_topic_registry_miss', { deviceId, topic, retained });
+      if (retained) {
+        if (!missedRetained.has(deviceId)) missedRetained.set(deviceId, new Set());
+        missedRetained.get(deviceId).add(topic);
+      }
       return;
     }
     mqttDebug('standard_topic_registry_hit', { deviceId, topic, retained, registry_id: known?.id || null, board_profile_id: known?.board_profile_id || null, mqtt_topic_root: known?.mqtt_topic_root || null });
@@ -234,7 +242,21 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
     return { topic: topicCmnd, payload };
   }
 
-  return { client, sendCommand };
+  function getMissedRetained() {
+    const result = [];
+    for (const [deviceId, topics] of missedRetained) {
+      result.push({ deviceId, topics: Array.from(topics) });
+    }
+    return result;
+  }
+
+  function clearMissedRetainedForDevice(deviceId) {
+    const topics = missedRetained.has(deviceId) ? Array.from(missedRetained.get(deviceId)) : [];
+    missedRetained.delete(deviceId);
+    return topics;
+  }
+
+  return { client, sendCommand, getMissedRetained, clearMissedRetainedForDevice };
 }
 
 module.exports = { initMQTT };

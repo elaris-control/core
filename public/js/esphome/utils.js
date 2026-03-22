@@ -1,4 +1,39 @@
 // ── Utils ──────────────────────────────────────────────────────────────────
+
+// ── Human-readable error messages ─────────────────────────────────────────
+var _espErrorMessages = {
+  esphome_not_installed:       'ESPHome is not installed. Use the Install button at the top of this page first.',
+  flash_in_progress:           'A flash is already running. Wait for it to complete or cancel it first.',
+  setup_in_progress:           'Installation is already in progress. Please wait.',
+  missing_target_port_or_ip:   'Select a USB port or enter an IP address before flashing.',
+  unknown_board_profile:       'Unknown board profile. Select a board from the catalog and try again.',
+  validation_failed:           'Config validation failed. Check your board settings and try again.',
+  missing_python_venv_support: 'Python virtual environment support is missing on this host. Install the required system package and retry.',
+  esphome_not_configured:      'ESPHome is not configured for this device. Run the flash wizard first.',
+  device_not_found:            'Device not found. It may have been deleted or is not yet registered.',
+  io_not_found:                'IO not found. The device mapping may be out of date.',
+  forbidden:                   'You do not have permission to perform this action.',
+  not_authenticated:           'You are not logged in. Please refresh the page and log in.',
+};
+
+function humanEspError(keyOrMsg) {
+  if (!keyOrMsg) return 'An unexpected error occurred.';
+  var s = String(keyOrMsg);
+  return _espErrorMessages[s] || (s.length < 60 ? s : s.slice(0, 120) + '…');
+}
+
+// ── Flash failure categoriser ──────────────────────────────────────────────
+function classifyFlashFailure(logText) {
+  var t = String(logText || '').toLowerCase();
+  if (/permission denied/i.test(t))             return { icon: '🔒', hint: 'Permission denied on USB port. Add your user to the dialout group: sudo usermod -aG dialout $USER — then log out and back in.' };
+  if (/no such file|port.*not found|cannot open/i.test(t)) return { icon: '🔌', hint: 'USB port not found. Check the USB cable, try a different port, and make sure the board is plugged in.' };
+  if (/ota.*timeout|connection refused|connection timed out/i.test(t)) return { icon: '📡', hint: 'OTA/network timeout. Make sure the device is on the same network and try USB serial flash instead.' };
+  if (/no module named|importerror|pip.*error/i.test(t)) return { icon: '🐍', hint: 'Python dependency error. Try re-installing ESPHome using the Install button above.' };
+  if (/ensurepip|venv/i.test(t))                return { icon: '🐍', hint: 'Python venv issue. Install the required system package and re-run ESPHome setup.' };
+  if (/invalid yaml|yaml.*error|mapping.*error/i.test(t)) return { icon: '📄', hint: 'YAML configuration error. Review the generated YAML for syntax problems.' };
+  if (/esptool|failed to connect|wrong boot mode/i.test(t)) return { icon: '⚡', hint: 'Could not connect to the chip. Hold the BOOT button while flashing, or try a different USB cable.' };
+  return { icon: '⚠️', hint: 'Flash failed. Check the log above for details, or try again.' };
+}
 function pad2(n) { return String(n).padStart(2,'0'); }
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 

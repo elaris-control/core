@@ -1,7 +1,10 @@
 'use strict';
 
 const { safeName, normalizeIntegrationKey, normalizeOwnershipMode, normalizeConfigSource, normalizeReadOnly } = require('../../esphome/schema');
-const { toIsoNow } = require('../../esphome/helpers');
+
+function toIsoNow() {
+  return new Date().toISOString();
+}
 
 function parseSiteId(value) {
   var n = Number(value);
@@ -109,6 +112,21 @@ function findExistingDevice(db, payload) {
   return null;
 }
 
+function pruneNativePendingRows(db, deviceName, entities) {
+  if (!db || !deviceName) return 0;
+  var wanted = new Set((Array.isArray(entities) ? entities : []).map(function(entity) {
+    return String((entity && entity.group) || '').trim() + '::' + String((entity && entity.key) || '').trim();
+  }).filter(Boolean));
+  var stale = db.prepare('SELECT id, group_name, key FROM pending_io WHERE device_id=?').all(deviceName).filter(function(row) {
+    var token = String(row && row.group_name || '').trim() + '::' + String(row && row.key || '').trim();
+    return !wanted.has(token);
+  });
+  if (!stale.length) return 0;
+  var del = db.prepare('DELETE FROM pending_io WHERE id=?');
+  stale.forEach(function(row) { del.run(row.id); });
+  return stale.length;
+}
+
 function importNativeDeviceStep1(db, rawBody) {
   if (!db) throw new Error('no_db');
   var payload = normalizeNativeImportPayload(rawBody);
@@ -131,20 +149,20 @@ function importNativeDeviceStep1(db, rawBody) {
     INSERT INTO esphome_devices (
       site_id, name, friendly_name, board_profile_id, chip, framework, transport, network_mode, status,
       serial_port, mac_address, ip_address, hostname, mqtt_topic_root, firmware_version, yaml_path, yaml_hash,
-      last_validation_json, integration_key, ownership_mode, config_source, read_only,
+      last_validation_json, integration_key, ownership_mode, config_source, read_only, encryption_key,
       last_seen_at, created_at, updated_at, deleted_at, deleted_reason
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
   `);
   var updDevice = db.prepare(`
     UPDATE esphome_devices SET
       site_id=?, name=?, friendly_name=?, board_profile_id=?, chip=?, framework=?, transport=?, network_mode=?, status=?,
       serial_port=?, mac_address=?, ip_address=?, hostname=?, mqtt_topic_root=?, firmware_version=?, yaml_path=?, yaml_hash=?,
-      last_validation_json=?, integration_key=?, ownership_mode=?, config_source=?, read_only=?,
+      last_validation_json=?, integration_key=?, ownership_mode=?, config_source=?, read_only=?, encryption_key=?,
       last_seen_at=?, updated_at=?, deleted_at=NULL, deleted_reason=NULL
     WHERE id=?
   `);
 
-  var result = { ok: true, created: false, updated: false, device_id: payload.device_name, esphome_device_id: null, pending_injected: 0, blocked_skipped: 0, imported_entities: payload.entities.length };
+  var result = { ok: true, created: false, updated: false, device_id: payload.device_name, esphome_device_id: null, pending_injected: 0, blocked_skipped: 0, stale_pending_removed: 0, imported_entities: payload.entities.length };
 
   db.transaction(function() {
     var validationJson = JSON.stringify({
@@ -178,6 +196,7 @@ function importNativeDeviceStep1(db, rawBody) {
         payload.ownership_mode,
         payload.config_source,
         payload.read_only,
+        payload.encryption_key || existing.encryption_key || null,
         nowIso,
         nowIso,
         existing.id
@@ -208,6 +227,7 @@ function importNativeDeviceStep1(db, rawBody) {
         payload.ownership_mode,
         payload.config_source,
         payload.read_only,
+        payload.encryption_key || null,
         nowIso,
         nowIso,
         nowIso
@@ -217,6 +237,10 @@ function importNativeDeviceStep1(db, rawBody) {
     }
 
     ensureDeviceSite.run(payload.device_name, payload.site_id, nowTs);
+
+    if (payload.config_source === 'native_api') {
+      result.stale_pending_removed = pruneNativePendingRows(db, payload.device_name, payload.entities);
+    }
 
     payload.entities.forEach(function(entity) {
       if (isBlocked.get(payload.device_name, entity.group, entity.key)) {

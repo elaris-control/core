@@ -5,7 +5,10 @@ const { safeName } = require('../../esphome/schema');
 const { getCatalogProfile } = require('../../esphome/profile_registry');
 const { deriveBoardPorts } = require('../../esphome/board_port_registry');
 const { importNativeDeviceStep1 } = require('./native_import');
-const { toIsoNow } = require('../../esphome/helpers');
+
+function toIsoNow() {
+  return new Date().toISOString();
+}
 
 function parseSiteId(value, fallback) {
   var n = Number(value);
@@ -53,7 +56,7 @@ function buildNativeRuntimePayload(db, rawBody) {
   var hostname = String(body.hostname || existing?.hostname || '').trim();
   var apiHost = String(body.api_host || ipAddress || hostname || '').trim();
   var apiPort = normalizePort(body.api_port, existing && existing.transport === 'native_api' ? 6053 : 6053);
-  var encryptionKey = String(body.encryption_key || '').trim();
+  var encryptionKey = String(body.encryption_key || existing?.encryption_key || '').trim();
   return {
     existing: existing,
     site_id: siteId,
@@ -257,20 +260,24 @@ function discoverNativeAssist(db, rawBody) {
   var payload = buildNativeRuntimePayload(db, rawBody);
   var existing = payload.existing;
   var profileId = String(payload.board_profile_id || existing?.board_profile_id || '').trim();
+  var nativeSession = rawBody && rawBody.native_session && typeof rawBody.native_session === 'object' ? rawBody.native_session : null;
+  var live = Array.isArray(nativeSession && nativeSession.entities) ? nativeSession.entities.map(normalizeEntityRow).filter(function(row) { return !!row.key; }) : [];
   var stored = collectStoredEntities(existing);
   var assisted = buildEntitiesFromProfile(db, profileId);
-  var entities = mergeEntities(stored, assisted);
+  var entities = mergeEntities(live.concat(stored), assisted);
+  var discoveryMode = live.length ? 'live_session' : (assisted.length ? 'profile_assist' : (stored.length ? 'stored_only' : 'none'));
   return {
     ok: true,
-    device_id: payload.device_name || existing?.name || null,
+    device_id: payload.device_name || existing?.name || (nativeSession && nativeSession.device_name) || null,
     esphome_device_id: existing?.id || null,
-    board_profile_id: profileId || null,
-    discovery_mode: assisted.length ? 'profile_assist' : (stored.length ? 'stored_only' : 'none'),
+    board_profile_id: profileId || (nativeSession && nativeSession.board_profile_id) || null,
+    discovery_mode: discoveryMode,
+    live_count: live.length,
     stored_count: stored.length,
     assisted_count: assisted.length,
     entity_count: entities.length,
     entities: entities,
-    warnings: entities.length ? [] : ['No stored native entities or board-profile-assisted ports were available.'],
+    warnings: entities.length ? [] : ['No live native session entities, stored native entities, or board-profile-assisted ports were available.'],
   };
 }
 
@@ -292,9 +299,9 @@ function syncNativeAssist(db, rawBody) {
     api_port: payload.api_port || 6053,
     encryption_key: payload.encryption_key || '',
     mqtt_topic_root: payload.mqtt_topic_root || existing?.mqtt_topic_root || '',
-    ownership_mode: 'external_native',
-    config_source: 'native_api',
-    read_only: 1,
+    ownership_mode: rawBody && Object.prototype.hasOwnProperty.call(rawBody, 'ownership_mode') ? rawBody.ownership_mode : (existing?.ownership_mode || 'external_native'),
+    config_source: rawBody && Object.prototype.hasOwnProperty.call(rawBody, 'config_source') ? rawBody.config_source : (existing?.config_source || 'native_api'),
+    read_only: rawBody && Object.prototype.hasOwnProperty.call(rawBody, 'read_only') ? rawBody.read_only : (existing ? Number(existing.read_only || 0) : 1),
     entities: discovered.entities,
   });
 }

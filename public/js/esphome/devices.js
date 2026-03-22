@@ -201,6 +201,8 @@ function integrationPill(row) {
 function ownershipPill(row) {
   var mode = String((row && row.ownership_mode) || 'managed_internal').toLowerCase();
   var readOnly = Number((row && row.read_only) || 0) === 1;
+  var source = String((row && row.config_source) || '').toLowerCase();
+  if (source === 'native_api' && !readOnly) return summaryPill('Native import · managed', '#22d97a', 'rgba(34,217,122,.28)');
   if (mode === 'external_native') return summaryPill(readOnly ? 'External native · read-only' : 'External native', '#1d8cff', 'rgba(29,140,255,.28)');
   if (mode === 'external_readonly' || readOnly) return summaryPill('External read-only', '#f59e0b', 'rgba(245,158,11,.28)');
   return summaryPill('ELARIS managed', '#22d97a', 'rgba(34,217,122,.28)');
@@ -249,11 +251,12 @@ function showSelectedCardBanner(d) {
   if (!el) return;
   if (!d) { el.style.display = 'none'; el.innerHTML = ''; renderEspModeBanner(); return; }
   el.style.display = '';
+  var recommend = (!d.serial_port && (d.ip_address || d.target_ip)) ? 'Recommended path: OTA reflash.' : 'Recommended path: USB flash/recovery.';
   el.innerHTML = '<strong>Reflash target:</strong> ' + escHtml(d.friendly_name || d.name || ('Device #' + d.id))
     + ' &nbsp;•&nbsp; ' + escHtml(d.board_profile_id || '—')
     + ((d.ip_address || d.target_ip) ? ' &nbsp;•&nbsp; ' + escHtml(d.ip_address || d.target_ip) : '')
     + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">' + integrationPill(d) + ownershipPill(d) + configSourcePill(d) + '</div>'
-    + '<div style="margin-top:6px;font-size:11px">This wizard overwrites the generated YAML/config for the selected card. In this patch, the selected card is treated as the managed internal device path.</div>';
+    + '<div style="margin-top:6px;font-size:11px">' + escHtml(recommend) + ' This wizard overwrites the generated YAML/config for the selected card.</div>';
   renderEspModeBanner();
 }
 
@@ -293,9 +296,41 @@ function optimisticUpdateInstallerDevice(payload, jobId) {
   renderSavedPanel();
 }
 
+async function setInstallerDeviceManaged(id, managed) {
+  if (!id) return;
+  var actionLabel = managed ? 'adopt this native-imported card as managed' : 'switch this card back to read-only native import';
+  if (!confirm('Do you want to ' + actionLabel + '?')) return;
+  try {
+    await api('/esphome/devices/' + encodeURIComponent(id) + '/ownership', {
+      method: 'PATCH',
+      body: JSON.stringify({ managed: !!managed })
+    });
+    await loadInstallerDevices();
+    renderEspModeBanner();
+  } catch (e) {
+    alert('Ownership update failed: ' + e.message);
+  }
+}
+
+async function removeOrphanedIO(btn) {
+  var id = btn && btn.dataset && btn.dataset.deviceId;
+  if (!id) return;
+  btn.disabled = true;
+  btn.textContent = 'Removing…';
+  try {
+    var r = await api('/esphome/devices/' + encodeURIComponent(id) + '/stale-io', { method: 'DELETE' });
+    if (typeof toast === 'function') toast('Removed ' + (r.removed || 0) + ' orphaned IO' + ((r.removed || 0) !== 1 ? 's' : ''));
+    await loadInstallerDevices();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Remove';
+    if (typeof toast === 'function') toast('Error: ' + e.message, 'err');
+  }
+}
+
 async function forgetInstallerDevice(id) {
   if (!id) return;
-  var ok = confirm('Delete this ESPHome card from the registry? This forgets the card, generated YAML history and install jobs for that card.');
+  var ok = confirm('Purge this ESPHome card from the whole system? This deletes the card, IOs, pending/blocked rows, cached state, generated YAML/configs, jobs, related events, and clears retained MQTT topics for the device.');
   if (!ok) return;
   try {
     await api('/esphome/devices/' + encodeURIComponent(id), { method: 'DELETE' });
@@ -350,15 +385,6 @@ function isExternalNativeDevice(row) {
     || String((row && row.config_source) || '').toLowerCase() === 'native_api';
 }
 
-function setInstallerNativeStatus(id, html, isError) {
-  var card = document.querySelector('[data-installer-device-id="' + Number(id) + '"]');
-  if (!card) return;
-  var msg = card.querySelector('.native-msg');
-  if (!msg) return;
-  msg.style.color = isError ? 'var(--danger, #e55)' : 'var(--muted2)';
-  msg.innerHTML = html;
-}
-
 async function probeInstallerNative(id) {
   var d = installerDevices.find(function(x) { return Number(x.id) === Number(id); });
   if (!d) return;
@@ -366,11 +392,12 @@ async function probeInstallerNative(id) {
     var out = await api('/integrations/esphome/native-probe', { method: 'POST', body: JSON.stringify({ device_id: Number(d.id), device_name: d.name || '', ip_address: d.ip_address || d.target_ip || '', hostname: d.hostname || '' }) });
     await loadInstallerDevices();
     var latency = Number(out && out.probe && out.probe.latency_ms);
-    var ok = !!(out && out.reachable);
-    var text = ok ? ('Native probe OK' + (Number.isFinite(latency) ? (' · ' + latency + ' ms') : '')) : ('Native probe failed: ' + String(out && out.probe && out.probe.error || 'unknown'));
-    setInstallerNativeStatus(id, escHtml(text), !ok);
+    var text = out && out.reachable ? ('Native probe OK' + (Number.isFinite(latency) ? (' · ' + latency + ' ms') : '')) : ('Native probe failed: ' + String(out && out.probe && out.probe.error || 'unknown'));
+    if (typeof toast === 'function') toast(text);
+    else alert(text);
   } catch (e) {
-    setInstallerNativeStatus(id, escHtml('Native probe failed: ' + (e.message || e)), true);
+    if (typeof toast === 'function') toast('Native probe failed: ' + (e.message || e));
+    else alert('Native probe failed: ' + (e.message || e));
   }
 }
 
@@ -396,7 +423,8 @@ function renderSavedPanel() {
       else if (d.target_port) subtitle.push(d.target_port);
       if (d.hostname) subtitle.push(d.hostname);
       var title = d.friendly_name || d.name || ('Device #' + d.id);
-      return '<div data-installer-device-id="' + Number(d.id) + '" style="min-width:280px;display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)">' +
+      var staleCount = Number(d.stale_io_count || 0);
+      return '<div style="min-width:280px;display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)">' +
         '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">' +
           '<div style="min-width:0">' +
             '<div style="font-weight:800;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(title) + '</div>' +
@@ -404,17 +432,20 @@ function renderSavedPanel() {
           '</div>' +
           statusChip(d.status, d) +
         '</div>' +
+        (staleCount > 0 ? '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:6px">' +
+          '<span style="font-size:10px;color:#f59e0b;flex:1">⚠ ' + staleCount + ' orphaned IO' + (staleCount > 1 ? 's' : '') + ' — no longer reported by device after last reflash</span>' +
+          '<button type="button" class="btn" style="padding:2px 8px;font-size:10px;color:#f59e0b;border-color:rgba(245,158,11,.4)" data-device-id="' + Number(d.id) + '" onclick="removeOrphanedIO(this)">Remove</button>' +
+        '</div>' : '') +
         '<div style="display:flex;flex-direction:column;gap:6px">' +
           '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
             '<div style="font-size:10px;color:var(--muted2)">' + escHtml(formatInstallerSeenText(d)) + (d._mergedCount > 1 ? (' • merged ' + d._mergedCount + ' records') : '') + '</div>' +
             '<div style="display:flex;gap:6px;align-items:center">' +
               '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="loadDeviceRecord(' + Number(d.id) + ')">Use</button>' +
-              (isExternalNativeDevice(d) ? '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="probeInstallerNative(' + Number(d.id) + ')">Probe native</button><button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="connectInstallerNative(' + Number(d.id) + ')">Connect</button>' : '') +
-              '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="forgetInstallerDevice(' + Number(d.id) + ')">Delete</button>' +
+              (isExternalNativeDevice(d) ? '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="probeInstallerNative(' + Number(d.id) + ')">Probe native</button><button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="connectInstallerNative(' + Number(d.id) + ')">Connect</button><button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="setInstallerDeviceManaged(' + Number(d.id) + ',' + (Number(d.read_only || 0) === 1 ? 'true' : 'false') + ')">' + (Number(d.read_only || 0) === 1 ? 'Adopt' : 'Read-only') + '</button>' : '') +
+              '<button type="button" class="btn" style="padding:3px 8px;font-size:10px" onclick="forgetInstallerDevice(' + Number(d.id) + ')">Purge</button>' +
             '</div>' +
           '</div>' +
           (isExternalNativeDevice(d) ? ('<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' + nativeCardStatusHtml(d) + '<span style="font-size:10px;color:var(--muted2)">' + escHtml(nativeCardSubtext(d)) + '</span></div>') : '') +
-          '<div class="native-msg" style="font-size:10px;min-height:14px"></div>' +
         '</div>' +
       '</div>';
     }).join('');
@@ -518,9 +549,15 @@ async function connectInstallerNative(id) {
     await loadInstallerDevices();
     var session = out.session || {};
     try { if (typeof window.nativeImportLoadSession === 'function') window.nativeImportLoadSession(session); } catch (_) {}
-    var ok = String(session.state || '') !== 'error';
-    setInstallerNativeStatus(id, escHtml('Native session ' + String(session.state || 'connected') + ' · entities ' + String(session.entity_count || 0)), !ok);
+    var state = String(session.state || 'connected');
+    var encRequired = !!(session.requires_encryption || (session.device_info && session.device_info.encryption_required));
+    if (encRequired) {
+      if (typeof toast === 'function') toast('Device requires encryption key — enter it in the native import panel above.');
+    } else {
+      if (typeof toast === 'function') toast('Native ' + state + ' · ' + String(session.entity_count || 0) + ' entities');
+    }
   } catch (e) {
-    setInstallerNativeStatus(id, escHtml('Native connect failed: ' + (e.message || e)), true);
+    if (typeof toast === 'function') toast('Native connect failed: ' + (e.message || e));
+    else alert('Native connect failed: ' + (e.message || e));
   }
 }

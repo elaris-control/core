@@ -68,7 +68,7 @@ function initScenes(db) {
   const deleteSchedulesByScene = db.prepare(`DELETE FROM scene_schedules WHERE scene_id=?`);
 
   // ── Activate a scene ─────────────────────────────────────────────────────
-  async function activate(sceneId, { engine, mqttApi, notify, triggeredBy = "manual" } = {}) {
+  async function activate(sceneId, { engine, notify, triggeredBy = "manual" } = {}) {
     const scene = getScene.get(sceneId);
     if (!scene) throw new Error("scene_not_found");
 
@@ -85,8 +85,12 @@ function initScenes(db) {
           // { type, io_id, value }
           const io = db.prepare(`SELECT * FROM io WHERE id=?`).get(action.io_id);
           if (io) {
-            if (engine?.sendIOCommand) engine.sendIOCommand(io, action.value, { reason: `Scene: ${scene.name}` });
-            else if (mqttApi) mqttApi.sendCommand(io.device_id, io.key, action.value);
+            if (!engine?.sendIOCommand) throw new Error('engine_not_ready');
+            engine.sendIOCommand(io, action.value, {
+              reason: `Scene: ${scene.name}`,
+              source: 'scenes.activate',
+              sceneId,
+            });
           }
 
         } else if (action.type === "notify") {
@@ -115,7 +119,7 @@ function initScenes(db) {
   }
 
   let _lastScheduleMin = '';
-  function tickSchedules({ engine, mqttApi, notify } = {}) {
+  function tickSchedules({ engine, notify } = {}) {
     const now = new Date();
     const hhmm = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
     if (hhmm === _lastScheduleMin) return; // already fired this minute
@@ -127,7 +131,7 @@ function initScenes(db) {
       if (sch.time !== hhmm) continue;
       const days = String(sch.days || '1,2,3,4,5,6,7').split(',').map(Number);
       if (!days.includes(dow)) continue;
-      activate(sch.scene_id, { engine, mqttApi, notify, triggeredBy: 'schedule' })
+      activate(sch.scene_id, { engine, notify, triggeredBy: 'schedule' })
         .catch(e => console.error('[SCENES] Schedule trigger failed:', e.message));
     }
   }

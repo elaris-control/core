@@ -492,6 +492,366 @@ async function loadModuleInstances(){
   catch{ state._moduleInstances=[]; }
 }
 
+function pageAccentFromIcon(icon, pageType){
+  const raw=String(icon||'');
+  if(pageType==='system') return '#3ab8ff';
+  if(pageType==='area') return '#22d97a';
+  if(raw.includes('🌱')||raw.includes('🪴')||raw.includes('🌿')) return '#22d97a';
+  if(raw.includes('💧')||raw.includes('🌊')) return '#3ab8ff';
+  if(raw.includes('☀️')||raw.includes('⚡')) return '#f59e0b';
+  if(raw.includes('🔥')||raw.includes('♨️')) return '#ff6b35';
+  if(raw.includes('🛋')||raw.includes('🏠')||raw.includes('🏡')) return '#6366f1';
+  return '#8b5cf6';
+}
+
+function pageTypeLabel(pageType){
+  if(pageType==='area') return 'Area';
+  if(pageType==='system') return 'System';
+  return 'Custom';
+}
+
+function renderTrendBadge(label, tone){
+  const map={good:'#22d97a',info:'#3ab8ff',warn:'#f59e0b',neutral:'var(--muted2)'};
+  const color=map[tone]||map.neutral;
+  const bg=tone==='good'?'rgba(34,217,122,.10)':tone==='info'?'rgba(58,184,255,.10)':tone==='warn'?'rgba(245,158,11,.10)':'rgba(255,255,255,.05)';
+  const border=tone==='good'?'rgba(34,217,122,.24)':tone==='info'?'rgba(58,184,255,.24)':tone==='warn'?'rgba(245,158,11,.24)':'var(--line)';
+  return '<span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;border:1px solid '+border+';background:'+bg+';color:'+color+';font-size:10px;font-weight:800;line-height:1">'+escapeHTML(label)+'</span>';
+}
+
+function renderHealthBar(parts){
+  const safe=(Array.isArray(parts)?parts:[]).filter(Boolean);
+  if(!safe.length) return '';
+  const total=safe.reduce((n,p)=>n+Math.max(0,Number(p.value)||0),0) || 1;
+  return '<div style="display:flex;gap:4px;margin-top:6px">'+safe.map(p=>{
+    const width=Math.max(10,Math.round((Math.max(0,Number(p.value)||0)/total)*100));
+    return '<div title="'+escapeHTML((p.label||'')+' '+String(p.value||0))+'" style="height:6px;flex:'+width+' 1 0;border-radius:999px;background:'+(p.color||'var(--line2)')+';opacity:.95"></div>';
+  }).join('')+'</div>';
+}
+
+function renderMiniSparkline(values, color){
+  const pts=(Array.isArray(values)?values:[]).map(Number).filter(v=>Number.isFinite(v));
+  if(pts.length<2) return '';
+  const min=Math.min.apply(null,pts), max=Math.max.apply(null,pts), range=Math.max(max-min,1);
+  const W=64, H=18;
+  const poly=pts.map((v,i)=>{
+    const x=(i/(pts.length-1))*W;
+    const y=H-(((v-min)/range)*(H-4)+2);
+    return x.toFixed(1)+','+y.toFixed(1);
+  }).join(' ');
+  return '<svg viewBox="0 0 '+W+' '+H+'" width="64" height="18" style="display:block;overflow:visible"><polyline points="'+poly+'" fill="none" stroke="'+(color||'var(--blue)')+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
+function renderStatusMeter(value, max, color){
+  const safeMax=Math.max(1,Number(max)||1);
+  const safeVal=Math.min(safeMax,Math.max(0,Number(value)||0));
+  const pct=(safeVal/safeMax)*100;
+  return '<div style="margin-top:6px"><div style="height:7px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden;border:1px solid var(--line)"><div style="height:100%;width:'+pct.toFixed(1)+'%;background:'+(color||'var(--blue)')+';border-radius:999px"></div></div></div>';
+}
+
+function pickMappedIo(inst, keys){
+  const maps=Array.isArray(inst&&inst.mappings)?inst.mappings:[];
+  for(const key of (Array.isArray(keys)?keys:[])){
+    const row=maps.find(m=>String(m.input_key||'')===String(key) && m.io_id);
+    if(row&&row.io_id) return Number(row.io_id);
+  }
+  return null;
+}
+
+async function loadInstanceSparkline(inst){
+  const moduleId=String(inst&&inst.module_id||'');
+  try{
+    if(moduleId==='solar'){
+      const r=await api('/automation/solar/'+inst.id+'/history?hours=6');
+      const hist=r&&r.history||{};
+      if(Array.isArray(hist.temp_solar) && hist.temp_solar.length>=2) return hist.temp_solar.slice(-24).map(Number).filter(Number.isFinite);
+      if(Array.isArray(hist.temp_boiler) && hist.temp_boiler.length>=2) return hist.temp_boiler.slice(-24).map(Number).filter(Number.isFinite);
+    }
+    let ioId=null;
+    if(moduleId==='thermostat') ioId=pickMappedIo(inst,['temp_room','zone_1_temp']);
+    else if(moduleId==='energy') ioId=pickMappedIo(inst,['power_w','power','grid_power']);
+    else if(moduleId==='water_manager') ioId=pickMappedIo(inst,['flow_sensor','pressure_sensor','tank_level']);
+    else if(moduleId==='irrigation') ioId=pickMappedIo(inst,['flow_sensor','rain_sensor','soil_moisture_1']);
+    else if(moduleId==='lighting' || moduleId==='smart_lighting') ioId=pickMappedIo(inst,['light_1','relay','do_1']);
+    if(ioId){
+      const r=await api('/io/'+ioId+'/history?hours=24');
+      const pts=Array.isArray(r&&r.points)?r.points:[];
+      const vals=pts.map(p=>Number(p&&p.v)).filter(Number.isFinite);
+      if(vals.length>=2) return vals.slice(-24);
+    }
+  }catch{}
+  return [];
+}
+
+function buildFeaturedPageCard(page, liveModel){
+  const ids=JSON.parse(page.instances_json||'[]');
+  const accent=pageAccentFromIcon(page.icon, page.page_type);
+  const summary=liveModel&&liveModel.summary ? liveModel.summary : summarizePage(page);
+  const typeLabel=pageTypeLabel(page.page_type);
+  const tone=(liveModel&&liveModel.tone) || 'neutral';
+  const typeBadge=renderTrendBadge(typeLabel, tone);
+  const alertBadge=liveModel&&liveModel.alertCount ? renderTrendBadge(liveModel.alertCount+' alert'+(liveModel.alertCount!==1?'s':''), 'warn') : '';
+  const metricValue=liveModel&&liveModel.metrics&&liveModel.metrics.length ? liveModel.metrics[0] : ids.length;
+  const metricText=Number.isFinite(metricValue) ? (metricValue>999 ? Math.round(metricValue).toString() : metricValue.toFixed(metricValue<10?1:0)) : String(ids.length);
+  const metricLabel=liveModel&&liveModel.metricLabel ? liveModel.metricLabel : 'Modules';
+  let sparkValues=(liveModel&&Array.isArray(liveModel.sparkline)&&liveModel.sparkline.length>=2) ? liveModel.sparkline.slice(-24) : (liveModel&&liveModel.metrics&&liveModel.metrics.length>1 ? liveModel.metrics.slice(-24) : []);
+  while(sparkValues.length>=2 && sparkValues.length<6) sparkValues.push(sparkValues[sparkValues.length-1]);
+  const spark=sparkValues.length>=2 ? renderMiniSparkline(sparkValues, accent) : '';
+  const meter=renderStatusMeter(metricValue, Math.max(1, ...(liveModel&&liveModel.metrics&&liveModel.metrics.length?liveModel.metrics:[metricValue,1])), accent);
+  const foot=(liveModel&&liveModel.alerts&&liveModel.alerts.length) ? liveModel.alerts[0] : (ids.length+' module'+(ids.length!==1?'s':''));
+  return '<a class="hero-page-card" href="/page.html?id='+page.id+'" style="--hero-accent:'+accent+'">'+
+    '<div class="hero-page-top">'+
+      '<div style="display:flex;align-items:center;gap:12px;min-width:0"><div class="hero-page-icon">'+escapeHTML(page.icon||'📄')+'</div><div style="min-width:0"><div class="hero-page-title">'+escapeHTML(page.name)+'</div><div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+typeBadge+alertBadge+'</div></div></div>'+
+      '<div style="color:var(--muted)">&rsaquo;</div>'+
+    '</div>'+
+    '<div class="hero-page-summary">'+escapeHTML(summary)+'</div>'+
+    '<div class="hero-page-mid">'+
+      '<div><div class="hero-page-kpi">'+escapeHTML(metricText)+'</div><div class="hero-page-kpi-sub">'+escapeHTML(metricLabel)+'</div></div>'+
+      '<div>'+spark+'</div>'+
+    '</div>'+
+    '<div class="hero-page-foot">'+meter+'<div class="hero-page-meta"><span>'+escapeHTML(foot)+'</span><span>'+escapeHTML(typeLabel)+'</span></div></div>'+
+  '</a>';
+}
+
+function buildPageCard(page, liveModel){
+  const ids=JSON.parse(page.instances_json||'[]');
+  const instances=getPageInstances(page);
+  const accent=pageAccentFromIcon(page.icon, page.page_type);
+  const summary=liveModel&&liveModel.summary ? liveModel.summary : summarizePage(page);
+  const typeLabel=pageTypeLabel(page.page_type);
+  const tones={area:'good',system:'info',custom:'neutral'};
+  const typeBadge=renderTrendBadge(typeLabel, liveModel&&liveModel.tone ? liveModel.tone : (tones[page.page_type]||'neutral'));
+  const alertBadge=liveModel&&liveModel.alertCount ? renderTrendBadge(liveModel.alertCount+' alert'+(liveModel.alertCount!==1?'s':''), 'warn') : '';
+  const healthBar=renderHealthBar([
+    {label:'Modules', value:ids.length||1, color:accent},
+    {label:'Primary', value:Math.max(1, Math.ceil((instances.length||1)/2)), color:'rgba(255,255,255,.18)'}
+  ]);
+  const meterValue=liveModel&&liveModel.metrics&&liveModel.metrics.length ? liveModel.metrics[0] : ids.length;
+  const meterMax=liveModel&&liveModel.metrics&&liveModel.metrics.length ? Math.max.apply(null, liveModel.metrics.concat([meterValue,1])) : Math.max(4, ids.length);
+  const meter=renderStatusMeter(meterValue, meterMax, accent);
+  let sparkValues=(liveModel&&Array.isArray(liveModel.sparkline)&&liveModel.sparkline.length>=2)
+    ? liveModel.sparkline.slice(-24)
+    : (liveModel&&liveModel.metrics&&liveModel.metrics.length>1 ? liveModel.metrics.slice(-24) : instances.map(inst=>String(inst.module_id||'').length + (Number(inst.id)||0)%7).slice(0,6));
+  while(sparkValues.length<6) sparkValues.push((sparkValues[sparkValues.length-1]||2)+1);
+  const spark=renderMiniSparkline(sparkValues, accent);
+  const mainMetric=Number.isFinite(meterValue) ? (meterValue>999 ? Math.round(meterValue).toString() : meterValue.toFixed(meterValue<10?1:0)) : String(ids.length);
+  const metricLabel=liveModel&&liveModel.metricLabel ? liveModel.metricLabel : 'Modules';
+  const footerAlert=liveModel&&liveModel.alerts&&liveModel.alerts.length ? escapeHTML(liveModel.alerts[0]) : (ids.length+' module'+(ids.length!==1?'s':''));
+  return '<a class="sum-card page-card" href="/page.html?id='+page.id+'" style="border-left:3px solid '+accent+'66">'+
+    '<span class="sum-icon">'+escapeHTML(page.icon||'📄')+'</span>'+
+    '<span class="sum-info">'+
+      '<div class="sum-top">'+
+        '<div class="sum-name">'+escapeHTML(page.name)+'</div>'+
+        '<div class="sum-top-right">'+typeBadge+alertBadge+'</div>'+
+      '</div>'+
+      '<div class="sum-summary">'+escapeHTML(summary)+'</div>'+
+      '<div class="sum-meta">'+
+        '<div><div class="sum-kpi">'+escapeHTML(mainMetric)+'</div><div class="sum-kpi-sub">'+escapeHTML(metricLabel)+'</div></div>'+
+        '<div>'+spark+'</div>'+
+      '</div>'+
+      '<div class="sum-foot">'+
+        meter+
+        healthBar+
+        '<div class="sum-status" style="margin-top:7px;font-size:10px;color:'+(liveModel&&liveModel.alertCount?'var(--warn)':'var(--muted)')+'">'+footerAlert+'</div>'+
+      '</div>'+
+    '</span>'+
+    '<span style="color:var(--muted);margin-top:2px">&rsaquo;</span>'+
+  '</a>';
+}
+
+async function loadPinnedPagesWidget(){
+  const grid=$('pinnedPagesGrid'); const hero=$('featuredPagesHero'); if(!grid) return;
+  try{
+    const d=await fetch('/api/nav/pages').then(r=>r.json()).catch(()=>({pages:[]}));
+    const pages=(d.pages||[]).filter(p=>!p.system && Number(p.pinned_home!=null?p.pinned_home:1)===1);
+    if(!pages.length){
+      const empty=canEngineerUI()
+        ? '<div style="color:var(--muted);font-size:12px;grid-column:1/-1">No custom pages yet. <a href="/?newPage=1" style="color:var(--blue)">Create your first page &rarr;</a></div>'
+        : '<div style="color:var(--muted);font-size:12px;grid-column:1/-1">No custom pages available yet.</div>';
+      if(hero) hero.innerHTML='<div class="sum-card page-card" style="grid-column:1/-1;min-height:120px;border-style:dashed;cursor:default"><span class="sum-icon">✨</span><span class="sum-info"><div class="sum-name">Build your homepage around custom pages</div><div class="sum-summary">Create spaces like Living Room, Garden, Machine Room, or any custom system page. Then pin and feature them here.</div><div class="sum-status" style="margin-top:8px;font-size:10px;color:var(--muted)">'+empty+'</div></span></div>';
+      grid.innerHTML='';
+      return;
+    }
+    const models=await Promise.all(pages.map(async page=>({ page, live: await summarizePageLive(page) })));
+    const featuredExplicit=models.filter(x=>Number(x.page.featured_home!=null?x.page.featured_home:0)===1)
+      .sort((a,b)=>Number(a.page.hero_order||0)-Number(b.page.hero_order||0) || Number(a.page.sort_order||0)-Number(b.page.sort_order||0));
+    const featuredFallback=models.filter(x=>Number(x.page.featured_home!=null?x.page.featured_home:0)!==1)
+      .sort((a,b)=>Number(a.page.sort_order||0)-Number(b.page.sort_order||0));
+    const featured=[...featuredExplicit, ...featuredFallback].slice(0,2);
+    const featuredIds=new Set(featured.map(x=>Number(x.page.id)));
+    const rest=models.filter(x=>!featuredIds.has(Number(x.page.id)));
+    if(hero) hero.innerHTML=featured.map(x=>buildFeaturedPageCard(x.page, x.live)).join('');
+    grid.innerHTML=rest.length ? rest.map(x=>buildPageCard(x.page, x.live)).join('') : '<div class="sum-card page-card" style="grid-column:1/-1;min-height:112px;border-style:dashed;cursor:default"><span class="sum-icon">🧩</span><span class="sum-info"><div class="sum-name">Feature more pages</div><div class="sum-summary">Your hero cards are set. Pin more pages to build out the secondary grid with supporting spaces and systems.</div><div class="sum-status" style="margin-top:8px;font-size:10px;color:var(--muted)">Add more pinned pages to fill the grid.</div></span></div>';
+  }catch{
+    if(hero) hero.innerHTML='';
+    grid.innerHTML='<div style="color:var(--muted);font-size:12px">Error loading pages</div>';
+  }
+}
+
+const MODULE_META=[
+  {id:'solar',            icon:'☀️', label:'Solar',           color:'#ff9a3a'},
+  {id:'thermostat',       icon:'🌡️', label:'Heating',         color:'#1d8cff'},
+  {id:'lighting',         icon:'💡', label:'Lighting',        color:'#f5c842'},
+  {id:'smart_lighting',   icon:'✨', label:'Smart Lighting',  color:'#f0c040'},
+  {id:'energy',           icon:'⚡', label:'Energy',          color:'#f59e0b'},
+  {id:'custom',           icon:'⚙️', label:'Automation',      color:'#a855f7'},
+  {id:'awning',           icon:'🪟', label:'Shutters',        color:'#22d97a'},
+  {id:'irrigation',       icon:'🌱', label:'Irrigation',      color:'#22d97a'},
+  {id:'pool_spa',         icon:'🏊', label:'Pool & Spa',      color:'#06b6d4'},
+  {id:'water_manager',    icon:'💧', label:'Water',           color:'#3ab8ff'},
+  {id:'hydronic_manager', icon:'♨️', label:'Hydronic',        color:'#ff6b35'},
+  {id:'load_shifter',     icon:'🔋', label:'Load Shifter',    color:'#a855f7'},
+  {id:'maintenance',      icon:'🔧', label:'Maintenance',     color:'#64748b'},
+  {id:'presence_simulator', icon:'👤', label:'Presence',      color:'#6366f1'},
+];
+const MODULE_META_BY_ID=Object.fromEntries(MODULE_META.map(m=>[m.id,m]));
+
+function getPageInstances(page){
+  const ids=new Set(JSON.parse(page.instances_json||'[]').map(Number));
+  return (state._moduleInstances||[]).filter(inst=>ids.has(Number(inst.id)));
+}
+
+function getPageTypePreset(pageType){
+  if(pageType==='area') return { summary_mode:'compact', tone_source:'primary', metrics_source:'primary' };
+  if(pageType==='system') return { summary_mode:'detailed', tone_source:'primary', metrics_source:'secondary' };
+  return { summary_mode:'auto', tone_source:'auto', metrics_source:'auto' };
+}
+
+function getPageSummaryConfig(page){
+  const base=getPageTypePreset(page&&page.page_type);
+  if(page&&page.summaryConfig&&typeof page.summaryConfig==='object') return Object.assign({}, base, page.summaryConfig);
+  try{ return Object.assign({}, base, JSON.parse(page&&page.summary_config||'{}')||{}); }catch{ return base; }
+}
+
+function summarizePage(page){
+  const instances=getPageInstances(page);
+  if(!instances.length) return 'No modules';
+  const typeCounts=new Map();
+  instances.forEach(inst=>{
+    const key=String(inst.module_id||'custom');
+    typeCounts.set(key,(typeCounts.get(key)||0)+1);
+  });
+  const topTypes=[...typeCounts.entries()]
+    .sort((a,b)=>b[1]-a[1])
+    .slice(0,2)
+    .map(([id,count])=>{
+      const meta=MODULE_META_BY_ID[id];
+      const label=meta?meta.label:id;
+      return count>1 ? label+' ×'+count : label;
+    });
+  if(page.page_type==='area'){
+    const names=instances.map(inst=>String(inst.name||'').trim()).filter(Boolean).slice(0,2);
+    if(names.length) return names.join(' · ');
+  }
+  if(page.page_type==='system') return topTypes.join(' · ');
+  return topTypes.join(' · ');
+}
+
+function extractLiveNumber(obj, keys){
+  for(const key of (Array.isArray(keys)?keys:[])){
+    const val=obj&&obj[key];
+    const num=parseFloat(val);
+    if(Number.isFinite(num)) return num;
+  }
+  return null;
+}
+
+function summarizeInstanceLive(inst, live){
+  const moduleId=String(inst.module_id||'');
+  const vals=live&&live.values||{};
+  const state=live&&live.state||live&&live.live||{};
+  const settings=live&&live.settings||{};
+  if(moduleId==='thermostat'){
+    const room=extractLiveNumber(vals,['temp_room','zone_1_temp']);
+    const sp=extractLiveNumber(settings,['setpoint']);
+    if(room!=null && sp!=null) return { text:'Climate '+room.toFixed(1)+'° / '+sp.toFixed(1)+'°', tone:'info', metric:room, metricLabel:'Temperature', badgeLabel:'Climate' };
+    if(room!=null) return { text:'Climate '+room.toFixed(1)+'°', tone:'info', metric:room, metricLabel:'Temperature', badgeLabel:'Climate' };
+  }
+  if(moduleId==='irrigation'){
+    const status=String(state.status||state.phase||'idle').toLowerCase();
+    const running=status==='running';
+    return { text:running?'Irrigation running':'Irrigation '+status, tone:running?'good':'neutral', metric:running?2:1, metricLabel:'Zone activity', badgeLabel:running?'Running':'Idle', alert:running?null:null };
+  }
+  if(moduleId==='water_manager'){
+    const alarm=String(state.status||'').toLowerCase()==='alarm' || !!state.alarm;
+    return { text:alarm?'Water alarm':'Water safe', tone:alarm?'warn':'good', metric:alarm?3:1, metricLabel:'Water state', badgeLabel:alarm?'Alert':'Safe', alert:alarm?'Water alarm':null };
+  }
+  if(moduleId==='solar'){
+    const solar=extractLiveNumber(live,['tempSolar','temp_solar']);
+    const boiler=extractLiveNumber(live,['tempBoiler','temp_boiler']);
+    if(solar!=null && boiler!=null) return { text:'Solar Δ '+(solar-boiler).toFixed(1)+'°', tone:'info', metric:solar, metricLabel:'Collector temp', badgeLabel:'Solar Δ' };
+  }
+  if(moduleId==='energy'){
+    const power=extractLiveNumber(vals,['power_now','power','grid_power']);
+    if(power!=null) return { text:'Energy '+power.toFixed(0)+'W', tone:'info', metric:power, metricLabel:'Power', badgeLabel:'Live draw' };
+  }
+  if(moduleId==='lighting' || moduleId==='smart_lighting'){
+    return { text:'Lighting ready', tone:'good', metric:1, metricLabel:'Light groups', badgeLabel:'Ready' };
+  }
+  const meta=MODULE_META_BY_ID[moduleId];
+  return { text:(meta?meta.label:inst.module_id)+' active', tone:'neutral', metric:1, metricLabel:meta?meta.label:'Modules', badgeLabel:'Active' };
+}
+
+async function summarizePageLive(page){
+  const cfg=getPageSummaryConfig(page);
+  const allInstances=getPageInstances(page);
+  let instances=allInstances.slice(0,3);
+  const byId=new Map(allInstances.map(inst=>[Number(inst.id),inst]));
+  const prioritized=[cfg.primary_instance_id,cfg.secondary_instance_id].map(v=>Number(v)).filter(Boolean).map(id=>byId.get(id)).filter(Boolean);
+  if(prioritized.length){
+    const seen=new Set(prioritized.map(inst=>Number(inst.id)));
+    instances=[...prioritized,...allInstances.filter(inst=>!seen.has(Number(inst.id)))].slice(0,3);
+  }
+  if(!instances.length) return { summary:summarizePage(page), tone:'neutral', metrics:[], sparkline:[] };
+  const rows=await Promise.all(instances.map(async inst=>{
+    try{
+      const live=await api('/automation/status/'+inst.id);
+      const sparkline=await loadInstanceSparkline(inst);
+      return Object.assign({ instanceId:Number(inst.id), sparkline }, summarizeInstanceLive(inst, live));
+    }catch{
+      return null;
+    }
+  }));
+  const safe=rows.filter(Boolean);
+  if(!safe.length) return { summary:summarizePage(page), tone:'neutral', metrics:[], sparkline:[] };
+  const primary=safe.find(r=>r.instanceId===Number(cfg.primary_instance_id)) || safe[0] || null;
+  const secondary=safe.find(r=>r.instanceId===Number(cfg.secondary_instance_id)) || safe[1] || null;
+  let summary='';
+  if(cfg.summary_mode==='compact'){
+    summary=(primary&&primary.text) || safe[0].text;
+  } else if(cfg.summary_mode==='detailed'){
+    summary=safe.map(r=>r.text).slice(0,3).join(' · ');
+  } else {
+    summary=safe.map(r=>r.text).slice(0,2).join(' · ');
+  }
+  let tone='info';
+  if(cfg.tone_source==='primary' && primary) tone=primary.tone||'info';
+  else if(cfg.tone_source==='secondary' && secondary) tone=secondary.tone||'info';
+  else tone=safe.some(r=>r.tone==='warn')?'warn':(safe.some(r=>r.tone==='good')?'good':'info');
+  let metrics=[];
+  let metricLabel='Modules';
+  let badgeLabel='Status';
+  if(cfg.metrics_source==='primary' && primary && Number.isFinite(primary.metric)) {
+    metrics=[primary.metric];
+    metricLabel=primary.metricLabel||metricLabel;
+    badgeLabel=primary.badgeLabel||badgeLabel;
+  }
+  else if(cfg.metrics_source==='secondary' && secondary && Number.isFinite(secondary.metric)) {
+    metrics=[secondary.metric];
+    metricLabel=secondary.metricLabel||metricLabel;
+    badgeLabel=secondary.badgeLabel||badgeLabel;
+  }
+  else {
+    metrics=safe.map(r=>r.metric).filter(v=>Number.isFinite(v)).slice(0,6);
+    metricLabel=(primary&&primary.metricLabel) || (secondary&&secondary.metricLabel) || metricLabel;
+    badgeLabel=(primary&&primary.badgeLabel) || (secondary&&secondary.badgeLabel) || badgeLabel;
+  }
+  const alerts=safe.map(r=>r.alert).filter(Boolean);
+  const sparklineRow=(cfg.metrics_source==='primary' && primary && Array.isArray(primary.sparkline) && primary.sparkline.length>=2) ? primary.sparkline
+    : (cfg.metrics_source==='secondary' && secondary && Array.isArray(secondary.sparkline) && secondary.sparkline.length>=2) ? secondary.sparkline
+    : ((primary && Array.isArray(primary.sparkline) && primary.sparkline.length>=2) ? primary.sparkline : ((secondary && Array.isArray(secondary.sparkline) && secondary.sparkline.length>=2) ? secondary.sparkline : []));
+  return { summary, tone, metrics, metricLabel, badgeLabel, alerts, alertCount: alerts.length, sparkline: sparklineRow };
+}
+
 // Summary cards
 async function loadSummaryCards(){
   const grid=$('summaryGrid'); if(!grid) return;
@@ -499,22 +859,7 @@ async function loadSummaryCards(){
     const [navD]=await Promise.all([fetch('/api/nav/pages').then(r=>r.json()).catch(()=>({pages:[]}))]);
     const pages=(navD.pages||[]).filter(p=>!p.system);
     const instances=state._moduleInstances||[];
-    const MG=[
-      {id:'solar',            icon:'☀️', label:'Solar',           color:'#ff9a3a'},
-      {id:'thermostat',       icon:'🌡️', label:'Heating',         color:'#1d8cff'},
-      {id:'lighting',         icon:'💡', label:'Lighting',        color:'#f5c842'},
-      {id:'smart_lighting',   icon:'✨', label:'Smart Lighting',  color:'#f0c040'},
-      {id:'energy',           icon:'⚡', label:'Energy',          color:'#f59e0b'},
-      {id:'custom',           icon:'⚙️', label:'Automation',      color:'#a855f7'},
-      {id:'awning',           icon:'🪟', label:'Shutters',        color:'#22d97a'},
-      {id:'irrigation',       icon:'🌱', label:'Irrigation',      color:'#22d97a'},
-      {id:'pool_spa',         icon:'🏊', label:'Pool & Spa',      color:'#06b6d4'},
-      {id:'water_manager',    icon:'💧', label:'Water',           color:'#3ab8ff'},
-      {id:'hydronic_manager', icon:'♨️', label:'Hydronic',        color:'#ff6b35'},
-      {id:'load_shifter',     icon:'🔋', label:'Load Shifter',    color:'#a855f7'},
-      {id:'maintenance',      icon:'🔧', label:'Maintenance',     color:'#64748b'},
-      {id:'presence_simulator', icon:'👤', label:'Presence',      color:'#6366f1'},
-    ];
+    const MG=MODULE_META;
     let cards='';
     for(const mg of MG){
       const insts=instances.filter(i=>i.module_id===mg.id); if(!insts.length) continue;
@@ -523,10 +868,7 @@ async function loadSummaryCards(){
       cards+='<div class="sum-status">'+insts.length+' instance'+(insts.length!==1?'s':'')+'</div></span><span style="color:var(--muted);">&rsaquo;</span></a>';
     }
     for(const page of pages){
-      const ids=JSON.parse(page.instances_json||'[]');
-      cards+='<a class="sum-card" href="/page.html?id='+page.id+'" style="border-left:3px solid rgba(99,102,241,.3)">';
-      cards+='<span class="sum-icon">'+escapeHTML(page.icon||'\ud83d\udcc4')+'</span><span class="sum-info"><div class="sum-name">'+escapeHTML(page.name)+'</div>';
-      cards+='<div class="sum-status">'+ids.length+' module'+(ids.length!==1?'s':'')+'</div></span><span style="color:var(--muted);">&rsaquo;</span></a>';
+      cards+=buildPageCard(page);
     }
     grid.innerHTML=cards||(canEngineerUI() ? '<div style="color:var(--muted);font-size:12px;grid-column:1/-1">No modules. <a href="/modules.html" style="color:var(--blue)">Add modules &rarr;</a></div>' : '<div style="color:var(--muted);font-size:12px;grid-column:1/-1">No modules yet.</div>');
   }catch{ grid.innerHTML='<div style="color:var(--muted);font-size:12px">Error</div>'; }
@@ -599,30 +941,57 @@ async function loadPmPages(){
   if(!custom.length){ el.innerHTML='<div style="color:var(--muted);font-size:12px">No custom pages yet.</div>'; return; }
   el.innerHTML=custom.map(p=>{
     const cnt=JSON.parse(p.instances_json||'[]').length;
-    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)">'+
-      '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:18px">'+escapeHTML(p.icon||'\ud83d\udcc4')+'</span>'+
-      '<div><div style="font-weight:800;font-size:13px">'+escapeHTML(p.name)+'</div><div style="font-size:11px;color:var(--muted)">'+escapeHTML(String(cnt))+' modules</div></div></div>'+
-      '<div style="display:flex;gap:6px">'+
+    const typeLabel=pageTypeLabel(p.page_type);
+    const homeLabel=Number(p.pinned_home!=null?p.pinned_home:1)===1?'Homepage':'Hidden';
+    const featureLabel=Number(p.featured_home!=null?p.featured_home:0)===1?('Hero #'+Number(p.hero_order||0)):'Grid';
+    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)">'+
+      '<div style="display:flex;align-items:flex-start;gap:10px;min-width:0"><span style="font-size:19px;line-height:1.2">'+escapeHTML(p.icon||'\ud83d\udcc4')+'</span>'+
+      '<div style="min-width:0"><div style="font-weight:900;font-size:13px">'+escapeHTML(p.name)+'</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'+
+      renderTrendBadge(typeLabel, p.page_type==='system'?'info':(p.page_type==='area'?'good':'neutral'))+
+      renderTrendBadge(homeLabel, Number(p.pinned_home!=null?p.pinned_home:1)===1?'info':'neutral')+
+      (Number(p.featured_home!=null?p.featured_home:0)===1 ? renderTrendBadge(featureLabel,'warn') : renderTrendBadge(featureLabel,'neutral'))+
+      '</div><div style="font-size:11px;color:var(--muted);margin-top:7px">'+escapeHTML(String(cnt))+' modules</div></div></div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">'+
       '<a href="/page.html?id='+p.id+'" class="btn" style="padding:4px 10px;font-size:11px;text-decoration:none">Open</a>'+
       '<button class="btn" style="padding:4px 10px;font-size:11px" onclick="openPageEditor('+p.id+')">Edit</button>'+
-      '<button class="btn" style="padding:4px 10px;font-size:11px;background:rgba(255,69,69,.1);border-color:rgba(255,69,69,.3);color:var(--bad)" onclick="deletePage('+p.id+')">Del</button>'+
+      '<button class="btn" style="padding:4px 10px;font-size:11px;background:rgba(255,69,69,.1);border-color:rgba(255,69,69,.3);color:var(--bad)" onclick="deletePage('+p.id+')">Delete</button>'+
       '</div></div>';
   }).join('');
 }
 
 let _peEditId=null;
+function fillPageSummarySelectors(instances, selectedIds, summaryCfg){
+  const primary=$('pe_summary_primary'), secondary=$('pe_summary_secondary');
+  if(!primary || !secondary) return;
+  const chosen=new Set((selectedIds||[]).map(Number));
+  const options=(instances||[]).filter(inst=>chosen.has(Number(inst.id)));
+  const build=(selected)=>'<option value="">Auto</option>'+options.map(inst=>'<option value="'+inst.id+'" '+(Number(selected)===Number(inst.id)?'selected':'')+'>'+escapeHTML(inst.name||('Instance #'+inst.id))+' · '+escapeHTML(inst.module_id||'module')+'</option>').join('');
+  primary.innerHTML=build(summaryCfg&&summaryCfg.primary_instance_id);
+  secondary.innerHTML=build(summaryCfg&&summaryCfg.secondary_instance_id);
+  $('pe_summary_mode').value=(summaryCfg&&summaryCfg.summary_mode)||'auto';
+  $('pe_tone_source').value=(summaryCfg&&summaryCfg.tone_source)||'auto';
+  $('pe_metrics_source').value=(summaryCfg&&summaryCfg.metrics_source)||'auto';
+}
+
+function applyPageTypePresetToEditor(pageType, force){
+  const preset=getPageTypePreset(pageType);
+  if(force || $('pe_summary_mode').value==='auto') $('pe_summary_mode').value=preset.summary_mode;
+  if(force || $('pe_tone_source').value==='auto') $('pe_tone_source').value=preset.tone_source;
+  if(force || $('pe_metrics_source').value==='auto') $('pe_metrics_source').value=preset.metrics_source;
+}
+
 async function openPageEditor(editId){
   if(!canEngineerUI()) return toast('Engineer access required');
   _peEditId=editId; $('peTitle').textContent=editId?'Edit Page':'New Page';
-  $('pe_icon').value=''; $('pe_name').value='';
+  $('pe_icon').value=''; $('pe_name').value=''; $('pe_type').value='custom'; $('pe_pinned_home').checked=true; $('pe_featured_home').checked=false; $('pe_hero_order').value='0'; $('pe_summary_primary').innerHTML='<option value="">Auto</option>'; $('pe_summary_secondary').innerHTML='<option value="">Auto</option>'; $('pe_summary_mode').value='auto'; $('pe_tone_source').value='auto'; $('pe_metrics_source').value='auto';
   await loadModuleInstances();
   const instances=state._moduleInstances||[];
   const MI={solar:'\u2600\ufe0f',thermostat:'\ud83c\udf21\ufe0f',lighting:'\ud83d\udca1',energy:'\u26a1',custom:'\u2699\ufe0f',awning:'\ud83e\ude9f'};
-  let selectedIds=[];
+  let selectedIds=[]; let summaryCfg={};
   if(editId){
     const d=await fetch('/api/nav/pages').then(r=>r.json()).catch(()=>({pages:[]}));
     const pg=(d.pages||[]).find(p=>p.id===editId);
-    if(pg){ $('pe_icon').value=pg.icon||''; $('pe_name').value=pg.name||''; selectedIds=JSON.parse(pg.instances_json||'[]'); }
+    if(pg){ $('pe_icon').value=pg.icon||''; $('pe_name').value=pg.name||''; $('pe_type').value=pg.page_type||'custom'; $('pe_pinned_home').checked=Number(pg.pinned_home!=null?pg.pinned_home:1)===1; $('pe_featured_home').checked=Number(pg.featured_home!=null?pg.featured_home:0)===1; $('pe_hero_order').value=String(Number(pg.hero_order||0)); selectedIds=JSON.parse(pg.instances_json||'[]'); summaryCfg=getPageSummaryConfig(pg); }
   }
   const el=$('pe_instances'); if(!el) return;
   if(!instances.length){ el.innerHTML='<div style="color:var(--muted);font-size:12px">No modules yet. <a href="/modules.html" style="color:var(--blue)">Add modules</a></div>'; }
@@ -635,6 +1004,19 @@ async function openPageEditor(editId){
         '<div style="font-weight:800;font-size:13px">'+escapeHTML(inst.name||'Instance #'+inst.id)+'</div>'+
         '<div style="font-size:11px;color:var(--muted)">'+escapeHTML(inst.module_id)+'</div></span></label>';
     }).join('');
+    fillPageSummarySelectors(instances, selectedIds, summaryCfg);
+    if(!_peEditId) applyPageTypePresetToEditor($('pe_type').value, true);
+    $('pe_type').onchange=()=>applyPageTypePresetToEditor($('pe_type').value, !_peEditId);
+    document.querySelectorAll('#pe_instances input[type="checkbox"]').forEach(cb=>cb.addEventListener('change',()=>{
+      const ids=Array.from(document.querySelectorAll('#pe_instances input:checked')).map(c=>Number(c.value));
+      fillPageSummarySelectors(instances, ids, {
+        primary_instance_id: $('pe_summary_primary').value || null,
+        secondary_instance_id: $('pe_summary_secondary').value || null,
+        summary_mode: $('pe_summary_mode').value || 'auto',
+        tone_source: $('pe_tone_source').value || 'auto',
+        metrics_source: $('pe_metrics_source').value || 'auto'
+      });
+    }));
   }
   $('pageEditorModal').style.display='flex';
 }
@@ -642,20 +1024,31 @@ function closePageEditor(){ $('pageEditorModal').style.display='none'; }
 async function savePage(){
   if(!canEngineerUI()) return toast('Engineer access required');
   const name=$('pe_name').value.trim(); const icon=$('pe_icon').value.trim()||'\ud83d\udcc4';
+  const page_type=$('pe_type').value||'custom';
+  const pinned_home=$('pe_pinned_home').checked?1:0;
+  const featured_home=$('pe_featured_home').checked?1:0;
+  const hero_order=Number($('pe_hero_order').value||0);
   if(!name){ toast('Enter a name'); return; }
   const ids=Array.from(document.querySelectorAll('#pe_instances input:checked')).map(c=>Number(c.value));
+  const summary_config={
+    primary_instance_id: $('pe_summary_primary').value ? Number($('pe_summary_primary').value) : null,
+    secondary_instance_id: $('pe_summary_secondary').value ? Number($('pe_summary_secondary').value) : null,
+    summary_mode: $('pe_summary_mode').value || 'auto',
+    tone_source: $('pe_tone_source').value || 'auto',
+    metrics_source: $('pe_metrics_source').value || 'auto'
+  };
   try{
     const url='/api/nav/pages'+(_peEditId?'/'+_peEditId:'');
     const method=_peEditId?'PUT':'POST';
-    await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify({name,icon,instances:ids})});
-    closePageEditor(); closePageManager(); await loadNavPages(); await loadSummaryCards(); toast('Page saved');
+    await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify({name,icon,instances:ids,page_type,pinned_home,featured_home,hero_order,summary_config})});
+    closePageEditor(); closePageManager(); await loadNavPages(); await loadPinnedPagesWidget(); await loadSummaryCards(); toast('Page saved');
   }catch(e){ toast('Error: '+e.message); }
 }
 async function deletePage(id){
   if(!canEngineerUI()) return toast('Engineer access required');
   if(!confirm('Delete this page?')) return;
   await fetch('/api/nav/pages/'+id,{method:'DELETE'});
-  await loadNavPages(); await loadPmPages(); await loadSummaryCards(); toast('Page deleted');
+  await loadNavPages(); await loadPmPages(); await loadPinnedPagesWidget(); await loadSummaryCards(); toast('Page deleted');
 }
 
 // UI bindings
@@ -683,13 +1076,14 @@ document.addEventListener('DOMContentLoaded',()=>{
     connectWS();
     await loadModuleInstances();
     startClock();
-    await Promise.all([loadWeatherWidget(),loadScenesWidget(),loadSummaryCards(),loadEventsWidget(),loadNavPages(),loadPinnedSensors()]);
+    await Promise.all([loadWeatherWidget(),loadScenesWidget(),loadPinnedPagesWidget(),loadSummaryCards(),loadEventsWidget(),loadNavPages(),loadPinnedSensors()]);
     const _qs=new URLSearchParams(location.search);
     if(_qs.get('newPage')==='1'){ history.replaceState(null,'','/'); openPageEditor(); }
     else if(_qs.get('editPages')==='1'){ history.replaceState(null,'','/'); openPageManager(); }
     setInterval(loadWeatherWidget,15*60*1000);
     setInterval(loadEventsWidget,60*1000);
     setInterval(loadScenesWidget,30*1000);
+    setInterval(loadPinnedPagesWidget,60*1000);
     setInterval(loadSummaryCards,60*1000);
     setInterval(loadPinnedSensors,15*1000);
   }catch(e){

@@ -42,10 +42,14 @@ ELARIS Core is the open foundation of the ELARIS ecosystem — a runtime automat
 - Peripheral Library: 22 sensor types (temperature, humidity, CO₂, flow, PIR, soil, wind, and more)
 - Add peripherals to existing firmware via OTA — no USB re-flash required
 - Board profile manager: create, edit, clone, and export custom profiles
+- **Use My YAML** — bring your own ESPHome YAML, let ELARIS inject its MQTT overlay and flash it
+- **Native API import** — connect to any existing ESPHome device over the native API (port 6053) without reflashing; supports both plaintext and Noise-encrypted devices
+- **External read-only mode** — monitor a third-party ESPHome device's entities without taking ownership of it
 
 **Platform**
 - Web-based UI — no app, no build step, works from any browser on the local network
 - Runs on Raspberry Pi 3/4/5 under PM2 or systemd
+- Dark / light theme — follows system preference, toggleable on every page including login
 
 ---
 
@@ -144,6 +148,30 @@ The built-in ESPHome page (`/esphome.html`) lets you:
 - **Manage** board profiles: create, edit, clone, export
 - Flash over **USB serial** or **OTA** (Ethernet or WiFi)
 
+### Use My YAML
+
+Already have an ESPHome YAML? Use the **Use My YAML** flow:
+
+1. Paste your YAML in the installer
+2. ELARIS parses it, detects WiFi/Ethernet, and injects its MQTT announce overlay
+3. Optionally add extra peripherals (sensors, inputs) before flashing
+4. Flash over USB or OTA — device appears in ELARIS automatically
+
+> Your YAML stays intact. ELARIS only appends its managed MQTT block.
+
+### Native API import (external devices)
+
+For devices already flashed with ESPHome official firmware (not flashed by ELARIS):
+
+1. Open the installer and select or create a device card
+2. Click **Native Import** — enter the device IP and optional encryption key
+3. ELARIS connects over the ESPHome native API (port 6053), reads all entities, and imports them
+4. Choose **read-only** (monitor only) or **managed** (ELARIS takes ownership)
+
+**Encryption:** If your device YAML has `api: encryption: key: !secret ...`, find the actual key in your `secrets.yaml` file (on the machine that compiled the firmware, or in the Home Assistant ESPHome addon at `/config/esphome/secrets.yaml`). Enter it once — ELARIS stores it in the database and uses it automatically on all future connections.
+
+**No encryption** (recommended for local networks): Remove the `api: encryption:` block from your YAML and reflash. After that, native import works with no key required.
+
 ---
 
 ## Project structure
@@ -162,6 +190,16 @@ docs/                 # Architecture and protocol documentation
 ```
 
 ---
+
+## Admin tools
+
+The admin panel (`/admin.html`) includes:
+
+- **Users & roles** — create/manage users, assign sites, set roles
+- **Sites** — multi-site support
+- **Runtime debug** — toggle MQTT debug logging, tune ESPHome stale thresholds, set sensor/event history retention, rebuild history rollups
+- **Stale MQTT retained messages** — clear retained topics published by old or removed ESPHome devices that are no longer in ELARIS. These accumulate in the broker and generate `registry_miss` log entries. Use Refresh + Clear to remove them permanently.
+- **Database management** — browse devices, pending IOs, board profiles; repair DB; erase all data
 
 ## Documentation
 

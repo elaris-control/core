@@ -48,7 +48,7 @@ function routes(app, ctx) {
       const ref = access.getModuleInstanceSiteRef(instId);
       if (!ref) return res.status(404).json({ ok: false, error: 'instance not found' });
       if (!access.canAccessSiteRef(req, ref)) return res.status(403).json({ ok: false, error: 'forbidden' });
-      const inst = engine._getInstances.all().find(i => i.id === instId);
+      const inst = engine.getInstance(instId);
       if (!inst) return res.status(404).json({ ok: false, error: 'instance not found' });
       const engineCtx = engine.makeCtx(inst);
       const io = engineCtx.io(relay);

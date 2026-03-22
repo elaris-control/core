@@ -35,15 +35,15 @@ function routes(app, ctx) {
       if (scenarioId && !scenario) return res.status(404).json({ ok: false, error: 'scenario not found' });
 
       const inst = access.inst;
-      const mappings = engine._getMappings.all(instId);
+      const mappings = engine.getMappings(instId);
       const send = (inputKey, value, reason) => {
         const m = mappings.find(x => x.input_key === inputKey);
         if (m?.io_id) {
-          const io = engine._getIOById.get(m.io_id);
+          const io = engine.getIO(m.io_id);
           if (io) {
             const out = engine.sendIOCommand(io, value, { instanceId: instId, moduleId: inst.module_id, inputKey, reason: reason || 'manual smart lighting' });
             if (out?.ok) {
-              engine._logAction.run({ instance_id: instId, action: inputKey + '_' + out.value, reason: reason || 'manual', ts: Date.now() });
+              engine.logAction(instId, inputKey + '_' + out.value, reason || 'manual');
             }
             return out;
           }

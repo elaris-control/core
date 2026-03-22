@@ -62,11 +62,16 @@ function connectWS() {
         apTermLine(msg.level || 'info', msg.text || '');
       }
 
-      if (msg.type === 'esphome_add_done') {
-        apResetFlashUI(msg.ok);
+      if (msg.type === 'esphome_add_done' || msg.type === 'esphome_peripheral_done') {
+        apResetFlashUI(msg.ok, msg.action);
         if (msg.ok) {
-          document.getElementById('apDone').style.display = '';
-          if (msg.awaiting_report) apTermLine('info', 'Waiting for first MQTT report so ELARIS can auto-register the new IO in Installer…');
+          apShowDoneState(msg.action, !!msg.awaiting_report, msg.entity_key || '');
+          if (msg.awaiting_report) {
+            apTermLine('info', 'Firmware flash completed. Waiting for the device to reboot and publish its updated MQTT config…');
+            apTermLine('info', 'Installer should show the new or updated IO shortly. If not, refresh Installer after ~30 seconds.');
+          } else {
+            apTermLine('info', 'OTA action completed. Refresh Installer if the updated device state does not appear automatically.');
+          }
           try { await loadInstallerDevices(); } catch {}
         } else {
           apTermLine('error', 'Flash failed. Check the output above.');
@@ -79,11 +84,16 @@ function connectWS() {
 
       if (msg.type === 'esphome_setup_done') {
         document.getElementById('btnInstall').disabled = false;
+        var hint = document.getElementById('setupHint');
         if (msg.ok) {
+          if (hint) { hint.style.display = 'none'; hint.innerHTML = ''; }
           document.getElementById('installPanel').style.display = 'none';
           try { await checkSetup(); } catch {}
           try { await refreshPorts(); } catch {}
           setupTermLine('info', 'ESPHome is ready. USB ports refreshed.');
+        } else if (hint && msg.hint) {
+          hint.style.display = '';
+          hint.innerHTML = escHtml(msg.hint) + (msg.install_command ? '<br><strong>Run once on the host:</strong> <code style="user-select:all">' + escHtml(msg.install_command) + '</code>' : '');
         }
       }
     } catch {}
@@ -149,6 +159,7 @@ async function initEsphomePage() {
   setFlashButtonState('ready');
   onFlashModeChange();
   updateStep1UI();
+  if (typeof initEspFlowChooser === 'function') initEspFlowChooser();
   await checkSetup();
   try { await refreshPorts(); } catch {}
   await loadInstallerDevices();

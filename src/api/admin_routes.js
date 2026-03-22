@@ -2,7 +2,21 @@
 // src/api/admin_routes.js — /api/admin/*
 const express = require('express');
 
-function initAdminRoutes({ db, users, requireAdmin }) {
+function clearRetainedTopics(mqttApi, topics) {
+  if (!mqttApi || !mqttApi.client || typeof mqttApi.client.publish !== 'function') return 0;
+  let cleared = 0;
+  for (const raw of Array.isArray(topics) ? topics : []) {
+    const topic = String(raw || '').trim();
+    if (!topic) continue;
+    try {
+      mqttApi.client.publish(topic, '', { qos: 0, retain: true });
+      cleared += 1;
+    } catch (_) {}
+  }
+  return cleared;
+}
+
+function initAdminRoutes({ db, users, requireAdmin, historyRollups, mqttApi }) {
   const router = express.Router();
 
   // ── Users ──────────────────────────────────────────────────────────────
@@ -126,6 +140,86 @@ function initAdminRoutes({ db, users, requireAdmin }) {
     }
   });
 
+  router.get('/runtime/history-retention', requireAdmin, (_req, res) => {
+    try {
+      const raw = db.prepare(`SELECT value, updated_ts FROM app_settings WHERE key = ?`).get('events_retention_days') || null;
+      const stats = db.prepare(`SELECT COUNT(*) AS count, MIN(ts) AS oldest_ts, MAX(ts) AS newest_ts FROM events`).get() || {};
+      const retentionDays = (Number(raw?.value) >= 1 && Number(raw?.value) <= 3650) ? Math.round(Number(raw.value)) : 30;
+      res.json({ ok: true, events_retention_days: retentionDays, updated_ts: raw?.updated_ts || null, source: raw ? 'db' : 'default', stats });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  router.patch('/runtime/history-retention', requireAdmin, (req, res) => {
+    try {
+      const retentionDays = Math.round(Number(req.body?.events_retention_days));
+      if (!Number.isFinite(retentionDays) || retentionDays < 1 || retentionDays > 3650) {
+        return res.status(400).json({ ok: false, error: 'invalid_events_retention_days' });
+      }
+      const ts = Date.now();
+      db.prepare(`
+        INSERT INTO app_settings (key, value, updated_ts) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_ts=excluded.updated_ts
+      `).run('events_retention_days', String(retentionDays), ts);
+      res.json({ ok: true, events_retention_days: retentionDays, updated_ts: ts });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  router.get('/runtime/rollups', requireAdmin, (_req, res) => {
+    try {
+      const raw = db.prepare(`SELECT value, updated_ts FROM app_settings WHERE key = ?`).get('rollups_retention_days') || null;
+      const retentionDays = (Number(raw?.value) >= 30 && Number(raw?.value) <= 3650) ? Math.round(Number(raw.value)) : (historyRollups?.getRetentionDays?.() || 1095);
+      const stats = {
+        '5m': historyRollups?.getStats?.('5m') || { count: 0, oldest_ts: null, newest_ts: null },
+        '1h': historyRollups?.getStats?.('1h') || { count: 0, oldest_ts: null, newest_ts: null },
+        '1d': historyRollups?.getStats?.('1d') || { count: 0, oldest_ts: null, newest_ts: null },
+      };
+      res.json({ ok: true, rollups_retention_days: retentionDays, updated_ts: raw?.updated_ts || null, source: raw ? 'db' : 'default', stats });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  router.patch('/runtime/rollups', requireAdmin, (req, res) => {
+    try {
+      const retentionDays = Math.round(Number(req.body?.rollups_retention_days));
+      if (!Number.isFinite(retentionDays) || retentionDays < 30 || retentionDays > 3650) {
+        return res.status(400).json({ ok: false, error: 'invalid_rollups_retention_days' });
+      }
+      const ts = Date.now();
+      db.prepare(`
+        INSERT INTO app_settings (key, value, updated_ts) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_ts=excluded.updated_ts
+      `).run('rollups_retention_days', String(retentionDays), ts);
+      res.json({ ok: true, rollups_retention_days: retentionDays, updated_ts: ts });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  router.post('/runtime/rollups/rebuild', requireAdmin, (_req, res) => {
+    try {
+      let changed = 0;
+      const h = historyRollups?.buildMissingHourlyRollups?.({ lookbackHours: 24 * 30 }) || { changed: 0 };
+      changed += Number(h.changed || 0);
+      const d = historyRollups?.buildDailyRollups?.({ lookbackDays: 180 }) || { changed: 0 };
+      changed += Number(d.changed || 0);
+      const m = historyRollups?.build5mRollups?.({ lookbackMs: 4 * 3600000 }) || { changed: 0 };
+      changed += Number(m.changed || 0);
+      const stats = {
+        '5m': historyRollups?.getStats?.('5m') || { count: 0, oldest_ts: null, newest_ts: null },
+        '1h': historyRollups?.getStats?.('1h') || { count: 0, oldest_ts: null, newest_ts: null },
+        '1d': historyRollups?.getStats?.('1d') || { count: 0, oldest_ts: null, newest_ts: null },
+      };
+      res.json({ ok: true, changed, stats });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // ── DB management ─────────────────────────────────────────────────────
   router.get('/db/devices', requireAdmin, (req, res) => {
     try {
@@ -141,7 +235,13 @@ function initAdminRoutes({ db, users, requireAdmin }) {
 
   router.delete('/db/devices/:deviceId', requireAdmin, (req, res) => {
     try {
-      const id = req.params.deviceId;
+      const id = String(req.params.deviceId || '').trim();
+      const esphome = db.prepare(`SELECT id, name, mqtt_topic_root FROM esphome_devices WHERE name = ? OR mqtt_topic_root = ? ORDER BY id DESC LIMIT 1`).get(id, `elaris/${id}`) || null;
+      const retainedTopics = new Set([`${id}/status`, `elaris/${id}/status`]);
+      db.prepare(`SELECT DISTINCT topic FROM events WHERE device_id = ?`).all(id).forEach(r => {
+        const topic = String(r?.topic || '').trim();
+        if (topic) retainedTopics.add(topic);
+      });
       db.transaction(() => {
         const ioIds = db.prepare(`SELECT id FROM io WHERE device_id = ?`).all(id).map(r => r.id);
         if (ioIds.length) {
@@ -164,10 +264,17 @@ function initAdminRoutes({ db, users, requireAdmin }) {
         db.prepare(`DELETE FROM blocked_io WHERE device_id = ?`).run(id);
         db.prepare(`DELETE FROM device_state WHERE device_id = ?`).run(id);
         db.prepare(`DELETE FROM device_site WHERE device_id = ?`).run(id);
+        db.prepare(`DELETE FROM events WHERE device_id = ?`).run(id);
+        if (esphome) {
+          db.prepare(`DELETE FROM esphome_install_jobs WHERE esphome_device_id = ?`).run(esphome.id);
+          db.prepare(`DELETE FROM esphome_generated_configs WHERE esphome_device_id = ?`).run(esphome.id);
+          db.prepare(`DELETE FROM esphome_device_overrides WHERE esphome_device_id = ?`).run(esphome.id);
+        }
         db.prepare(`DELETE FROM esphome_devices WHERE name = ? OR mqtt_topic_root = ?`).run(id, `elaris/${id}`);
         db.prepare(`DELETE FROM devices WHERE id = ?`).run(id);
       })();
-      res.json({ ok: true });
+      const cleared = clearRetainedTopics(mqttApi, Array.from(retainedTopics));
+      res.json({ ok: true, purged: true, retained_topics_cleared: cleared });
     } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 
@@ -213,6 +320,26 @@ function initAdminRoutes({ db, users, requireAdmin }) {
       db.prepare(`DELETE FROM esphome_profile_capabilities WHERE profile_id = ?`).run(id);
       db.prepare(`DELETE FROM esphome_board_profiles WHERE id = ?`).run(id);
       res.json({ ok: true });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
+  });
+
+  // ── Stale Retained MQTT Topics ─────────────────────────────────────────
+  router.get('/mqtt/stale-retained', requireAdmin, (req, res) => {
+    try {
+      const devices = typeof mqttApi?.getMissedRetained === 'function' ? mqttApi.getMissedRetained() : [];
+      res.json({ ok: true, devices });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
+  });
+
+  router.post('/mqtt/stale-retained/clear', requireAdmin, (req, res) => {
+    try {
+      const { device_id } = req.body || {};
+      if (!device_id) return res.status(400).json({ ok: false, error: 'device_id required' });
+      const topics = typeof mqttApi?.clearMissedRetainedForDevice === 'function'
+        ? mqttApi.clearMissedRetainedForDevice(String(device_id))
+        : [];
+      const cleared = clearRetainedTopics(mqttApi, topics);
+      res.json({ ok: true, device_id, topics_cleared: cleared });
     } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 

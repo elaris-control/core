@@ -18,6 +18,11 @@ function goStep(n) {
   renderEspModeBanner();
 }
 
+function espFlashError(msg) {
+  try { termLine('error', msg); } catch (_) {}
+  alert(msg);
+}
+
 function validateStep(n) {
   if (n === 1) {
     var useOTA = document.getElementById('useOTA').checked;
@@ -25,28 +30,28 @@ function validateStep(n) {
     var otaIp = document.getElementById('otaIp').value.trim();
 
     if (useOTA) {
-      if (!otaIp) { alert('Enter the device IP address for OTA flashing.'); return false; }
+      if (!otaIp) { espFlashError('Enter the device IP address for OTA flashing.'); return false; }
     } else {
-      if (!usb) { alert('Select a USB port first.'); return false; }
+      if (!usb) { espFlashError('Select a USB port first.'); return false; }
     }
   }
 
   if (n === 2) {
     var nm = document.getElementById('deviceName').value.trim();
-    if (!nm) { alert('Enter a device name.'); return false; }
+    if (!nm) { espFlashError('Enter a device name.'); return false; }
     var brd = document.getElementById('boardSelect').value;
-    if (!brd) { alert('Select a board.'); return false; }
+    if (!brd) { espFlashError('Select a board.'); return false; }
     if (brd === '__custom__' && !document.getElementById('customBoard').value.trim()) {
-      alert('Enter a custom board ID.'); return false;
+      espFlashError('Enter a custom board ID.'); return false;
     }
   }
   if (n === 3) {
     var eth = document.getElementById('useEthernet').checked;
     if (!eth) {
-      if (!document.getElementById('wifiSsid').value.trim()) { alert('Enter WiFi SSID.'); return false; }
-      if (!document.getElementById('wifiPass').value.trim()) { alert('Enter WiFi password.'); return false; }
+      if (!document.getElementById('wifiSsid').value.trim()) { espFlashError('Enter WiFi SSID.'); return false; }
+      if (!document.getElementById('wifiPass').value.trim()) { espFlashError('Enter WiFi password.'); return false; }
     }
-    if (!document.getElementById('mqttHost').value.trim()) { alert('Enter MQTT broker IP.'); return false; }
+    if (!document.getElementById('mqttHost').value.trim()) { espFlashError('Enter MQTT broker IP.'); return false; }
   }
   return true;
 }
@@ -60,6 +65,12 @@ function updateStep1UI() {
   var summary = document.getElementById('step1Summary');
   var note = document.getElementById('step1Note');
   var btn = document.getElementById('btn1Next');
+  var selected = null;
+  try { selected = (Array.isArray(installerDevices) && window.selectedInstallerDeviceId) ? installerDevices.find(function(x){ return Number(x.id) === Number(window.selectedInstallerDeviceId); }) : null; } catch (_) {}
+  var hasKnownIp = !!(selected && (selected.ip_address || selected.target_ip));
+  var hasKnownSerial = !!(selected && (selected.serial_port || selected.target_port));
+  var likelyExisting = !!selected;
+  var recommendedMode = (likelyExisting && hasKnownIp && !hasKnownSerial) ? 'ota' : 'usb';
 
   if (btn) {
     btn.disabled = !ready;
@@ -71,12 +82,23 @@ function updateStep1UI() {
   parts.push(summaryPill(useOTA ? 'Mode: OTA' : 'Mode: USB', useOTA ? '#1d8cff' : '#22d97a', useOTA ? 'rgba(29,140,255,.28)' : 'rgba(34,217,122,.28)'));
   parts.push(summaryPill(useOTA ? ('Target: ' + (otaIp || 'missing IP')) : ('Port: ' + (usb || 'not selected')), ready ? '#22d97a' : '#f59e0b', ready ? 'rgba(34,217,122,.28)' : 'rgba(245,158,11,.35)'));
   parts.push(summaryPill(hasInstall ? 'ESPHome ready' : 'ESPHome not installed', hasInstall ? '#22d97a' : '#f59e0b', hasInstall ? 'rgba(34,217,122,.28)' : 'rgba(245,158,11,.35)'));
+  parts.push(summaryPill('Recommended: ' + (recommendedMode === 'ota' ? 'OTA' : 'USB'), recommendedMode === (useOTA ? 'ota' : 'usb') ? '#22d97a' : '#f59e0b', recommendedMode === (useOTA ? 'ota' : 'usb') ? 'rgba(34,217,122,.22)' : 'rgba(245,158,11,.28)'));
 
   if (summary) summary.innerHTML = parts.join('');
   if (note) {
-    note.textContent = useOTA
-      ? (ready ? 'OTA mode selected. Use this only for devices already flashed with ESPHome.' : 'Enter the current device IP address to continue with OTA flashing.')
-      : (ready ? 'USB target selected. This is the recommended path for first-time flashing.' : 'Connect a board via USB-C and select the detected serial port to continue.');
+    if (useOTA) {
+      note.textContent = ready
+        ? (recommendedMode === 'ota'
+          ? 'OTA mode selected. Good choice for an already flashed device with a known IP address.'
+          : 'OTA mode selected. Use this only for devices already flashed with ESPHome. For first-time flashing, USB is safer.')
+        : 'Enter the current device IP address to continue with OTA flashing.';
+    } else {
+      note.textContent = ready
+        ? (recommendedMode === 'usb'
+          ? 'USB target selected. This is the recommended path for first-time flashing and recovery.'
+          : 'USB target selected. This is still safe, but this device also looks eligible for OTA reflash.')
+        : 'Connect a board via USB-C and select the detected serial port to continue.';
+    }
   }
 }
 
@@ -349,7 +371,7 @@ async function startFlash() {
     ? document.getElementById('otaIp').value.trim()
     : document.getElementById('portSelect').value;
   if (!port) {
-    alert(useOTA ? 'Enter the device IP address.' : 'Select a USB port first (Step 1).');
+    espFlashError(useOTA ? 'Enter the device IP address.' : 'Select a USB port first (Step 1).');
     return;
   }
 
@@ -370,6 +392,9 @@ async function startFlash() {
     if (r.yaml) {
       document.getElementById('yamlPreview').textContent = r.yaml;
     }
+    // Store device name for post-flash wait polling
+    if (typeof window !== 'undefined') window._lastFlashedDeviceName = payload.device_name || null;
+    window._lastFlashPayload = payload; // for retry
     if (r.job_id) startFlashPolling(r.job_id);
     optimisticUpdateInstallerDevice(payload, r.job_id || null);
     renderFlashReviewSummary('running');
@@ -377,7 +402,13 @@ async function startFlash() {
     termLine('info', 'Flash started — compiling firmware (first time can take 5-15 min)…');
     if (r.job_id) termLine('info', 'Tracking flash job #' + r.job_id + ' with live status polling.');
   } catch (e) {
-    termLine('error', 'Error: ' + e.message);
+    var rawMsg = String(e && e.message || e || 'Unknown error');
+    var msg = (typeof humanEspError === 'function') ? humanEspError(rawMsg) : rawMsg;
+    // Port-specific override for missing_target_port_or_ip
+    if (/missing_target_port_or_ip/i.test(rawMsg)) {
+      msg = useOTA ? 'OTA target IP is missing. Enter the device IP address in Step 1.' : 'USB target port is missing. Select a USB port in Step 1.';
+    }
+    termLine('error', 'Error: ' + msg);
     resetFlashUI('error');
   }
 }
@@ -395,6 +426,13 @@ function resetFlashUI(mode) {
   setFlashButtonState(mode || 'ready');
   document.getElementById('btnBack5').disabled = false;
   document.getElementById('btnCancel').style.display = 'none';
+  // Hide recovery div when starting a new flash
+  if (mode === 'running') {
+    var f = document.getElementById('flashFailure');
+    if (f) f.style.display = 'none';
+    var pw = document.getElementById('flashPostWait');
+    if (pw) pw.style.display = 'none';
+  }
 }
 
 function termLine(level, text) {

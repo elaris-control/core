@@ -259,15 +259,34 @@
 
       <div id="esphomeModeBanner" style="display:none;margin:12px 0 14px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.03)"></div>
 
-      <!-- ── Tools toolbar ── -->
-      <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;align-items:center">
+      <!-- ── Flow chooser ── -->
+      <div id="espFlowChooser" style="margin-bottom:4px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.03)">
+        <div style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">How do you want to add a device?</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button id="flowBtnWizard" class="btn btnPrimary" onclick="setEspFlow('wizard')" style="font-size:12px">
+            ⚙ Guided wizard <span style="font-weight:400;opacity:.7;font-size:10px">(recommended)</span>
+          </button>
+          <button id="flowBtnYaml" class="btn" onclick="setEspFlow('yaml')" style="font-size:12px">
+            📄 I have a YAML file
+          </button>
+          <button id="flowBtnExternal" class="btn" onclick="setEspFlow('external')" style="font-size:12px">
+            🔗 External / read-only device
+          </button>
+        </div>
+        <div id="espFlowHint" style="font-size:11px;color:var(--muted2);margin-top:8px">
+          Build and flash firmware using the step-by-step wizard. Select your board, configure IO, review, and flash over USB or OTA.
+        </div>
+      </div>
+
+      <!-- ── Tools toolbar (power users / secondary actions) ── -->
+      <div id="espToolsBar" style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;align-items:center">
         <span style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-right:4px">Tools</span>
         <button class="btn" onclick="togglePeripheralLibrary()" style="font-size:12px">&#128268; Peripheral Library</button>
         <button class="btn" onclick="toggleAddPeripheral()" style="font-size:12px">&#10133; Add Sensor to Device</button>
         <button class="btn" onclick="toggleProfileManager()" style="font-size:12px">&#128736; Board Profiles</button>
         <span style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-left:12px;margin-right:4px">Flash</span>
         <button class="btn" onclick="toggleNativeImportPanel()" style="font-size:12px">&#128279; External Native Import</button>
-        <button class="btn btnPrimary" onclick="toggleUseMyYaml()" style="font-size:12px">&#128196; Paste &amp; Flash YAML</button>
+        <button class="btn" onclick="toggleUseMyYaml()" style="font-size:12px">&#128196; Paste &amp; Flash YAML</button>
       </div>
 
       <!-- ── Add Peripheral to Existing Device ── -->
@@ -368,8 +387,8 @@
         <div class="terminal" id="apTerminal" style="display:none;margin-top:12px;height:240px"></div>
         <div id="apDone" style="display:none;margin-top:12px;padding:12px;border-radius:10px;border:1px solid var(--good);background:rgba(34,217,122,.08);text-align:center">
           <div style="font-size:18px;margin-bottom:4px">&#10003;</div>
-          <div style="font-weight:800;font-size:13px">Peripheral Added!</div>
-          <div style="font-size:12px;color:var(--muted2);margin-top:4px">The device will restart, publish its updated MQTT config, and the new IO should auto-appear in Installer as Pending within ~30 seconds.</div>
+          <div style="font-weight:800;font-size:13px" id="apDoneTitle">Peripheral updated</div>
+          <div style="font-size:12px;color:var(--muted2);margin-top:4px" id="apDoneText">The device will restart, publish its updated MQTT config, and the new IO should auto-appear in Installer as Pending within ~30 seconds.</div>
         </div>
       </div>
 
@@ -470,7 +489,7 @@
           <button class="btn" onclick="toggleNativeImportPanel()">&#215; Close</button>
         </div>
         <p style="font-size:12px;color:var(--muted2);margin-bottom:14px">
-          Step 1 for the native API path: create an <strong>external read-only card</strong> for a device that already exists outside ELARIS, then inject its normalized channels as pending IO for approval.
+          Import a device that already exists outside ELARIS, then inject its normalized channels as pending IO for approval. You can keep it <strong>read-only</strong> or adopt it as a <strong>managed</strong> card that can be reflashed/edited later.
         </p>
         <div id="nativeImportCapability" style="margin-bottom:12px"></div>
         <div class="form-grid">
@@ -523,6 +542,14 @@
             <label>MQTT topic root (optional)</label>
             <input type="text" id="nativeImportMqttRoot" placeholder="Optional">
             <span class="form-hint">Optional identity hint if the device also talks MQTT.</span>
+          </div>
+          <div class="form-row">
+            <label>Import mode</label>
+            <select id="nativeImportMode" onchange="renderNativeImportCapability(true); nativeRefreshCommandPanel()">
+              <option value="readonly" selected>External native · read-only</option>
+              <option value="managed">Managed native import</option>
+            </select>
+            <span class="form-hint">Managed native import keeps the native source metadata, but lets you reflash/edit the card later inside ELARIS.</span>
           </div>
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 0 8px;flex-wrap:wrap">
@@ -688,7 +715,7 @@
                 <button class="btn" style="white-space:nowrap;padding:4px 10px;font-size:12px" onclick="umyRefreshPorts()">&#8635; Refresh</button>
               </div>
               <input type="text" id="umyPort" placeholder="or type IP for OTA (192.168.1.x)" style="margin-top:4px">
-              <span class="form-hint">Select USB port above for first flash, or type device IP for OTA re-flash</span>
+              <span class="form-hint">Use a <strong>USB port</strong> for first flash or recovery. Type a device IP only for an already-flashed ESPHome device doing OTA reflash.</span>
             </div>
           </div>
         </div>
@@ -791,7 +818,7 @@
       </div>
 
       <!-- ── Step 1: Setup ── -->
-      <div class="card-step" id="step1">
+      <div class="card-step" id="step1" style="display:none">
         <h2>&#128376; Step 1 — Check &amp; Connect</h2>
         <div id="esphomeStatus" style="margin-bottom:16px">
           <span style="color:var(--muted);font-size:12px">Checking ESPHome…</span>
@@ -805,6 +832,7 @@
             This takes <strong>2–5 minutes</strong> and only needs to be done once.
           </div>
           <button class="btn btnPrimary" id="btnInstall" onclick="installEsphome()">&#8681; Install ESPHome</button>
+          <div id="setupHint" style="display:none;margin-top:10px;padding:10px;border:1px solid rgba(245,158,11,.25);border-radius:8px;background:rgba(245,158,11,.08);font-size:11px;color:var(--muted2)"></div>
           <div class="terminal" id="setupTerminal" style="display:none;margin-top:12px;height:180px">
             <span style="color:#484f58">Waiting…</span>
           </div>
@@ -962,10 +990,38 @@
           </button>
         </div>
 
-        <div id="flashDone" style="display:none;margin-top:16px;padding:14px;border-radius:10px;border:1px solid var(--good);background:rgba(34,217,122,.08);text-align:center">
-          <div style="font-size:20px;margin-bottom:6px">&#10003;</div>
-          <div style="font-weight:800;font-size:13px">Flash Complete!</div>
-          <div style="font-size:12px;color:var(--muted2);margin-top:4px">Use <strong>Open Installer</strong> to check when the device appears online.</div>
+        <div id="flashDone" style="display:none;margin-top:16px;padding:14px;border-radius:10px;border:1px solid var(--good);background:rgba(34,217,122,.08)">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <span style="font-size:22px">✓</span>
+            <strong style="font-size:13px">Flash Complete!</strong>
+          </div>
+          <div id="flashPostWait" style="display:none;font-size:12px;color:var(--muted2)">
+            <span id="flashPostWaitText">⏳ Waiting for device to connect…</span>
+          </div>
+          <div id="flashPostFound" style="display:none;font-size:12px;color:var(--good);margin-top:4px">
+            ✓ <strong id="flashPostDeviceName"></strong> connected —
+            <a href="/installer.html" style="color:var(--accent)">Open Installer →</a>
+          </div>
+          <div id="flashPostTimeout" style="display:none;margin-top:6px;font-size:12px;color:var(--muted2)">
+            Device not seen yet after 60s. Check:
+            <ul style="margin:4px 0 0 16px;padding:0">
+              <li>MQTT broker is running (<code>localhost:1883</code>)</li>
+              <li>Device is on the same network as ELARIS</li>
+              <li>Board booted successfully (LED pattern / serial console)</li>
+            </ul>
+            <a href="/installer.html" style="color:var(--accent)">Open Installer to check manually →</a>
+          </div>
+        </div>
+
+        <div id="flashFailure" style="display:none;margin-top:16px;padding:14px;border-radius:10px;border:1px solid var(--warn,#f59e0b);background:rgba(245,158,11,.08)">
+          <div style="display:flex;align-items:flex-start;gap:10px">
+            <span style="font-size:18px" id="flashFailureIcon">⚠️</span>
+            <div style="flex:1">
+              <strong style="font-size:12px;display:block;margin-bottom:4px">Flash failed</strong>
+              <div style="font-size:12px;color:var(--muted2)" id="flashFailureHint"></div>
+              <button class="btn btnPrimary" style="margin-top:10px;font-size:12px" onclick="retryLastFlash()">↩ Retry Flash</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1019,14 +1075,30 @@ function connectWS() {
         } else {
           stopFlashPolling();
           resetFlashUI(msg.ok ? 'done' : 'error');
+          document.getElementById('flashFailure').style.display = 'none';
           if (msg.ok) {
-            document.getElementById('flashDone').style.display = '';
+            var flashDone = document.getElementById('flashDone');
+            flashDone.style.display = '';
             renderFlashReviewSummary('done');
             try { await refreshPorts(); } catch {}
             try { await loadInstallerDevices(); } catch {}
+            // Post-flash device wait
+            startPostFlashDeviceWait(window._lastFlashedDeviceName || null);
           } else {
             renderFlashReviewSummary('error');
-            termLine('error', 'Flash failed. Check the output above.');
+            termLine('error', 'Flash failed. Check the output above for details.');
+            // Collect last 30 term lines for failure classification
+            var termEl = document.getElementById('flashTerminal') || document.getElementById('terminal');
+            var logText = termEl ? termEl.innerText : '';
+            var category = (typeof classifyFlashFailure === 'function') ? classifyFlashFailure(logText) : { icon: '⚠️', hint: 'Flash failed. Check the log above.' };
+            var failDiv = document.getElementById('flashFailure');
+            var iconEl  = document.getElementById('flashFailureIcon');
+            var hintEl  = document.getElementById('flashFailureHint');
+            if (failDiv && hintEl) {
+              if (iconEl) iconEl.textContent = category.icon;
+              hintEl.textContent = category.hint;
+              failDiv.style.display = '';
+            }
           }
         }
       }
@@ -1055,17 +1127,120 @@ function connectWS() {
 
       if (msg.type === 'esphome_setup_done') {
         document.getElementById('btnInstall').disabled = false;
+        var hint = document.getElementById('setupHint');
         if (msg.ok) {
           document.getElementById('installPanel').style.display = 'none';
+          if (hint) { hint.style.display = 'none'; hint.innerHTML = ''; }
           try { await checkSetup(); } catch {}
           try { await refreshPorts(); } catch {}
           setupTermLine('info', 'ESPHome is ready. USB ports refreshed.');
+        } else {
+          // Show structured failure hint if available
+          if (msg.hint && hint) {
+            hint.style.display = '';
+            var hintHtml = escHtml(msg.hint);
+            if (msg.install_command) {
+              hintHtml += '<br><strong>Run once on the host:</strong> <code style="user-select:all">' + escHtml(msg.install_command) + '</code>';
+            }
+            hint.innerHTML = hintHtml;
+          }
+          setupTermLine('error', msg.hint || 'Installation failed. Check the log above.');
         }
       }
     } catch {}
   };
 
   ws.onclose = function() { setTimeout(connectWS, 3000); };
+}
+
+// ── Post-flash device wait ─────────────────────────────────────────────────
+var _postFlashPollTimer = null;
+var _lastFlashPayload = null; // set by flash.js before submitting
+
+function startPostFlashDeviceWait(deviceName) {
+  var waitDiv  = document.getElementById('flashPostWait');
+  var foundDiv = document.getElementById('flashPostFound');
+  var timeDiv  = document.getElementById('flashPostTimeout');
+  var nameEl   = document.getElementById('flashPostDeviceName');
+  if (!waitDiv || !deviceName) return;
+  if (foundDiv) foundDiv.style.display = 'none';
+  if (timeDiv)  timeDiv.style.display  = 'none';
+  waitDiv.style.display = '';
+  document.getElementById('flashPostWaitText').textContent = '⏳ Waiting for ' + deviceName + ' to connect…';
+  var deadline = Date.now() + 60000;
+  var tick = setInterval(async function() {
+    try {
+      var r = await fetch('/api/esphome/devices', { credentials: 'include' });
+      var d = await r.json().catch(function() { return {}; });
+      var devices = (d && d.devices) ? d.devices : [];
+      var found = devices.find(function(dev) {
+        return dev.name === deviceName && (dev.status === 'online' || (dev.last_seen_at && Date.now() - new Date(dev.last_seen_at).getTime() < 60000));
+      });
+      if (found) {
+        clearInterval(tick);
+        waitDiv.style.display = 'none';
+        if (nameEl) nameEl.textContent = found.friendly_name || found.name || deviceName;
+        if (foundDiv) foundDiv.style.display = '';
+        return;
+      }
+    } catch (_) {}
+    if (Date.now() >= deadline) {
+      clearInterval(tick);
+      waitDiv.style.display = 'none';
+      if (timeDiv) timeDiv.style.display = '';
+    }
+  }, 5000);
+}
+
+// ── Retry last flash ───────────────────────────────────────────────────────
+function retryLastFlash() {
+  document.getElementById('flashFailure').style.display = 'none';
+  if (typeof startFlash === 'function') {
+    startFlash();
+  } else {
+    document.getElementById('btnFlash')?.click();
+  }
+}
+
+// ── Flow chooser ───────────────────────────────────────────────────────────
+function setEspFlow(flow) {
+  var btns = { wizard: 'flowBtnWizard', yaml: 'flowBtnYaml', external: 'flowBtnExternal' };
+  Object.keys(btns).forEach(function(k) {
+    var el = document.getElementById(btns[k]);
+    if (el) el.className = 'btn' + (k === flow ? ' btnPrimary' : '');
+  });
+  var hints = {
+    wizard: 'Build and flash firmware using the step-by-step wizard. Select your board, configure IO, review, and flash over USB or OTA.',
+    yaml: 'Paste your existing ESPHome YAML, optionally add sensors, then flash directly — no profile import needed.',
+    external: 'Register an external read-only device. Creates a device card and pending IO rows for approval — no firmware provisioning.'
+  };
+  var hintEl = document.getElementById('espFlowHint');
+  if (hintEl) hintEl.textContent = hints[flow] || '';
+  var stepper = document.getElementById('stepper');
+  if (stepper) stepper.style.display = flow === 'wizard' ? '' : 'none';
+  if (flow === 'wizard') {
+    var umy = document.getElementById('useMyYamlPanel');
+    if (umy) umy.style.display = 'none';
+    var nat = document.getElementById('nativeImportPanel');
+    if (nat) nat.style.display = 'none';
+    var step = document.getElementById('step' + (typeof currentStep !== 'undefined' ? currentStep : 1));
+    if (step) step.style.display = '';
+    renderEspModeBanner();
+  } else if (flow === 'yaml') {
+    for (var i = 1; i <= 5; i++) { var s = document.getElementById('step' + i); if (s) s.style.display = 'none'; }
+    var nat = document.getElementById('nativeImportPanel');
+    if (nat) nat.style.display = 'none';
+    var umy = document.getElementById('useMyYamlPanel');
+    if (umy && umy.style.display === 'none') toggleUseMyYaml();
+    renderEspModeBanner();
+  } else if (flow === 'external') {
+    for (var i = 1; i <= 5; i++) { var s = document.getElementById('step' + i); if (s) s.style.display = 'none'; }
+    var umy = document.getElementById('useMyYamlPanel');
+    if (umy) umy.style.display = 'none';
+    var nat = document.getElementById('nativeImportPanel');
+    if (nat && nat.style.display === 'none') toggleNativeImportPanel();
+    renderEspModeBanner();
+  }
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────
@@ -1952,6 +2127,7 @@ window.togglePeripheralLibrary = function() {
   } catch { location.href = '/login.html'; return; }
 
   connectWS();
+  setEspFlow('wizard');
   setFlashButtonState('ready');
   onFlashModeChange();
   updateStep1UI();

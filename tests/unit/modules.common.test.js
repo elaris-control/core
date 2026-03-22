@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-const { withStandardTestMode } = require('../../src/modules/common');
+import commonModule from '../../src/modules/common.js';
+
+const { withStandardTestMode } = commonModule;
 
 describe('withStandardTestMode', () => {
   it('injects test_mode when missing', () => {

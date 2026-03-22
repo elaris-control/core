@@ -23,6 +23,7 @@ const { initAccess }        = require('./access');
 const { initNotifications } = require('./notifications');
 const { initScenes }        = require('./scenes');
 const { AutomationEngine }  = require('./automation/engine');
+const { createHistoryRollupService } = require('./history_rollups');
 const { createIntegrationRegistry } = require('./integrations/registry');
 const { createNativeSessionManager } = require('./integrations/native/session_manager');
 const { createEspHomeAdapter } = require('./integrations/esphome');
@@ -134,14 +135,53 @@ async function main() {
   process.stdout.write = (chunk, ...rest) => { _origOut(chunk, ...rest); _emitLog('info', typeof chunk === 'string' ? chunk : chunk.toString('utf8')); return true; };
   process.stderr.write = (chunk, ...rest) => { _origErr(chunk, ...rest); _emitLog('warn', typeof chunk === 'string' ? chunk : chunk.toString('utf8')); return true; };
 
-  // ── Events cleanup (30 days, every 24h) ───────────────────────────────
+  const historyRollups = createHistoryRollupService(dbApi.db);
+
+  // ── Events cleanup (retention from app_settings, default 30 days) ─────
   function cleanupEvents() {
-    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    try { const r = dbApi.db.prepare('DELETE FROM events WHERE ts < ?').run(cutoff); if (r.changes > 0) console.log(`[CLEANUP] Deleted ${r.changes} old events`); } catch (e) { console.error('[CLEANUP]', e.message); }
+    let retentionDays = 30;
+    try {
+      const raw = dbApi.db.prepare(`SELECT value FROM app_settings WHERE key = ?`).get('events_retention_days');
+      const n = Number(raw?.value);
+      if (Number.isFinite(n) && n >= 1 && n <= 3650) retentionDays = Math.round(n);
+    } catch (_) {}
+    const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    try { const r = dbApi.db.prepare('DELETE FROM events WHERE ts < ?').run(cutoff); if (r.changes > 0) console.log(`[CLEANUP] Deleted ${r.changes} old events (retention ${retentionDays}d)`); } catch (e) { console.error('[CLEANUP]', e.message); }
     try { users.purgeExpiredSessions(); } catch {}
   }
   cleanupEvents();
   setInterval(cleanupEvents, 24 * 60 * 60 * 1000);
+
+  // ── History rollup jobs ───────────────────────────────────────────────
+  // Initial backfill on startup (safe: limited lookback, wrapped in transaction)
+  try {
+    const r = historyRollups.backfillInitial?.();
+    if (r?.changed) console.log(`[ROLLUPS] Startup backfill: ${r.changed} rows upserted`);
+  } catch (e) { console.error('[ROLLUPS] startup backfill error:', e.message); }
+
+  // 5m rollups — every 5 minutes (4h lookback)
+  setInterval(() => {
+    try {
+      const r = historyRollups.build5mRollups?.({ lookbackMs: 4 * 3600000 });
+      if (r?.changed) console.log(`[ROLLUPS] 5m: upserted ${r.changed}`);
+    } catch (e) { console.error('[ROLLUPS] 5m error:', e.message); }
+  }, 5 * 60 * 1000);
+
+  // 1h rollups — every 60 minutes (48h lookback)
+  setInterval(() => {
+    try {
+      const r = historyRollups.buildMissingHourlyRollups({ lookbackHours: 48 });
+      if (r?.changed) console.log(`[ROLLUPS] 1h: upserted ${r.changed}`);
+    } catch (e) { console.error('[ROLLUPS]', e.message); }
+  }, 60 * 60 * 1000);
+
+  // 1d rollups — every 60 minutes (7 day lookback to keep today current)
+  setInterval(() => {
+    try {
+      const r = historyRollups.buildDailyRollups?.({ lookbackDays: 7 });
+      if (r?.changed) console.log(`[ROLLUPS] 1d: upserted ${r.changed}`);
+    } catch (e) { console.error('[ROLLUPS] 1d error:', e.message); }
+  }, 60 * 60 * 1000);
 
   // ── Automation engine ─────────────────────────────────────────────────
   const engine = new AutomationEngine({ db: dbApi.db, broadcast: wsApi.broadcast });
@@ -224,7 +264,7 @@ async function main() {
   });
 
   // 3. Admin
-  app.use('/api/admin', initAdminRoutes({ db: dbApi.db, users, requireAdmin }));
+  app.use('/api/admin', initAdminRoutes({ db: dbApi.db, users, requireAdmin, historyRollups, mqttApi }));
 
   // 4. Modules (BEFORE /api to avoid prefix collision)
   app.use('/api/modules', initModuleRoutes({ db: dbApi.db, requireLogin, requireEngineer: requireEngineerAccess, access }));
@@ -236,6 +276,7 @@ async function main() {
   const integrationRegistry = createIntegrationRegistry();
   integrationRegistry.register(createEspHomeAdapter());
   const nativeSessions = createNativeSessionManager({ db: dbApi.db, broadcast: wsApi.broadcast });
+  engine.setNativeSessionManager(nativeSessions, integrationRegistry.get('esphome'));
 
   // 6. Domain API routes — all require login (applied per-router or per-route)
   const apiCtx = { dbApi, db: dbApi.db, access, auth, hasFeature, engine, mqttApi, wsApi, notifyApi, scenesApi, users, requireLogin, requireEngineerAccess, requireAdmin, integrationRegistry, nativeSessions, ...moduleHelpers };
@@ -256,7 +297,7 @@ async function main() {
   app.use('/api', initRoutes({ auth, hasFeature, requireLogin, users }));
 
   // Integration adapters (mount protocol-specific route trees)
-  integrationRegistry.mountAll(app, { wsApi, dataDir: path.join(process.cwd(), 'data'), db: dbApi.db, requireLogin, requireEngineerAccess, access });
+  integrationRegistry.mountAll(app, { wsApi, dataDir: path.join(process.cwd(), 'data'), db: dbApi.db, mqttApi, nativeSessions, requireLogin, requireEngineerAccess, access });
 
   // Auto-load module route handlers from src/modules/
   const modulesDir = path.join(__dirname, 'modules');

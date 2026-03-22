@@ -140,6 +140,11 @@ class AutomationEngine {
 
   setMqttApi(api) { this.mqttApi = api; }
 
+  setNativeSessionManager(nativeSessions, adapter) {
+    this.nativeSessions = nativeSessions;
+    this.nativeAdapter = adapter;
+  }
+
   // ── Context helpers (passed to each handler) ──────────────────────────
   makeCtx(instance) {
     const engine = this;
@@ -442,6 +447,25 @@ class AutomationEngine {
       return { ok: false, blocked: true, error: "io_forced", forced };
     }
 
+    // Try native session first (for external devices connected via ESPHome native API)
+    if (this.nativeSessions && this.nativeAdapter) {
+      const deviceName = String(io.device_id || '').trim();
+      const sessionKey = `esphome::${deviceName}`;
+      const sessions = this.nativeSessions.list ? this.nativeSessions.list('esphome') : [];
+      const hasActive = sessions.some(s => {
+        const name = String(s.device_name || '').trim().toLowerCase();
+        return name === deviceName.toLowerCase();
+      });
+      if (hasActive) {
+        const action = normalized === true || normalized === 1 || normalized === 'on' || normalized === '1' ? 'on' : 'off';
+        const command = { entity_key: io.key, action };
+        const payload = { device_name: deviceName };
+        // Fire-and-forget — consistent with MQTT which is also async
+        this.nativeSessions.execute(this.nativeAdapter, 'esphome', payload, command).catch(() => {});
+        return { ok: true, value: normalized, sent: { via: 'native', device: deviceName, key: io.key, action } };
+      }
+    }
+
     if (!this.mqttApi) return { ok: false, error: "mqtt_not_ready" };
     let sent = null;
     if (this.mqttApi.sendCommand) {
@@ -558,6 +582,27 @@ class AutomationEngine {
     // Re-evaluate
     const instances = this._getInstances.all().filter(i => i.id === instance_id);
     instances.forEach(i => this.evaluate(i));
+  }
+
+  getInstance(instance_id) {
+    return this._getInstances.all().find(i => i.id === Number(instance_id)) || null;
+  }
+
+  getMappings(instance_id) {
+    return this._getMappings.all(Number(instance_id));
+  }
+
+  getIO(io_id) {
+    return this._getIOById.get(Number(io_id)) || null;
+  }
+
+  logAction(instance_id, action, reason) {
+    this._logAction.run({
+      instance_id: Number(instance_id),
+      action,
+      reason,
+      ts: Date.now(),
+    });
   }
 
   getSettings(instance_id) {

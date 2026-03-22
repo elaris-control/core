@@ -2,12 +2,27 @@
 
 const { buildNativeRuntimePayload, probeNativeDevice, discoverNativeAssist } = require('./native_live');
 const { safeName } = require('../../esphome/schema');
-const { toIsoNow } = require('../../esphome/helpers');
-const { loadEspHomeClientModule } = require('./module-loader');
+
+let modulePromise = null;
+
+function toIsoNow() {
+  return new Date().toISOString();
+}
 
 function readJsonSafe(value, fallback) {
   try { return value ? JSON.parse(value) : (fallback == null ? null : fallback); }
   catch (_) { return fallback == null ? null : fallback; }
+}
+
+async function loadEspHomeClientModule() {
+  if (!modulePromise) {
+    modulePromise = import('esphome-client').catch(function(err) {
+      var wrapped = new Error('esphome_client_dependency_missing');
+      wrapped.cause = err;
+      throw wrapped;
+    });
+  }
+  return modulePromise;
 }
 
 function normalizeType(raw, entity) {
@@ -652,11 +667,9 @@ function createEspHomeNativeClient(ctx = {}, initialPayload = {}) {
   function waitForInitialReady(timeoutMs) {
     return new Promise(function(resolve, reject) {
       var done = false;
-      var poll;
       var timer = setTimeout(function() {
         if (done) return;
         done = true;
-        clearInterval(poll);
         reject(new Error('native_stream_timeout'));
       }, timeoutMs);
       function finish() {
@@ -667,7 +680,7 @@ function createEspHomeNativeClient(ctx = {}, initialPayload = {}) {
         clearTimeout(timer);
         resolve();
       }
-      poll = setInterval(function() {
+      var poll = setInterval(function() {
         if (done) return clearInterval(poll);
         finish();
       }, 150);
@@ -718,7 +731,7 @@ function createEspHomeNativeClient(ctx = {}, initialPayload = {}) {
         try { await waitForInitialReady(Math.min(Math.max(Number(merged.connect_timeout_ms || 5000), 1500), 12000)); }
         catch (_) {}
       }
-      if (!state.connected && !entityList.length) {
+      if (!entityList.length) {
         var discovery = discoverNativeAssist(db, merged);
         if (Array.isArray(discovery.entities) && discovery.entities.length) {
           entityList = discovery.entities.slice();
@@ -836,11 +849,6 @@ function createEspHomeNativeClient(ctx = {}, initialPayload = {}) {
       return emitUpdate({ command_result: commandResult, state_snapshot: state.state_snapshot });
     },
     async disconnect() {
-      try {
-        if (db && currentRuntime && currentRuntime.existing) {
-          persistNativeRuntime(db, currentRuntime, { status: 'imported', native_state: 'disconnected' });
-        }
-      } catch (_) {}
       if (currentClient && typeof currentClient.disconnect === 'function') {
         try { currentClient.disconnect(); }
         catch (_) {}
@@ -854,6 +862,7 @@ function createEspHomeNativeClient(ctx = {}, initialPayload = {}) {
       state.transport_state = 'idle';
       state.protocol_phase = 'disconnect';
       state.error = null;
+      emitUpdate();
       return emitUpdate();
     },
   };

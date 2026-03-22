@@ -137,6 +137,8 @@
         <button class="range-btn active" data-h="24">24h</button>
         <button class="range-btn" data-h="48">2d</button>
         <button class="range-btn" data-h="168">7d</button>
+        <button class="range-btn" data-h="720">30d</button>
+        <button class="range-btn" data-h="2160">90d</button>
       </div>
 
       <span class="pill" id="sitePill" style="font-size:11px">—</span>
@@ -248,7 +250,10 @@ async function loadChart(io){
     if (!card) return;
 
     var meta = card.querySelector('.chart-meta');
-    meta.innerHTML = '<span style="font-size:11px;color:var(--muted)">'+points.length+' pts · last '+hours+'h</span>';
+    var src = data.source === 'rollup' ? 'rollup' : 'raw';
+    var srcColor = src === 'rollup' ? 'var(--blue)' : 'var(--muted)';
+    meta.innerHTML = '<span style="font-size:11px;color:var(--muted)">'+points.length+' pts · last '+hours+'h</span>' +
+      '<span style="display:inline-flex;align-items:center;margin-left:8px;padding:2px 7px;border-radius:999px;border:1px solid '+(src==='rollup'?'rgba(29,140,255,.28)':'var(--line)')+';color:'+srcColor+';font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em">'+src+'</span>';
 
     // Stats
     var statsEl = document.getElementById('stats-'+io.id);
@@ -267,7 +272,8 @@ async function loadChart(io){
           '<span class="chart-stat">Now: <strong>'+last.toFixed(1)+unit+'</strong></span>' +
           '<span class="chart-stat">Min: <strong>'+mn.toFixed(1)+unit+'</strong></span>' +
           '<span class="chart-stat">Max: <strong>'+mx.toFixed(1)+unit+'</strong></span>' +
-          '<span class="chart-stat">Avg: <strong>'+avg.toFixed(1)+unit+'</strong></span>';
+          '<span class="chart-stat">Avg: <strong>'+avg.toFixed(1)+unit+'</strong></span>' +
+          '<span class="chart-stat">Source: <strong>'+(data.source === 'rollup' ? 'Hourly rollup' : 'Raw events')+'</strong></span>';
       }
     }
 
@@ -275,7 +281,7 @@ async function loadChart(io){
     var wrapEl = document.getElementById('wrap-'+io.id);
     var labelsEl = document.getElementById('tlabels-'+io.id);
     if (!points.length){
-      wrapEl.innerHTML = '<div class="chart-empty">No data in this period.<br><span style="font-size:11px;color:var(--muted)">Make sure events are being received via MQTT.</span></div>';
+      wrapEl.innerHTML = '<div class="chart-empty">No data in this period.<br><span style="font-size:11px;color:var(--muted)">'+(data.source === 'rollup' ? 'No rollup data yet for this long range.' : 'Make sure events are being received via MQTT.')+'</span></div>';
       return;
     }
 

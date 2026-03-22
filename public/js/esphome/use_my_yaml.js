@@ -2,6 +2,15 @@
 var _umyCurrentYaml = '';
 var _umyAddedPeripherals = [];
 
+function umyError(msg) {
+  var term = document.getElementById('umyTerminal');
+  if (term) {
+    term.style.display = 'block';
+    term.innerHTML += '<span class="tl-error">' + escHtml(msg) + '</span>\n';
+  }
+  alert(msg);
+}
+
 function umySelectedInstallerCard() {
   try {
     var id = Number((typeof window !== 'undefined' && window.selectedInstallerDeviceId) || 0);
@@ -99,6 +108,11 @@ function toggleUseMyYaml() {
     umyApplyContextDefaults();
   } else {
     p.style.display = 'none';
+    // Reset flow chooser to wizard state
+    var _fw = document.getElementById('flowBtnWizard'); if (_fw) _fw.className = 'btn btnPrimary';
+    var _fy = document.getElementById('flowBtnYaml'); if (_fy) _fy.className = 'btn';
+    var _fe = document.getElementById('flowBtnExternal'); if (_fe) _fe.className = 'btn';
+    var _stp = document.getElementById('stepper'); if (_stp) _stp.style.display = '';
     // Restore the current wizard step
     if (typeof currentStep !== 'undefined') {
       var cur = document.getElementById('step' + currentStep);
@@ -137,13 +151,13 @@ async function umyParse() {
 }
 
 async function umyAddPeripheral() {
-  if (!_umyCurrentYaml) { alert('Parse YAML first.'); return; }
+  if (!_umyCurrentYaml) { umyError('Parse YAML first.'); return; }
   var type = document.getElementById('umyAddType').value;
   var pin = document.getElementById('umyAddPin').value.trim();
   var name = document.getElementById('umyAddName').value.trim() || type;
   var key = document.getElementById('umyAddKey').value.trim().replace(/[^a-z0-9_]/g, '_') || name.toLowerCase().replace(/\s+/g, '_');
   var isI2c = typeof apIsI2cType === 'function' && apIsI2cType(type);
-  if (!isI2c && !pin) { alert('Enter pin (e.g. GPIO32).'); return; }
+  if (!isI2c && !pin) { umyError('Enter pin (e.g. GPIO32).'); return; }
   document.getElementById('umyFlashMsg').textContent = 'Adding…';
   try {
     var r = await api('/esphome/add-peripheral-to-draft', {
@@ -162,20 +176,26 @@ async function umyAddPeripheral() {
 }
 
 async function umyFlash() {
-  if (!_umyCurrentYaml) { alert('Parse YAML first.'); return; }
+  if (!_umyCurrentYaml) { umyError('Parse YAML first.'); return; }
   var device_name = document.getElementById('umyDeviceName').value.trim();
   var wifi_ssid = document.getElementById('umyWifiSsid').value.trim();
   var wifi_pass = document.getElementById('umyWifiPass').value;
   var mqtt_host = document.getElementById('umyMqttHost').value.trim();
   var port = document.getElementById('umyPort').value.trim();
-  if (!device_name) { alert('Enter device name.'); return; }
-  if (!port) { alert('Enter USB port or OTA IP.'); return; }
+  if (!device_name) { umyError('Enter device name.'); return; }
+  if (!port) { umyError('Enter USB port or OTA IP.'); return; }
   var net = umyDetectNetwork(_umyCurrentYaml);
-  if (net.hasWifi && net.hasEthernet) { alert('This YAML contains both WiFi and Ethernet. Keep only one before flashing.'); return; }
+  if (net.hasWifi && net.hasEthernet) { umyError('This YAML contains both WiFi and Ethernet. Keep only one before flashing.'); return; }
+  var selectedCard = umySelectedInstallerCard();
+  var usingUsb = /^\/dev\//.test(port);
+  var transportLabel = usingUsb ? 'USB flash' : 'OTA flash';
   umySetFlashButton('running');
-  document.getElementById('umyFlashMsg').textContent = 'Flashing…';
+  document.getElementById('umyFlashMsg').textContent = transportLabel + ' started…';
   document.getElementById('umyTerminal').style.display = 'block';
-  document.getElementById('umyTerminal').innerHTML = '<span class="tl-info">Starting flash…</span>\n';
+  document.getElementById('umyTerminal').innerHTML = '<span class="tl-info">Starting ' + escHtml(transportLabel) + '…</span>\n';
+  if (!usingUsb) document.getElementById('umyTerminal').innerHTML += '<span class="tl-warn">OTA is best for devices already flashed with ESPHome.</span>\n';
+  else document.getElementById('umyTerminal').innerHTML += '<span class="tl-info">USB is the safest path for first flash and recovery.</span>\n';
+  if (selectedCard) document.getElementById('umyTerminal').innerHTML += '<span class="tl-info">Target card: ' + escHtml(selectedCard.friendly_name || selectedCard.name || ('Device #' + selectedCard.id)) + '</span>\n';
   try {
     var r = await api('/esphome/flash-from-yaml', {
       method: 'POST',
@@ -199,8 +219,13 @@ async function umyFlash() {
     document.getElementById('umyFlashMsg').textContent = 'Flash started. Watch the log below.';
   } catch(e) {
     umySetFlashButton('retry');
-    document.getElementById('umyFlashMsg').textContent = 'Error: ' + e.message;
-    document.getElementById('umyTerminal').innerHTML += '<span class="tl-error">' + escHtml(e.message) + '</span>\n';
+    var msg = String(e && e.message || e || 'Unknown error');
+    if (/esphome_not_installed/i.test(msg)) msg = 'ESPHome is not installed yet. Install ESPHome first, then retry.';
+    else if (/flash_in_progress/i.test(msg)) msg = 'Another ESPHome flash is already running. Wait for it to finish or cancel it first.';
+    else if (/port_or_ip_required|missing_target_port_or_ip/i.test(msg)) msg = 'Select a USB port for first flash, or enter a device IP for OTA reflash.';
+    else if (/validation_failed/i.test(msg)) msg = 'Validation failed. Review the generated YAML/validation output before flashing.';
+    document.getElementById('umyFlashMsg').textContent = 'Error: ' + msg;
+    document.getElementById('umyTerminal').innerHTML += '<span class="tl-error">' + escHtml(msg) + '</span>\n';
   }
 }
 

@@ -260,6 +260,10 @@ function mountPeripheralRoutes({ app, db, wsApi, dataDir, cfgDir, requireEnginee
       if (!pin || gpio === null || seenPins.has(pin)) continue;
       const usage = usedPinMap.get(pin);
       const usageItems = portUsageById.get(String(port.id || '').trim()) || [];
+      const replaceablePeripheral = usageItems.length === 1 ? usageItems[0] : null;
+      const replaceableTypes = replaceablePeripheral && String(replaceablePeripheral.type || '').toLowerCase() === 'di'
+        ? ['ds18b20', 'dht11', 'dht']
+        : [];
       sensorPorts.push({
         value: pin,
         portId: port.id,
@@ -272,6 +276,10 @@ function mountPeripheralRoutes({ app, db, wsApi, dataDir, cfgDir, requireEnginee
         usageKinds: usage ? [...usage.kinds] : [],
         usageCount: usageItems.length,
         usedBy: usageItems.map((u) => [u.name || null, u.type ? `(${u.type})` : null].filter(Boolean).join(' ')),
+        replaceable: !!replaceablePeripheral,
+        replaceableTypes,
+        replaceMode: replaceablePeripheral ? 'edit' : null,
+        replaceTarget: replaceablePeripheral ? { key: replaceablePeripheral.key || '', name: replaceablePeripheral.name || '', type: replaceablePeripheral.type || '' } : null,
         noPullup: rules.noPullup.includes(gpio),
         inputOnly: rules.inputOnly.includes(gpio),
         generic: false,
@@ -294,7 +302,7 @@ function mountPeripheralRoutes({ app, db, wsApi, dataDir, cfgDir, requireEnginee
           group: 'gpio',
           protocols: ['gpio'],
           hint: [supports.includes('analog') ? 'ADC capable' : null, rules.inputOnly.includes(gpio) ? 'input-only' : null, rules.noPullup.includes(gpio) ? 'no internal pull-up' : null, rules.strapping.includes(gpio) ? 'strapping pin' : null].filter(Boolean).join(' · ') || 'Generic GPIO',
-          supports, inUse: !!usage, usageKinds: usage ? [...usage.kinds] : [], usageCount: 0, usedBy: [], noPullup: rules.noPullup.includes(gpio), inputOnly: rules.inputOnly.includes(gpio), generic: true,
+          supports, inUse: !!usage, usageKinds: usage ? [...usage.kinds] : [], usageCount: 0, usedBy: [], replaceable: false, replaceableTypes: [], replaceMode: null, replaceTarget: null, noPullup: rules.noPullup.includes(gpio), inputOnly: rules.inputOnly.includes(gpio), generic: true,
           sharedBus: false,
           multiInstance: false,
         });

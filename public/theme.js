@@ -12,8 +12,10 @@
   }
 
   function current(){
-    try{ const v = localStorage.getItem(KEY); return (v === "light") ? "light" : "dark"; }
-    catch(e){ return "dark"; }
+    try{
+      var stored = localStorage.getItem(KEY);
+      return stored === "light" ? "light" : "dark";
+    }catch(e){ return "dark"; }
   }
 
   function init(){

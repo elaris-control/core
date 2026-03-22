@@ -110,83 +110,102 @@ function parseOneWireBuses(yamlText) {
   return buses;
 }
 
-function getSensorSectionRanges(lines) {
-  let sensorStart = -1;
-  let sensorEnd = lines.length;
+function getSectionRange(lines, sectionName) {
+  let start = -1;
+  let end = lines.length;
+  const rx = new RegExp('^' + String(sectionName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':\\s*$', 'i');
   for (let i = 0; i < lines.length; i++) {
-    if (/^sensor:\s*$/i.test(lines[i])) { sensorStart = i; break; }
+    if (rx.test(lines[i])) { start = i; break; }
   }
-  if (sensorStart < 0) return { sensorStart: -1, sensorEnd: -1 };
-  for (let i = sensorStart + 1; i < lines.length; i++) {
-    if (lines[i].length > 0 && /^[a-zA-Z]/.test(lines[i])) { sensorEnd = i; break; }
+  if (start < 0) return { start: -1, end: -1 };
+  for (let i = start + 1; i < lines.length; i++) {
+    if (lines[i].length > 0 && /^[a-zA-Z]/.test(lines[i])) { end = i; break; }
   }
-  return { sensorStart, sensorEnd };
+  return { start, end };
 }
 
 function parseManagedPeripherals(yamlText) {
   const lines = String(yamlText || '').split(/\r?\n/);
   const buses = parseOneWireBuses(yamlText);
   const out = [];
-  const { sensorStart, sensorEnd } = getSensorSectionRanges(lines);
-  if (sensorStart < 0) return out;
-  let i = sensorStart + 1;
-  while (i < sensorEnd) {
-    const platformMatch = lines[i].match(/^\s*-\s*platform:\s*([a-z_][a-z0-9_]*)\s*$/i);
-    if (!platformMatch) { i++; continue; }
-    const platform = platformMatch[1].toLowerCase();
-    let end = i + 1;
-    while (end < sensorEnd && !/^\s*-\s*platform:\s*([a-z_][a-z0-9_]*)\s*$/i.test(lines[end])) end++;
-    const block = lines.slice(i, end);
-    const lineVal = (re) => {
-      const line = block.find((ln) => re.test(ln));
-      return line ? String(line).replace(re, '').trim().replace(/^['"]|['"]$/g, '') : '';
-    };
-    const nestedVal = (section, re) => {
-      const idx = block.findIndex((ln) => new RegExp(`^\\s*${section}:\\s*$`, 'i').test(ln));
-      if (idx < 0) return '';
-      for (let j = idx + 1; j < block.length; j++) {
-        if (/^\s{2}[a-z_][a-z0-9_]*:\s*$/i.test(block[j])) break;
-        if (re.test(block[j])) return String(block[j]).replace(re, '').trim().replace(/^['"]|['"]$/g, '');
+  const sensorRange = getSectionRange(lines, 'sensor');
+  const binaryRange = getSectionRange(lines, 'binary_sensor');
+
+  const parseRange = (range, kind) => {
+    if (range.start < 0) return;
+    let i = range.start + 1;
+    while (i < range.end) {
+      const platformMatch = lines[i].match(/^\s*-\s*platform:\s*([a-z_][a-z0-9_]*)\s*$/i);
+      if (!platformMatch) { i++; continue; }
+      const platform = platformMatch[1].toLowerCase();
+      let end = i + 1;
+      while (end < range.end && !/^\s*-\s*platform:\s*([a-z_][a-z0-9_]*)\s*$/i.test(lines[end])) end++;
+      const block = lines.slice(i, end);
+      const lineVal = (re) => {
+        const line = block.find((ln) => re.test(ln));
+        return line ? String(line).replace(re, '').trim().replace(/^['"]|['"]$/g, '') : '';
+      };
+      const nestedVal = (section, re) => {
+        const idx = block.findIndex((ln) => new RegExp(`^\\s*${section}:\\s*$`, 'i').test(ln));
+        if (idx < 0) return '';
+        for (let j = idx + 1; j < block.length; j++) {
+          if (/^\s{2}[a-z_][a-z0-9_]*:\s*$/i.test(block[j])) break;
+          if (re.test(block[j])) return String(block[j]).replace(re, '').trim().replace(/^['"]|['"]$/g, '');
+        }
+        return '';
+      };
+
+      if (kind === 'sensor') {
+        if (platform === 'dallas_temp') {
+          const key = lineVal(/^\s*id:\s*/i);
+          if (key) {
+            const busId = lineVal(/^\s*one_wire_id:\s*/i);
+            out.push({ type: 'ds18b20', key, name: lineVal(/^\s*name:\s*/i), pin: buses.get(busId) || '', bus_ref: busId || '', start: i, end, removeKeys: [key] });
+          }
+        } else if (platform === 'dht') {
+          const model = lineVal(/^\s*model:\s*/i).toUpperCase();
+          const key = nestedVal('temperature', /^\s*id:\s*/i);
+          if (key) {
+            const pin = lineVal(/^\s*pin:\s*/i);
+            const rawName = nestedVal('temperature', /^\s*name:\s*/i);
+            const baseName = rawName.replace(/\s+Temperature$/i, '').trim() || rawName;
+            out.push({ type: model === 'DHT11' ? 'dht11' : 'dht', key, name: baseName, pin, start: i, end, removeKeys: [key, `${key}_hum`] });
+          }
+        } else if (platform === 'adc') {
+          const key = lineVal(/^\s*id:\s*/i);
+          if (key) out.push({ type: 'analog', key, name: lineVal(/^\s*name:\s*/i), pin: lineVal(/^\s*pin:\s*/i), start: i, end, removeKeys: [key] });
+        } else if (platform === 'bh1750') {
+          const key = lineVal(/^\s*id:\s*/i);
+          if (key) out.push({ type: 'bh1750', key, name: lineVal(/^\s*name:\s*/i), address: lineVal(/^\s*address:\s*/i) || '0x23', bus_id: lineVal(/^\s*i2c_id:\s*/i) || '', bus_ref: lineVal(/^\s*i2c_id:\s*/i) || '', start: i, end, removeKeys: [key] });
+        } else if (platform === 'sht3xd') {
+          const key = nestedVal('temperature', /^\s*id:\s*/i);
+          if (key) {
+            const rawName = nestedVal('temperature', /^\s*name:\s*/i);
+            const baseName = rawName.replace(/\s+Temperature$/i, '').trim() || rawName;
+            out.push({ type: 'sht3x', key, name: baseName, address: lineVal(/^\s*address:\s*/i) || '0x44', bus_id: lineVal(/^\s*i2c_id:\s*/i) || '', bus_ref: lineVal(/^\s*i2c_id:\s*/i) || '', start: i, end, removeKeys: [key, `${key}_hum`] });
+          }
+        } else if (platform === 'pulse_counter') {
+          const key = lineVal(/^\s*id:\s*/i);
+          if (key) {
+            const pin = lineVal(/^\s*\s*number:\s*/i) || lineVal(/^\s*pin:\s*/i);
+            out.push({ type: 'pulse_counter', key, name: lineVal(/^\s*name:\s*/i), pin, start: i, end, removeKeys: [key] });
+          }
+        }
+      } else if (kind === 'binary_sensor') {
+        if (platform === 'gpio') {
+          const key = lineVal(/^\s*id:\s*/i);
+          if (key) {
+            out.push({ type: 'di', key, name: lineVal(/^\s*name:\s*/i), pin: lineVal(/^\s*pin:\s*/i), start: i, end, removeKeys: [key] });
+          }
+        }
       }
-      return '';
-    };
-    if (platform === 'dallas_temp') {
-      const key = lineVal(/^\s*id:\s*/i);
-      if (key) {
-        const busId = lineVal(/^\s*one_wire_id:\s*/i);
-        out.push({ type: 'ds18b20', key, name: lineVal(/^\s*name:\s*/i), pin: buses.get(busId) || '', bus_ref: busId || '', start: i, end, removeKeys: [key] });
-      }
-    } else if (platform === 'dht') {
-      const model = lineVal(/^\s*model:\s*/i).toUpperCase();
-      const key = nestedVal('temperature', /^\s*id:\s*/i);
-      if (key) {
-        const pin = lineVal(/^\s*pin:\s*/i);
-        const rawName = nestedVal('temperature', /^\s*name:\s*/i);
-        const baseName = rawName.replace(/\s+Temperature$/i, '').trim() || rawName;
-        out.push({ type: model === 'DHT11' ? 'dht11' : 'dht', key, name: baseName, pin, start: i, end, removeKeys: [key, `${key}_hum`] });
-      }
-    } else if (platform === 'adc') {
-      const key = lineVal(/^\s*id:\s*/i);
-      if (key) out.push({ type: 'analog', key, name: lineVal(/^\s*name:\s*/i), pin: lineVal(/^\s*pin:\s*/i), start: i, end, removeKeys: [key] });
-    } else if (platform === 'bh1750') {
-      const key = lineVal(/^\s*id:\s*/i);
-      if (key) out.push({ type: 'bh1750', key, name: lineVal(/^\s*name:\s*/i), address: lineVal(/^\s*address:\s*/i) || '0x23', bus_id: lineVal(/^\s*i2c_id:\s*/i) || '', bus_ref: lineVal(/^\s*i2c_id:\s*/i) || '', start: i, end, removeKeys: [key] });
-    } else if (platform === 'sht3xd') {
-      const key = nestedVal('temperature', /^\s*id:\s*/i);
-      if (key) {
-        const rawName = nestedVal('temperature', /^\s*name:\s*/i);
-        const baseName = rawName.replace(/\s+Temperature$/i, '').trim() || rawName;
-        out.push({ type: 'sht3x', key, name: baseName, address: lineVal(/^\s*address:\s*/i) || '0x44', bus_id: lineVal(/^\s*i2c_id:\s*/i) || '', bus_ref: lineVal(/^\s*i2c_id:\s*/i) || '', start: i, end, removeKeys: [key, `${key}_hum`] });
-      }
-    } else if (platform === 'pulse_counter') {
-      const key = lineVal(/^\s*id:\s*/i);
-      if (key) {
-        const pin = lineVal(/^\s*\s*number:\s*/i) || lineVal(/^\s*pin:\s*/i);
-        out.push({ type: 'pulse_counter', key, name: lineVal(/^\s*name:\s*/i), pin, start: i, end, removeKeys: [key] });
-      }
+
+      i = end;
     }
-    i = end;
-  }
+  };
+
+  parseRange(sensorRange, 'sensor');
+  parseRange(binaryRange, 'binary_sensor');
   return out;
 }
 

@@ -49,6 +49,7 @@ db.exec(`
       name TEXT NOT NULL,
       zone_id INTEGER,
       created_ts INTEGER NOT NULL,
+      stale INTEGER NOT NULL DEFAULT 0,
       UNIQUE(device_id, group_name, key)
     );
 
@@ -96,6 +97,22 @@ db.exec(`
       value TEXT,
       updated_ts INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS io_history_rollups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      io_id INTEGER NOT NULL,
+      bucket_start_ts INTEGER NOT NULL,
+      bucket_size TEXT NOT NULL,
+      min_value REAL,
+      max_value REAL,
+      avg_value REAL,
+      last_value REAL,
+      sample_count INTEGER NOT NULL DEFAULT 0,
+      created_ts INTEGER NOT NULL,
+      UNIQUE(io_id, bucket_start_ts, bucket_size)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_io_history_rollups_lookup ON io_history_rollups(io_id, bucket_size, bucket_start_ts);
   `);
 
   // Ensure optional columns exist (safe for older DBs)
@@ -118,6 +135,7 @@ db.exec(`
   ensureIoCol("port_id", `ALTER TABLE io ADD COLUMN port_id TEXT;`);
   ensureIoCol("bus_id", `ALTER TABLE io ADD COLUMN bus_id TEXT;`);
   ensureIoCol("board_profile_id", `ALTER TABLE io ADD COLUMN board_profile_id TEXT;`);
+  ensureIoCol("stale", `ALTER TABLE io ADD COLUMN stale INTEGER NOT NULL DEFAULT 0;`);
   try{
     const zCols = db.prepare(`PRAGMA table_info(zones);`).all().map(r=>r.name);
     if(!zCols.includes("site_id")) db.exec(`ALTER TABLE zones ADD COLUMN site_id INTEGER;`);
@@ -154,6 +172,7 @@ db.exec(`
     if (!esCols2.includes('ownership_mode')) db.exec(`ALTER TABLE esphome_devices ADD COLUMN ownership_mode TEXT NOT NULL DEFAULT 'managed_internal'`);
     if (!esCols2.includes('config_source'))  db.exec(`ALTER TABLE esphome_devices ADD COLUMN config_source TEXT`);
     if (!esCols2.includes('read_only'))      db.exec(`ALTER TABLE esphome_devices ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0`);
+    if (!esCols2.includes('encryption_key')) db.exec(`ALTER TABLE esphome_devices ADD COLUMN encryption_key TEXT`);
   } catch (_) {}
   try {
     const cfgCols = db.prepare('PRAGMA table_info(esphome_generated_configs)').all().map(r => r.name);
@@ -188,6 +207,7 @@ db.exec(`
       ownership_mode TEXT NOT NULL DEFAULT 'managed_internal',
       config_source TEXT,
       read_only INTEGER NOT NULL DEFAULT 0,
+      encryption_key TEXT,
       last_seen_at TEXT,
       deleted_at TEXT,
       deleted_reason TEXT,
@@ -657,22 +677,53 @@ db.exec(`
     return { ok: true, reason: 'pending_upserted', canonical };
   }
 
+  const markAllIoStale  = db.prepare(`UPDATE io SET stale=1 WHERE device_id=?`);
+  const clearIoStale    = db.prepare(`UPDATE io SET stale=0 WHERE device_id=? AND group_name=? AND key=?`);
+  const listStaleIO     = db.prepare(`SELECT id FROM io WHERE device_id=? AND stale=1`);
+  const deleteStaleIO   = db.prepare(`DELETE FROM io WHERE id=?`);
+  const deleteModMapById = db.prepare(`DELETE FROM module_mappings WHERE io_id=?`);
+
   function noteDeviceConfig({ deviceId, config, ts, retained }) {
     if (!config || !deviceId) return;
     ensureDeviceAssigned(deviceId);
     const entities = Array.isArray(config.entities) ? config.entities : [];
     const boardProfileId = String(config?.board_profile_id || getDeviceBoardProfileId(deviceId) || '').trim() || null;
+
+    const reportedKeys = [];
     for (const e of entities) {
       if (!e?.key) continue;
       const group = e.group || (e.type === 'relay' ? 'state' : 'tele');
       const canonical = canonicalizePendingIdentity({ deviceId, group, key: e.key, source: e.source || e.port_id || e.bus_id || e.pin || null, boardProfileId });
+      reportedKeys.push({ group_name: canonical.group_name, key: canonical.key });
       if (isApprovedIO.get(deviceId, canonical.group_name, canonical.key)) continue;
       if (canonical.port_id && findApprovedIOByPath.get(deviceId, canonical.port_id, canonical.source || canonical.port_id, canonical.port_id)) continue;
       if (isBlockedIO.get(deviceId, canonical.group_name, canonical.key)) continue;
       upsertPendingIO.run({ device_id: deviceId, key: canonical.key, group_name: canonical.group_name, ts, last_value: null });
     }
+
+    // Mark IOs that no longer appear in the device config as stale
+    if (reportedKeys.length > 0) {
+      db.transaction(() => {
+        markAllIoStale.run(deviceId);
+        for (const { group_name, key } of reportedKeys) {
+          clearIoStale.run(deviceId, group_name, key);
+        }
+      })();
+    }
+
     normalizePendingRowsForDevice(deviceId);
     upsertEspHomeRegistry({ deviceId, retained, reviveDeleted: !retained, ts });
+  }
+
+  function removeStaleIO(deviceId) {
+    const rows = listStaleIO.all(deviceId);
+    db.transaction(() => {
+      for (const { id } of rows) {
+        deleteModMapById.run(id);
+        deleteStaleIO.run(id);
+      }
+    })();
+    return rows.length;
   }
 
   // ── Zones ──────────────────────────────────────────────────────────────────
@@ -958,6 +1009,7 @@ db.exec(`
 
     noteDeviceAndMaybePendingIO,
     noteDeviceConfig,
+    removeStaleIO,
     listPendingIO,
     approvePending,
     listIOByDevice,

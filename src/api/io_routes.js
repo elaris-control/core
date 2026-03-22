@@ -135,25 +135,62 @@ function initIoRoutes({ db, engine, access, requireLogin, requireEngineerAccess 
   router.get('/:io_id/history', requireLogin, (req, res) => {
     try {
       const io_id = Number(req.params.io_id);
-      const hours = Math.min(Number(req.query.hours) || 24, 168);
+      const hours = Math.min(Number(req.query.hours) || 24, 24 * 365);
       const since = Date.now() - hours * 3600 * 1000;
       const io = db.prepare('SELECT * FROM io WHERE id=?').get(io_id);
       if (!io) return res.status(404).json({ ok: false, error: 'IO not found' });
       const siteRef = access.getIoSiteRef(io_id);
       if (!siteRef || !access.canAccessSiteRef(req, siteRef)) return res.status(403).json({ ok: false, error: 'forbidden' });
-      const rows = db.prepare(`
-        SELECT payload as value, ts FROM events
-        WHERE device_id=? AND topic LIKE ? AND ts >= ?
-        ORDER BY ts ASC LIMIT 2000
-      `).all(io.device_id, `%/${io.key}`, since);
       const isNumeric = ['sensor', 'analog', 'ai'].includes(io.type);
-      const points = rows.map(r => {
-        let v;
-        if (isNumeric) { v = parseFloat(r.value); if (isNaN(v)) return null; }
-        else { const s = String(r.value).toUpperCase().trim(); v = (s === 'ON' || s === '1' || s === 'TRUE') ? 1 : 0; }
-        return { ts: r.ts, v };
-      }).filter(Boolean);
-      res.json({ ok: true, io: { id: io_id, key: io.key, name: io.name || io.key, type: io.type, unit: io.unit || '' }, points });
+      let points = [];
+      let source = 'raw';
+
+      // ── Tiered rollup picker ────────────────────────────────────────────
+      // hours ≤ 2          → raw events
+      // 2 < hours ≤ 48     → 5m rollups
+      // 48 < hours ≤ 720   → 1h rollups
+      // hours > 720        → 1d rollups
+      function pickBucket(h) {
+        if (h <= 2)   return null;   // raw
+        if (h <= 48)  return { size: '5m',  label: 'rollup_5m'  };
+        if (h <= 720) return { size: '1h',  label: 'rollup_1h'  };
+        return               { size: '1d',  label: 'rollup_1d'  };
+      }
+
+      const bucket = isNumeric ? pickBucket(hours) : null;
+      if (bucket) {
+        const rows = db.prepare(`
+          SELECT bucket_start_ts, avg_value, last_value
+          FROM io_history_rollups
+          WHERE io_id = ? AND bucket_size = ? AND bucket_start_ts >= ?
+          ORDER BY bucket_start_ts ASC
+          LIMIT 5000
+        `).all(io_id, bucket.size, since);
+        points = rows
+          .map(r => {
+            const v = Number.isFinite(Number(r.avg_value)) ? Number(r.avg_value) : Number(r.last_value);
+            return Number.isFinite(v) ? { ts: r.bucket_start_ts, v } : null;
+          })
+          .filter(Boolean);
+        if (points.length) source = bucket.label;
+      }
+
+      // fallback: raw events (always for non-numeric, or when rollup has no data)
+      if (!points.length) {
+        const rows = db.prepare(`
+          SELECT payload as value, ts FROM events
+          WHERE device_id=? AND topic LIKE ? AND ts >= ?
+          ORDER BY ts ASC LIMIT 2000
+        `).all(io.device_id, `%/${io.key}`, since);
+        points = rows.map(r => {
+          let v;
+          if (isNumeric) { v = parseFloat(r.value); if (isNaN(v)) return null; }
+          else { const s = String(r.value).toUpperCase().trim(); v = (s === 'ON' || s === '1' || s === 'TRUE') ? 1 : 0; }
+          return { ts: r.ts, v };
+        }).filter(Boolean);
+        source = 'raw';
+      }
+      res.json({ ok: true, io: { id: io_id, key: io.key, name: io.name || io.key, type: io.type, unit: io.unit || '' }, source, points });
     } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 

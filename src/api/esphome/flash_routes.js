@@ -1,7 +1,7 @@
 'use strict';
 // src/api/esphome/flash_routes.js — setup, flash, flash-from-yaml
 
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { safeName } = require('../../esphome/schema');
@@ -126,21 +126,74 @@ function resetManagedDiscoveryRows(db, deviceName) {
 
 function mountFlashRoutes({ app, db, wsApi, dataDir, cfgDir, venvDir, requireEngineerAccess, state }) {
 
+  function getSetupPrereqs() {
+    const probe = spawnSync('python3', ['-c', 'import ensurepip; print("ok")'], { encoding: 'utf8' });
+    const ok = probe.status === 0;
+    const py = spawnSync('python3', ['--version'], { encoding: 'utf8' });
+    const pyVersion = String(py.stdout || py.stderr || '').trim() || 'python3';
+    const pkgMatch = pyVersion.match(/Python\s+(\d+)\.(\d+)/i);
+    const venvPkg = pkgMatch ? `python${pkgMatch[1]}.${pkgMatch[2]}-venv` : 'python3-venv';
+    return {
+      ok: true,
+      ensurepip_available: ok,
+      python_version: pyVersion,
+      missing_package_hint: ok ? null : venvPkg,
+      install_command: ok ? null : `sudo apt install -y ${venvPkg}`,
+    };
+  }
+
+  const mountGet = typeof app.get === 'function' ? app.get.bind(app) : app.post.bind(app);
+  mountGet('/api/esphome/setup-prereqs', requireEngineerAccess, (_req, res) => {
+    try {
+      res.json(getSetupPrereqs());
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   app.post('/api/esphome/setup', requireEngineerAccess, (req, res) => {
     if (state.activeSetup) return res.status(409).json({ error: 'setup_in_progress' });
-    res.json({ ok: true });
+
+    const prereqs = getSetupPrereqs();
     const clientId = String(req.body?.client_id || '').trim() || null;
+    if (!prereqs.ensurepip_available) {
+      const hint = 'Missing Python venv support on this machine. Install the system package for python venvs, then retry.';
+      if (clientId && wsApi?.sendToClient) {
+        wsApi.sendToClient(clientId, {
+          type: 'esphome_setup_done',
+          ok: false,
+          hint,
+          install_command: prereqs.install_command,
+          error_text: 'python3 ensurepip is unavailable',
+        });
+      }
+      sendWs(wsApi, clientId, 'esphome_setup_log', 'error', hint + (prereqs.install_command ? ` Run: ${prereqs.install_command}` : ''));
+      return res.status(409).json({ ok: false, error: 'missing_python_venv_support', hint, install_command: prereqs.install_command, python_version: prereqs.python_version, missing_package_hint: prereqs.missing_package_hint });
+    }
+
+    res.json({ ok: true });
     sendWs(wsApi, clientId, 'esphome_setup_log', 'info', `Creating virtual environment at ${venvDir} …`);
-    const script = `python3 -m venv "${venvDir}" && "${venvDir}/bin/pip" install --upgrade pip esphome`;
+    const script = `rm -rf "${venvDir}" && python3 -m venv "${venvDir}" && "${venvDir}/bin/pip" install --upgrade pip esphome`;
     const proc = spawn('bash', ['-c', script]);
+    const setupErr = [];
     state.activeSetup = proc;
     proc.stdout.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => sendWs(wsApi, clientId, 'esphome_setup_log', 'info', l)));
-    proc.stderr.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => sendWs(wsApi, clientId, 'esphome_setup_log', 'warn', l)));
+    proc.stderr.on('data', d => {
+      d.toString().split('\n').filter(Boolean).forEach(l => {
+        setupErr.push(l);
+        sendWs(wsApi, clientId, 'esphome_setup_log', 'warn', l);
+      });
+    });
     proc.on('close', code => {
       state.activeSetup = null;
       const ok = code === 0;
-      if (clientId && wsApi.sendToClient) wsApi.sendToClient(clientId, { type: 'esphome_setup_done', ok });
+      const errText = setupErr.join('\n');
+      const missingVenv = /ensurepip is not available|python\d+(?:\.\d+)?-venv|python3(?:\.\d+)?-venv/i.test(errText);
+      const hint = missingVenv ? 'Missing Python venv support on this machine. Install the system package for python venvs, then retry.' : null;
+      const installCommand = missingVenv ? ((errText.match(/apt install\s+([^\n]+)/i)?.[0]) || 'sudo apt install -y python3-venv') : null;
+      if (clientId && wsApi.sendToClient) wsApi.sendToClient(clientId, { type: 'esphome_setup_done', ok, hint, install_command: installCommand, error_text: errText.slice(-4000) });
       sendWs(wsApi, clientId, 'esphome_setup_log', ok ? 'info' : 'error', ok ? '✓ ESPHome installed successfully.' : `✗ Setup failed (exit ${code})`);
+      if (!ok && hint) sendWs(wsApi, clientId, 'esphome_setup_log', 'warn', hint + (installCommand ? ` Run: ${installCommand}` : ''));
     });
     proc.on('error', err => { state.activeSetup = null; sendWs(wsApi, clientId, 'esphome_setup_log', 'error', `Setup error: ${err.message}`); });
   });

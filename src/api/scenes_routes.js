@@ -67,7 +67,7 @@ function initScenesRoutes({ scenesApi, access, engine, mqttApi, notifyApi, wsApi
       const ref = checkScene(req, res, req.params.id);
       if (!ref) return;
       const result = await scenesApi.activate(Number(req.params.id), {
-        engine, mqttApi, notify: notifyApi.notify, triggeredBy: 'dashboard',
+        engine, notify: notifyApi.notify, triggeredBy: 'dashboard',
       });
       wsApi.broadcast({ type: 'scene_activated', scene_id: Number(req.params.id), site_id: ref.site_id ?? null, siteId: ref.site_id ?? null, ts: Date.now() });
       res.json(result);

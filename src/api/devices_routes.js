@@ -2,8 +2,9 @@
 // src/api/devices_routes.js — /api/devices/*
 const express = require('express');
 
-function initDevicesRoutes({ dbApi, mqttApi, access, requireEngineerAccess }) {
+function initDevicesRoutes({ dbApi, mqttApi, engine, access, requireEngineerAccess }) {
   const router = express.Router();
+  const getIOByDeviceAndKey = dbApi.db.prepare(`SELECT * FROM io WHERE device_id=? AND key=? LIMIT 1`);
 
   function requireDeviceAccess(req, res, deviceId) {
     const ref = access.getDeviceSiteRef(deviceId);
@@ -34,6 +35,18 @@ function initDevicesRoutes({ dbApi, mqttApi, access, requireEngineerAccess }) {
     if (!requireDeviceAccess(req, res, req.params.id)) return;
     const { key, value } = req.body || {};
     if (!key) return res.status(400).json({ ok: false, error: 'Missing key' });
+
+    const io = getIOByDeviceAndKey.get(req.params.id, key);
+    if (!io) return res.status(404).json({ ok: false, error: 'io_not_found' });
+
+    if (engine?.sendIOCommand) {
+      const result = engine.sendIOCommand(io, value ?? 'TOGGLE', {
+        reason: 'Manual device command',
+        source: 'api.devices.command',
+      });
+      return res.status(result.ok ? 200 : 400).json({ ...result, ts: Date.now() });
+    }
+
     const result = mqttApi.sendCommand(req.params.id, key, value ?? 'TOGGLE');
     res.json({ ok: true, sent: result, ts: Date.now() });
   });
