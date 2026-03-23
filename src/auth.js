@@ -112,7 +112,7 @@ function makeAuth({ hasFeature, engineerCode, engineerSecret }) {
     const now = Date.now();
     const exp = now + 30 * 24 * 60 * 60 * 1000; // 30 days
     const token = signToken({ role: "ENGINEER", iat: now, exp }, engineerSecret);
-    const secure = process.env.COOKIE_SECURE === "1" || process.env.NODE_ENV === "production";
+    const secure = process.env.COOKIE_SECURE === "1";
     setCookie(res, COOKIE_NAME, token, { httpOnly: true, secure, maxAge: 30 * 24 * 60 * 60 });
     res.json({ ok: true });
   }

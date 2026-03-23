@@ -229,7 +229,7 @@ async function main() {
   const csrf = makeCsrfTools({
     users,
     secret: APP_SECRET || ENGINEER_SECRET || 'elaris-csrf',
-    secure: process.env.COOKIE_SECURE === '1' || IS_PROD,
+    secure: process.env.COOKIE_SECURE === '1',
   });
 
   // Module-level helpers (isEngineerLike, getInstanceWithDefinition, ensureUserModuleAccess)
