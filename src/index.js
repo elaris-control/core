@@ -51,13 +51,15 @@ const PORT           = process.env.PORT      || 8080;
 const MQTT_URL       = process.env.MQTT_URL  || 'mqtt://localhost:1883';
 const NODE_ENV       = process.env.NODE_ENV  || 'development';
 const IS_PROD        = NODE_ENV === 'production';
-const ENGINEER_CODE  = process.env.ENGINEER_CODE;
+const ENGINEER_CODE   = process.env.ENGINEER_CODE;
 const ENGINEER_SECRET = process.env.ENGINEER_SECRET;
+const APP_SECRET      = process.env.APP_SECRET;
 
 if (IS_PROD) {
-  const missing = Object.entries({ ENGINEER_CODE, ENGINEER_SECRET }).filter(([, v]) => !v).map(([k]) => k);
+  const missing = Object.entries({ ENGINEER_CODE, ENGINEER_SECRET, APP_SECRET }).filter(([, v]) => !v).map(([k]) => k);
   if (missing.length) {
     console.error(`[ELARIS] FATAL: Missing required env vars in production: ${missing.join(', ')}`);
+    console.error('[ELARIS] Copy .env.example to .env and fill in all required values.');
     process.exit(1);
   }
 }
@@ -226,7 +228,7 @@ async function main() {
 
   const csrf = makeCsrfTools({
     users,
-    secret: process.env.APP_SECRET || ENGINEER_SECRET || 'elaris-csrf',
+    secret: APP_SECRET || ENGINEER_SECRET || 'elaris-csrf',
     secure: process.env.COOKIE_SECURE === '1' || IS_PROD,
   });
 
@@ -255,7 +257,7 @@ async function main() {
   // ══════════════════════════════════════════════════════════════════════
 
   // 1. Auth
-  app.use('/auth', initAuthRoutes({ users, google, github, appSecret: process.env.APP_SECRET || ENGINEER_SECRET || 'elaris-csrf' }));
+  app.use('/auth', initAuthRoutes({ users, google, github, appSecret: APP_SECRET || ENGINEER_SECRET || 'elaris-csrf' }));
 
   // 2. /api/me (CSRF injection)
   app.get('/api/me', (req, res) => {
