@@ -106,17 +106,18 @@ if ! apt-get install -y python3-pip "$PY_VENV_PKG" python3-venv >/dev/null 2>&1;
   apt-get install -y python3-pip python3-venv >/dev/null 2>&1
 fi
 if ! python3 -c 'import ensurepip' >/dev/null 2>&1; then
-  err "Python venv support is still missing after package install. Expected ensurepip via ${PY_VENV_PKG} or python3-venv."
-  exit 1
+  die "Python venv support is still missing after package install. Expected ensurepip via ${PY_VENV_PKG} or python3-venv."
 fi
 ok "Python tools ready"
 
 # dialout group for USB serial ports
+DIALOUT_CHANGED=false
 if id -nG "$REAL_USER" | grep -qw dialout; then
   ok "User $REAL_USER already in dialout group"
 else
   info "Adding $REAL_USER to dialout group (needed for USB flashing)..."
   usermod -aG dialout "$REAL_USER"
+  DIALOUT_CHANGED=true
   warn "Group change applied — a reboot or re-login is needed for it to take effect"
 fi
 
@@ -238,9 +239,7 @@ echo -e "    ${CYAN}sudo journalctl -u elaris -f${RESET}      — live logs"
 echo -e "    ${CYAN}sudo systemctl restart elaris${RESET}     — restart"
 echo -e "    ${CYAN}npm run recover-admin${RESET}             — reset admin password"
 echo ""
-if id -nG "$REAL_USER" | grep -qw dialout; then
-  true
-else
+if [[ "$DIALOUT_CHANGED" == true ]]; then
   echo -e "${YELLOW}  IMPORTANT: Reboot (or log out and back in) for USB flashing to work${RESET}"
   echo -e "${YELLOW}  sudo reboot${RESET}"
   echo ""
