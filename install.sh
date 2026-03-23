@@ -135,15 +135,26 @@ ENV_FILE="$PROJECT_DIR/.env"
 if [[ -f "$ENV_FILE" ]]; then
   ok ".env already exists — skipping (edit manually if needed)"
 else
-  info "Creating .env with defaults..."
+  info "Generating .env with random secrets..."
+  ENG_CODE=$(node -e "process.stdout.write(require('crypto').randomBytes(16).toString('hex'))")
+  ENG_SECRET=$(node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))")
+  APP_SECRET=$(node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))")
   cat > "$ENV_FILE" <<EOF
 PORT=8080
-NODE_ENV=development
+NODE_ENV=production
 MQTT_URL=mqtt://localhost:1883
+
+# Engineer unlock code — share this with your commissioning engineer
+ENGINEER_CODE=$ENG_CODE
+
+# Signing secrets — do not share or change after first run
+ENGINEER_SECRET=$ENG_SECRET
+APP_SECRET=$APP_SECRET
 EOF
+  chmod 600 "$ENV_FILE"
   chown "$REAL_USER:$REAL_USER" "$ENV_FILE"
   ok ".env created at $ENV_FILE"
-  warn "For production, add ENGINEER_CODE / ENGINEER_SECRET / APP_SECRET to .env"
+  ok "Engineer unlock code: $ENG_CODE  (also saved in .env)"
 fi
 
 # ── 7. ESPHome venv ───────────────────────────────────────────────────────────
