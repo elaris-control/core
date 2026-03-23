@@ -295,8 +295,13 @@
           <h2 style="margin:0">&#10133; Add Peripheral to Existing Device</h2>
           <button class="btn" onclick="document.getElementById('addPeripheralPanel').style.display='none'">&#215; Close</button>
         </div>
-        <p style="font-size:12px;color:var(--muted2);margin-bottom:14px">
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:8px">
           Add a new sensor to an already-flashed device. The existing YAML is updated and reflashed via OTA — no USB needed.
+        </p>
+        <p style="font-size:12px;color:var(--warn);margin-bottom:14px;padding:8px 10px;background:rgba(255,200,80,.07);border-radius:8px;border-left:3px solid var(--warn)">
+          <strong>Using a custom YAML?</strong> If you flashed this device with <em>Use My YAML</em>, use <strong>Preview</strong> to see the generated snippet,
+          then copy it into your own YAML at the correct section (e.g. under <code>sensor:</code> or <code>binary_sensor:</code>),
+          and reflash via <strong>Use My YAML → OTA</strong> (enter device IP instead of USB port).
         </p>
         <div class="form-grid">
           <div class="form-row">
@@ -378,6 +383,11 @@
           <button class="btn" id="apPreviewBtn" onclick="apPreview()" style="font-size:12px">&#128196; Preview YAML</button>
           <button class="btn btnPrimary" id="apFlashBtn" onclick="apFlash()" style="font-size:12px;display:none">&#9889; Add &amp; Flash OTA</button>
           <button class="btn" id="apCancelBtn" onclick="apCancel()" style="display:none;font-size:12px">&#9632; Cancel</button>
+        </div>
+        <div id="apYamlPasteRow" style="display:none;margin-top:12px;padding:10px 12px;border:1px solid var(--warn);border-radius:10px;background:rgba(255,200,80,.07)">
+          <div style="font-size:12px;font-weight:700;color:var(--warn);margin-bottom:6px">&#9888; Device YAML not found on server</div>
+          <div style="font-size:12px;color:var(--muted2);margin-bottom:8px">This device was not flashed via ELARIS, so the YAML is not stored. Paste the device's full YAML below to allow sensor injection.</div>
+          <textarea id="apYamlPaste" rows="8" style="width:100%;font-family:monospace;font-size:11px;resize:vertical;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;box-sizing:border-box" placeholder="Paste full ESPHome YAML here…" oninput="apClearPreview()"></textarea>
         </div>
         <div id="apPreviewWarnings" class="apNoticeBox" style="margin-top:12px"></div>
         <details id="apYamlDetails" style="margin-top:12px;display:none">
@@ -466,6 +476,10 @@
               </div>
               <!-- Sensor-specific fields injected here -->
               <div id="plSensorFields"></div>
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;margin-top:4px">
+                <input type="checkbox" id="plSnippetOnly">
+                Snippet only (copy into existing YAML)
+              </label>
               <button class="btn btn-primary" onclick="plGenerateYaml()" style="margin-top:4px;font-size:12px">&#9881; Generate YAML</button>
             </div>
             <div id="plYamlArea" style="display:none;display:flex;flex-direction:column;gap:8px">
@@ -607,7 +621,7 @@
           <button class="btn" type="button" onclick="nativeConnectSession()">Connect native session</button>
           <button class="btn" type="button" onclick="nativeRefreshSession()">Refresh native session</button>
           <button class="btn" type="button" onclick="nativeDisconnectSession()">Disconnect native</button>
-          <button class="btn" type="button" onclick="nativeDiscoverAssist()">Auto-fill from profile</button>
+          <button class="btn" type="button" onclick="nativeDiscoverAssist()">Load from device session</button>
           <button class="btn" type="button" onclick="nativeSyncAssist()">Re-sync existing native card</button>
           <button class="btn btnPrimary" type="button" onclick="submitNativeImport()">Import as external native</button>
           <span id="nativeImportMsg" style="font-size:12px;color:var(--muted)">Native path now has a clean session layer plus probe-assisted connect/refresh. Full protobuf entity/state stream is the next step.</span>
@@ -2074,7 +2088,8 @@ window.plGenerateYaml = function() {
     fields[f.id] = el ? el.value : f.default;
   });
   fields._dn = deviceName;
-  var header = plCommonHeader(deviceName, wifiSsid, wifiPassword, mqttBroker);
+  var snippetOnly = !!(document.getElementById('plSnippetOnly') || {}).checked;
+  var header = snippetOnly ? '' : plCommonHeader(deviceName, wifiSsid, wifiPassword, mqttBroker);
   var yaml = plSelectedTemplate.generate(header, fields);
   document.getElementById('plYamlOutput').value = yaml;
   document.getElementById('plYamlArea').style.display = 'flex';

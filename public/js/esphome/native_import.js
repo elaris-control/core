@@ -590,17 +590,19 @@ async function nativeDiscoverAssist() {
   var msg = document.getElementById('nativeImportMsg');
   try {
     var payload = nativeImportCollectPayload();
-    if (!payload.board_profile_id && !payload.device_name) throw new Error('pick_board_or_existing_device_name');
-    if (msg) msg.textContent = 'Building native discovery suggestions…';
+    if (!payload.device_name) throw new Error('Enter a device name first.');
+    if (_nativeSession) payload.native_session = _nativeSession;
+    if (msg) msg.textContent = 'Loading entities from device session…';
     var out = await api('/integrations/esphome/discover-native', { method: 'POST', body: JSON.stringify(payload) });
     var entities = Array.isArray(out.entities) ? out.entities : [];
-    if (!entities.length) throw new Error((out.warnings && out.warnings[0]) || 'no_entities');
+    if (!entities.length) throw new Error((out.warnings && out.warnings[0]) || 'No entities found — connect the device via native session first.');
     _nativeImportRows = nativeRowsFromEntities(entities);
     nativeImportEnsureRows();
     renderNativeImportRows();
-    if (msg) msg.innerHTML = '<span style="color:var(--good)">✓ Suggestions ready</span> ' + escHtml(String(out.entity_count || entities.length)) + ' channel rows loaded' + (out.discovery_mode ? (' · ' + escHtml(out.discovery_mode)) : '');
+    var modeLabel = out.discovery_mode === 'live_session' ? 'live session' : (out.discovery_mode === 'stored_only' ? 'stored from last session' : out.discovery_mode);
+    if (msg) msg.innerHTML = '<span style="color:var(--good)">✓ Entities loaded</span> ' + escHtml(String(out.entity_count || entities.length)) + ' rows' + (modeLabel ? (' · source: ' + escHtml(modeLabel)) : '');
   } catch (e) {
-    if (msg) msg.innerHTML = '<span style="color:var(--bad)">Discover failed:</span> ' + escHtml(e.message || String(e));
+    if (msg) msg.innerHTML = '<span style="color:var(--bad)">Failed:</span> ' + escHtml(e.message || String(e));
   }
 }
 

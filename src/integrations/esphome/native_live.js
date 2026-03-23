@@ -256,16 +256,17 @@ async function probeNativeDevice(db, rawBody) {
   };
 }
 
-function discoverNativeAssist(db, rawBody) {
+function discoverNativeAssist(db, rawBody, opts) {
+  var profileAssist = !(opts && opts.profileAssist === false);
   var payload = buildNativeRuntimePayload(db, rawBody);
   var existing = payload.existing;
   var profileId = String(payload.board_profile_id || existing?.board_profile_id || '').trim();
   var nativeSession = rawBody && rawBody.native_session && typeof rawBody.native_session === 'object' ? rawBody.native_session : null;
   var live = Array.isArray(nativeSession && nativeSession.entities) ? nativeSession.entities.map(normalizeEntityRow).filter(function(row) { return !!row.key; }) : [];
   var stored = collectStoredEntities(existing);
-  var assisted = buildEntitiesFromProfile(db, profileId);
+  var assisted = profileAssist ? buildEntitiesFromProfile(db, profileId) : [];
   var entities = mergeEntities(live.concat(stored), assisted);
-  var discoveryMode = live.length ? 'live_session' : (assisted.length ? 'profile_assist' : (stored.length ? 'stored_only' : 'none'));
+  var discoveryMode = live.length ? 'live_session' : (stored.length ? 'stored_only' : (assisted.length ? 'profile_assist' : 'none'));
   return {
     ok: true,
     device_id: payload.device_name || existing?.name || (nativeSession && nativeSession.device_name) || null,
@@ -277,7 +278,11 @@ function discoverNativeAssist(db, rawBody) {
     assisted_count: assisted.length,
     entity_count: entities.length,
     entities: entities,
-    warnings: entities.length ? [] : ['No live native session entities, stored native entities, or board-profile-assisted ports were available.'],
+    warnings: entities.length ? [] : [
+      profileAssist
+        ? 'No live native session entities, stored native entities, or board-profile-assisted ports were available.'
+        : 'No native entities found for this device. Connect via native session first, then try again.',
+    ],
   };
 }
 

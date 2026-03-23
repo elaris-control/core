@@ -35,7 +35,16 @@ function createEspHomeAdapter() {
       return probeNativeDevice(ctx.db, { ...payload, integration_key: 'esphome' });
     },
     discoverNative(ctx = {}, payload = {}) {
-      return discoverNativeAssist(ctx.db, { ...payload, integration_key: 'esphome' });
+      // Find live session entities for this device if nativeSessions is available
+      var liveSession = null;
+      if (ctx.nativeSessions && typeof ctx.nativeSessions.list === 'function') {
+        var wantedName = String(payload.device_name || '').trim().toLowerCase();
+        var sessions = ctx.nativeSessions.list('esphome') || [];
+        liveSession = sessions.find(function(s) {
+          return wantedName && String(s.device_name || '').trim().toLowerCase() === wantedName;
+        }) || null;
+      }
+      return discoverNativeAssist(ctx.db, { ...payload, integration_key: 'esphome', native_session: liveSession || payload.native_session }, { profileAssist: false });
     },
     syncNative(ctx = {}, payload = {}) {
       return syncNativeAssist(ctx.db, { ...payload, integration_key: 'esphome' });

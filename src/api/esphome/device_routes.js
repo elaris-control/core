@@ -32,6 +32,10 @@ function collectDeviceTopics(db, deviceId, mqttTopicRoot) {
   roots.forEach(function(topicRoot) {
     topics.add(topicRoot + '/status');
   });
+  // Always clear the ELARIS discovery config topic — this is retained by the broker
+  // and will re-create the device on every server restart if not cleared
+  topics.add('elaris/' + id + '/config');
+  topics.add('elaris/' + id + '/status');
   try {
     db.prepare('SELECT DISTINCT topic FROM events WHERE device_id=?').all(id).forEach(function(row) {
       var topic = String(row && row.topic || '').trim();
@@ -79,6 +83,7 @@ function detachIoReferences(db, ioIds) {
   if (!ids.length) return { mappings: 0, scenes: 0 };
   var qm = ids.map(function() { return '?'; }).join(',');
   var mappings = db.prepare(`DELETE FROM module_mappings WHERE io_id IN (${qm})`).run.apply(null, ids).changes || 0;
+  try { db.prepare(`DELETE FROM io_runtime_overrides WHERE io_id IN (${qm})`).run.apply(null, ids); } catch (_) {}
   var ioIdSet = new Set(ids);
   var patchScene = db.prepare('UPDATE scenes SET actions_json=? WHERE id=?');
   var scenes = 0;

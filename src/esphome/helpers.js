@@ -300,9 +300,13 @@ function describeProfilePin(profile, pinText) {
 }
 
 function isDs18b20SharedBusUsage(kinds) {
-  const allow = new Set(['one_wire:gpio', 'sensor:dallas_temp']);
-  for (const kind of kinds || []) { if (!allow.has(kind)) return false; }
-  return true;
+  // Allow sharing if the pin already has ANY 1-Wire or dallas_temp usage.
+  // Older YAMLs or different generators may produce 'one_wire:raw' instead of
+  // 'one_wire:gpio' — we match any one_wire: prefix to stay compatible.
+  for (const kind of kinds || []) {
+    if (kind.startsWith('one_wire:') || kind === 'sensor:dallas_temp') return true;
+  }
+  return false;
 }
 
 function validatePeripheralEntity({ profile, yamlText, entity }) {

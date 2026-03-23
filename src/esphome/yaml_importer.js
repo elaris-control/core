@@ -26,8 +26,12 @@ function parseEsphomeYaml(yamlText) {
   // !include file.yaml → "__include__" (file includes — not resolved here)
   // !extend id         → "__extend__"  (package overrides — not needed for profile)
   yamlText = yamlText.replace(/!secret\s+\S+/g, '"__secret__"');
+  // !lambda with block scalar (|- / | / >- / >) — multiline lambda, strip the whole indented block
+  yamlText = yamlText.replace(/!lambda\s+[|>][-+]?\s*\n(?:[ \t]+[^\n]*\n?)*/g, '"__lambda__"');
+  // !lambda with quoted or unquoted inline value
   yamlText = yamlText.replace(/!lambda\s+'[^']*'/g, '"__lambda__"');
   yamlText = yamlText.replace(/!lambda\s+"[^"]*"/g, '"__lambda__"');
+  yamlText = yamlText.replace(/!lambda\s+\S+/g, '"__lambda__"');
   yamlText = yamlText.replace(/!include\s+\S+/g, '"__include__"');
   yamlText = yamlText.replace(/!extend\s+\S+/g, '"__extend__"');
 

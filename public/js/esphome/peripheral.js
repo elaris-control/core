@@ -2,6 +2,7 @@
 var _apFlashing = false;
 var _apPreviewYaml = null;
 var _apPinOptions = null;
+var _apYamlContent = null;   // pasted YAML for devices without yaml_path on server
 var _apBoardPorts = [];
 var _apBusOptions = [];
 var _apMode = 'add';
@@ -354,6 +355,9 @@ function onApDeviceChange() {
   } else {
     hint.textContent = 'Select a flashed device from the list';
   }
+  _apYamlContent = null;
+  var pasteRow = document.getElementById('apYamlPasteRow');
+  if (pasteRow) { pasteRow.style.display = 'none'; document.getElementById('apYamlPaste').value = ''; }
   apLoadPinOptions();
   apLoadPeripherals();
 }
@@ -766,6 +770,8 @@ async function apPreview() {
     if (!okReplace) return;
   }
 
+  _apYamlContent = (document.getElementById('apYamlPaste').value || '').trim() || null;
+
   var btn = document.getElementById('apPreviewBtn');
   btn.disabled = true; btn.textContent = 'Loading…';
   try {
@@ -774,6 +780,7 @@ async function apPreview() {
     var payload = { device_id: Number(deviceId), entity: entity };
     if (_apMode === 'edit') payload.original_key = _apEditOriginalKey;
     else if (replaceTarget) payload.original_key = replaceTarget.key;
+    if (_apYamlContent) payload.yaml_content = _apYamlContent;
     var r = await api(endpoint, { method: 'POST', body: JSON.stringify(payload) });
     _apPreviewYaml = r.yaml;
     document.getElementById('apYamlPreview').textContent = r.yaml;
@@ -784,10 +791,15 @@ async function apPreview() {
     apRenderPreviewWarnings(r.warnings || []);
   } catch(e) {
     var msg = String(e && e.message || e || 'Unknown error');
-    if (/esphome_not_installed/i.test(msg)) msg = 'ESPHome is not installed yet. Install ESPHome first, then preview again.';
-    else if (/flash_in_progress/i.test(msg)) msg = 'Another ESPHome flash is already running. Wait for it to finish or cancel it first.';
-    apRenderPreviewWarnings([{ text: 'Preview failed: ' + msg, level: 'err' }]);
-    alert('Preview failed: ' + msg);
+    if (/yaml_file_not_found/i.test(msg)) {
+      document.getElementById('apYamlPasteRow').style.display = '';
+      apRenderPreviewWarnings([{ text: 'No YAML found on server — paste the device YAML below and click Preview again.', level: 'warn' }]);
+    } else {
+      if (/esphome_not_installed/i.test(msg)) msg = 'ESPHome is not installed yet. Install ESPHome first, then preview again.';
+      else if (/flash_in_progress/i.test(msg)) msg = 'Another ESPHome flash is already running. Wait for it to finish or cancel it first.';
+      apRenderPreviewWarnings([{ text: 'Preview failed: ' + msg, level: 'err' }]);
+      alert('Preview failed: ' + msg);
+    }
   }
   btn.disabled = false; btn.innerHTML = _apMode === 'edit' ? '&#128196; Preview Update' : '&#128196; Preview YAML';
 }
@@ -832,6 +844,7 @@ async function apFlash() {
     var payload = { device_id: Number(deviceId), ip: ip, client_id: esphomeClientId, entity: entity };
     if (_apMode === 'edit') payload.original_key = _apEditOriginalKey;
     else if (replaceTarget) payload.original_key = replaceTarget.key;
+    if (_apYamlContent) payload.yaml_content = _apYamlContent;
     await api(endpoint, { method: 'POST', body: JSON.stringify(payload) });
     apTermLine('info', (_apMode === 'edit' ? 'Update' : 'Flash') + ' started — compiling firmware…');
   } catch(e) {

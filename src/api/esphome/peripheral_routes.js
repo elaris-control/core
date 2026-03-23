@@ -3,6 +3,7 @@
 
 const { spawn } = require('child_process');
 const fs = require('fs');
+const path = require('path');
 const { getCatalogProfile } = require('../../esphome/profile_registry');
 const { deriveBoardPorts, resolvePeripheralSelection } = require('../../esphome/board_port_registry');
 const { safeName, sha256, parseGpio, toGpioLabel } = require('../../esphome/schema');
@@ -374,6 +375,14 @@ function mountPeripheralRoutes({ app, db, wsApi, dataDir, cfgDir, requireEnginee
     if (!db) return res.status(500).json({ ok: false, error: 'database_unavailable' });
     const device = stmts.getDeviceById.get(deviceId);
     if (!ensureDeviceAccess(req, device, res, access)) return;
+    if ((!device.yaml_path || !fs.existsSync(device.yaml_path)) && body.yaml_content) {
+      const newYamlPath = path.join(cfgDir, safeName(device.name || device.friendly_name || 'device') + '.yaml');
+      try {
+        fs.writeFileSync(newYamlPath, String(body.yaml_content), 'utf8');
+        db.prepare('UPDATE esphome_devices SET yaml_path=? WHERE id=?').run(newYamlPath, deviceId);
+        device.yaml_path = newYamlPath;
+      } catch (e) { return res.status(500).json({ ok: false, error: 'failed_to_save_yaml: ' + e.message }); }
+    }
     if (!device.yaml_path) return res.status(400).json({ ok: false, error: 'device_has_no_yaml_path' });
     if (!fs.existsSync(device.yaml_path)) return res.status(400).json({ ok: false, error: 'yaml_file_not_found' });
     const profile = getCatalogProfile(db, device.board_profile_id);
@@ -419,6 +428,14 @@ function mountPeripheralRoutes({ app, db, wsApi, dataDir, cfgDir, requireEnginee
     if (!db) return res.status(500).json({ ok: false, error: 'database_unavailable' });
     const device = stmts.getDeviceById.get(deviceId);
     if (!ensureDeviceAccess(req, device, res, access)) return;
+    if ((!device.yaml_path || !fs.existsSync(device.yaml_path)) && body.yaml_content) {
+      const newYamlPath = path.join(cfgDir, safeName(device.name || device.friendly_name || 'device') + '.yaml');
+      try {
+        fs.writeFileSync(newYamlPath, String(body.yaml_content), 'utf8');
+        db.prepare('UPDATE esphome_devices SET yaml_path=? WHERE id=?').run(newYamlPath, deviceId);
+        device.yaml_path = newYamlPath;
+      } catch (e) { return res.status(500).json({ ok: false, error: 'failed_to_save_yaml: ' + e.message }); }
+    }
     if (!device.yaml_path || !fs.existsSync(device.yaml_path)) return res.status(400).json({ ok: false, error: 'yaml_file_not_found' });
     const existingYaml = fs.readFileSync(device.yaml_path, 'utf8');
     if (hasYamlId(existingYaml, clean.eKey) || ((clean.eType === 'dht' || clean.eType === 'dht11' || clean.eType === 'sht3x') && hasYamlId(existingYaml, `${clean.eKey}_hum`)))

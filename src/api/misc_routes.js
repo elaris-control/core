@@ -74,7 +74,7 @@ function mountMiscRoutes(app, { db, access, requireLogin, requireEngineerAccess,
       var adapter = integrationRegistry.get(key);
       if (!adapter) return res.status(404).json({ ok: false, error: 'integration_not_found' });
       if (typeof adapter.discoverNative !== 'function') return res.status(400).json({ ok: false, error: 'integration_native_discover_unsupported' });
-      var out = adapter.discoverNative({ db: db, access: access, requireEngineerAccess: requireEngineerAccess }, req.body || {});
+      var out = adapter.discoverNative({ db: db, access: access, requireEngineerAccess: requireEngineerAccess, nativeSessions: nativeSessions }, req.body || {});
       res.json({ ok: true, integration_key: key, ...(out || {}) });
     } catch (e) {
       res.status(400).json({ ok: false, error: String(e?.message || e) });
