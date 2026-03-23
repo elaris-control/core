@@ -28,3 +28,23 @@
 - Authenticated unsafe requests now require `X-CSRF-Token`
 - Token is derived from the session and mirrored in cookie `elaris_csrf`
 - Frontend auto-attaches it via `public/csrf.js`
+
+## 6. Required environment variables (production)
+
+The following env vars **must** be set before going live. If they are missing, the server
+falls back to insecure hardcoded defaults that are publicly known.
+
+| Variable | Default (dev fallback) | Risk if missing |
+|---|---|---|
+| `ENGINEER_CODE` | `1234` | Anyone can unlock engineer mode |
+| `ENGINEER_SECRET` | `dev-secret-change-me` | Engineer cookies can be forged |
+| `APP_SECRET` | `elaris-csrf` | CSRF tokens can be forged |
+
+**Minimum `.env` for production:**
+```
+ENGINEER_CODE=<long random string>
+ENGINEER_SECRET=<long random string>
+APP_SECRET=<long random string>
+```
+
+Generate safe values with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`

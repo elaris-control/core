@@ -207,6 +207,17 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
     } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
+  router.delete('/pending-io/by-device/:device_id', requireEngineerAccess, (req, res) => {
+    const deviceId = String(req.params.device_id || '').trim();
+    if (!deviceId) return res.status(400).json({ ok: false, error: 'invalid_device_id' });
+    try {
+      const result = dbApi.db.prepare('DELETE FROM pending_io WHERE device_id=?').run(deviceId);
+      res.json({ ok: true, removed: result.changes });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   router.delete('/pending-io/:id', requireEngineerAccess, (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id < 1) {

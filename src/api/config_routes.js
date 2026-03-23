@@ -118,14 +118,14 @@ function initConfigRoutes({ dbApi, requireEngineerAccess }) {
           upsertBlocked.run(device_id, group_name, key, b?.created_ts ?? Date.now(), b?.reason ?? null);
         });
 
-        const getInstanceByKey = db.prepare(`SELECT id FROM module_instances WHERE site_id=? AND module_id=? AND name=?`);
+        const getInstanceByKey = db.prepare(`SELECT id FROM module_instances WHERE site_id IS ? AND module_id=? AND name=?`);
         const insertInstance   = db.prepare(`INSERT INTO module_instances(site_id,module_id,name,active,config,created_ts) VALUES(?,?,?,?,?,?)`);
         const updateInstance   = db.prepare(`UPDATE module_instances SET active=?,config=? WHERE id=?`);
         const instanceIdMap    = new Map();
         (cfg.module_instances || []).forEach(mi => {
           const site_name = String(mi?._site_name || '').trim(); const module_id = String(mi?.module_id || '').trim(); const name = String(mi?.name || '').trim();
           if (!module_id || !name) return;
-          const sid = site_name ? getSiteByName.get(site_name)?.id ?? null : null; if (!sid) return;
+          const sid = site_name ? getSiteByName.get(site_name)?.id ?? null : null; if (site_name && !sid) return;
           let existing = getInstanceByKey.get(sid, module_id, name);
           if (existing) { updateInstance.run(mi?.active ?? 1, mi?.config ?? null, existing.id); }
           else { insertInstance.run(sid, module_id, name, mi?.active ?? 1, mi?.config ?? null, mi?.created_ts ?? Date.now()); existing = getInstanceByKey.get(sid, module_id, name); }

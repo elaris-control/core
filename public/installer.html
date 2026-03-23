@@ -375,9 +375,11 @@
     }
   }
 
+  function _esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
   function zoneSelectHtml(selectedId){
     const opts = [`<option value="">(No zone)</option>`].concat(
-      zones.map(z=>`<option value="${z.id}" ${String(z.id)===String(selectedId)?"selected":""}>${z.name}</option>`)
+      zones.map(z=>`<option value="${z.id}" ${String(z.id)===String(selectedId)?"selected":""}>${_esc(z.name)}</option>`)
     ).join("");
     return `<select class="zoneSel">${opts}</select>`;
   }

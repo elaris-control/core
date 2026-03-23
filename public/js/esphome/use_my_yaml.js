@@ -140,10 +140,14 @@ async function umyParse() {
     var card = umySelectedInstallerCard();
     document.getElementById('umyDeviceName').value = (card && (card.name || card.friendly_name)) || parsedName;
     var net = umyDetectNetwork(text);
-    if (net.hasWifi && net.hasEthernet) document.getElementById('umyParseMsg').textContent = 'Parsed, but this YAML contains both WiFi and Ethernet. Keep only one before flashing.';
-    else if (net.hasEthernet) document.getElementById('umyParseMsg').textContent = 'Parsed. Ethernet YAML detected — ELARIS will ignore WiFi, inject its managed MQTT announce overlay, and keep this device in the internal managed path.';
-    else if (net.hasWifi) document.getElementById('umyParseMsg').textContent = 'Parsed. ELARIS will keep WiFi, inject its managed MQTT announce overlay, and keep this device in the internal managed path.';
-    else document.getElementById('umyParseMsg').textContent = 'Parsed. ELARIS will inject its managed MQTT announce overlay before flashing and keep this device in the internal managed path.';
+    var hasEncryption = /^\s*api\s*:/m.test(text) && /encryption\s*:/m.test(text);
+    var baseMsg = '';
+    if (net.hasWifi && net.hasEthernet) baseMsg = 'Parsed, but this YAML contains both WiFi and Ethernet. Keep only one before flashing.';
+    else if (net.hasEthernet) baseMsg = 'Parsed. Ethernet YAML detected — ELARIS will ignore WiFi, inject its managed MQTT announce overlay, and keep this device in the internal managed path.';
+    else if (net.hasWifi) baseMsg = 'Parsed. ELARIS will keep WiFi, inject its managed MQTT announce overlay, and keep this device in the internal managed path.';
+    else baseMsg = 'Parsed. ELARIS will inject its managed MQTT announce overlay before flashing and keep this device in the internal managed path.';
+    var encMsg = hasEncryption ? ' ⚠ This YAML has native API encryption enabled. To connect via native API (from ELARIS or any other tool) you will need the encryption key. To allow keyless local access, keep api: but remove only the encryption: block beneath it — do not delete the api: line itself.' : '';
+    document.getElementById('umyParseMsg').textContent = baseMsg + encMsg;
     umyApplyContextDefaults();
   } catch(e) {
     document.getElementById('umyParseMsg').textContent = 'Error: ' + e.message;

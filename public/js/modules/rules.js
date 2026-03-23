@@ -357,7 +357,7 @@ function renderAction(a, ri, ai) {
     ` : kind === "scene" ? `
 <select class="cond-sel" style="flex:1" onchange="ra(${ri},${ai},'scene_id',this.value)">
   <option value="">— select scene —</option>
-  ${(window._scenesCache||[]).map(s=>'<option value="'+s.id+'" '+(String(a.scene_id)===String(s.id)?'selected':'')+'>'+( s.icon||'\u2699\ufe0f')+' '+s.name+'</option>').join('')}
+  ${(window._scenesCache||[]).map(s=>'<option value="'+s.id+'" '+(String(a.scene_id)===String(s.id)?'selected':'')+'>'+(escapeHTML(s.icon||'\u2699\ufe0f'))+' '+escapeHTML(s.name)+'</option>').join('')}
 </select>
     ` : `
       <select class="cond-sel" style="flex:1" onchange="actionIOChange(${ri},${ai},this.value)">
@@ -598,7 +598,7 @@ function showRuleBuilderModal() {
   <div id="ruleModal" style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto">
   <div style="background:var(--card);border:1px solid var(--line2);border-radius:var(--radius);padding:22px;width:100%;max-width:780px;margin-bottom:40px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px">
-      <div style="font-size:16px;font-weight:800">⚡ Rule Builder — ${inst?.name||"Custom"}</div>
+      <div style="font-size:16px;font-weight:800">⚡ Rule Builder — ${escapeHTML(inst?.name||"Custom")}</div>
       <button class="btn btn-sm" onclick="closeRuleBuilder()">✕ Close</button>
     </div>
 

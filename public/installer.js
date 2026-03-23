@@ -123,12 +123,26 @@ async function loadPending() {
     return;
   }
 
-  table.innerHTML = `
-    <div style="display:grid;grid-template-columns: 220px 120px 180px 1fr 120px;gap:10px;color:var(--muted);font-size:12px;padding-bottom:8px">
-      <div>DEVICE / KEY</div><div>TYPE</div><div>ZONE</div><div>NAME (LABEL)</div><div style="text-align:right">ACTION</div>
-    </div>
-    ${pending.map(x => rowHTML(x, zones)).join("")}
-  `;
+  // Group by device_id
+  const byDevice = {};
+  pending.forEach(x => { (byDevice[x.device_id] = byDevice[x.device_id] || []).push(x); });
+
+  const header = `<div style="display:grid;grid-template-columns: 220px 120px 180px 1fr 120px;gap:10px;color:var(--muted);font-size:12px;padding-bottom:8px">
+    <div>DEVICE / KEY</div><div>TYPE</div><div>ZONE</div><div>NAME (LABEL)</div><div style="text-align:right">ACTION</div>
+  </div>`;
+
+  const groups = Object.entries(byDevice).map(([deviceId, rows]) => {
+    const rowsHtml = rows.map(x => rowHTML(x, zones)).join("");
+    return `<div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:2px solid var(--line2);margin-bottom:4px">
+        <span style="font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">${escHTML(deviceId)} <span style="font-weight:400;color:var(--muted2)">(${rows.length} pending)</span></span>
+        <button class="btn ghost" style="font-size:11px;padding:3px 10px" data-del-device="${escHTML(deviceId)}">Delete all</button>
+      </div>
+      ${rowsHtml}
+    </div>`;
+  }).join("");
+
+  table.innerHTML = header + groups;
 
   // bind actions
   table.querySelectorAll("[data-approve]").forEach((btn) => {
@@ -154,6 +168,15 @@ async function loadPending() {
       const id = btn.getAttribute("data-del");
       const r = await apiDel(`/api/pending-io/${id}`);
       $("pendingMsg").textContent = r.ok ? `Deleted ${id}` : `Delete error: ${r.error || "unknown"}`;
+      await loadPending();
+    });
+  });
+
+  table.querySelectorAll("[data-del-device]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const deviceId = btn.getAttribute("data-del-device");
+      const r = await apiDel(`/api/pending-io/by-device/${encodeURIComponent(deviceId)}`);
+      $("pendingMsg").textContent = r.ok ? `Cleared ${r.removed} pending entries for ${deviceId}` : `Error: ${r.error || "unknown"}`;
       await loadPending();
     });
   });

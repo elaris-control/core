@@ -38,7 +38,7 @@ function renderScenarioEditorModal(inst, mappings) {
   <div style="background:var(--card);border:1px solid rgba(240,192,64,.3);border-radius:var(--radius);padding:22px;width:100%;max-width:700px;margin-bottom:40px">
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
-      <div style="font-size:16px;font-weight:800">✨ Scenarios — ${inst?.name||'Smart Lighting'}</div>
+      <div style="font-size:16px;font-weight:800">✨ Scenarios — ${escapeHTML(inst?.name||'Smart Lighting')}</div>
       <button class="btn btn-sm" onclick="closeScenarioEditor()">✕ Close</button>
     </div>
 
