@@ -88,6 +88,7 @@ allow_anonymous true
 EOF
   systemctl restart mosquitto
   ok "Mosquitto LAN listener configured"
+  warn "Mosquitto is open on 0.0.0.0:1883 with anonymous access — fine for local/LAN use, insecure on untrusted networks"
 else
   ok "Mosquitto LAN config already present"
 fi
@@ -124,10 +125,18 @@ fi
 # ── 5. npm install ────────────────────────────────────────────────────────────
 hdr "Step 5 — Node dependencies"
 cd "$PROJECT_DIR"
-info "Running npm install..."
-sudo -u "$REAL_USER" npm install --prefer-offline 2>&1 | tail -3
+NPM_LOG="$PROJECT_DIR/data/npm-install.log"
+mkdir -p "$PROJECT_DIR/data"
+info "Running npm install... (full log: $NPM_LOG)"
+if ! sudo -u "$REAL_USER" npm install --prefer-offline >"$NPM_LOG" 2>&1; then
+  tail -20 "$NPM_LOG"
+  die "npm install failed — see $NPM_LOG for details"
+fi
 info "Running npm rebuild (recompile native modules for this platform)..."
-sudo -u "$REAL_USER" npm rebuild 2>&1 | tail -3
+if ! sudo -u "$REAL_USER" npm rebuild >>"$NPM_LOG" 2>&1; then
+  tail -20 "$NPM_LOG"
+  die "npm rebuild failed — see $NPM_LOG for details"
+fi
 ok "Node modules ready"
 
 # ── 6. .env file ─────────────────────────────────────────────────────────────
