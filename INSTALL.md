@@ -60,56 +60,99 @@ npm install
 > - `scripts/`
 > - `package.json`
 > - `package-lock.json`
-> - `.env` (if you created one)
+> - `ecosystem.config.js`
 >
 > **Never copy** the `data/` folder — it contains the Pi's database. Copying it from Windows will wipe all your devices and users.
+>
+> **Never copy** `.env` from Windows — it contains secrets generated for that machine. Generate a fresh one on the Pi (see step 5).
 
 ---
 
 ## 5. Configure Environment
 
-Create a `.env` file in the project root:
-
-```bash
-nano ~/elaris/elaris-core/.env
-```
-
-Paste and adjust:
-
-```env
-PORT=8080
-NODE_ENV=development
-MQTT_URL=mqtt://localhost:1883
-```
-
-> For production add also:
-> ```env
-> NODE_ENV=production
-> ENGINEER_CODE=your_secret_code
-> ENGINEER_SECRET=your_secret_key
-> APP_SECRET=your_app_secret
-> ```
-
-> **Running behind nginx / Cloudflare / a reverse proxy?**
-> Add `TRUST_PROXY=1` so rate-limiting uses the real client IP instead of the proxy IP.
-> Leave it out (or blank) if Elaris is exposed directly.
-
----
-
-## 6. Start Elaris
+Generate a `.env` with random secrets in one command:
 
 ```bash
 cd ~/elaris/elaris-core
-npm start
+node -e "
+const c=require('crypto');
+console.log('PORT=8080');
+console.log('NODE_ENV=production');
+console.log('MQTT_URL=mqtt://localhost:1883');
+console.log('');
+console.log('# Engineer unlock code — use this to access commissioning tools');
+console.log('ENGINEER_CODE='+c.randomBytes(16).toString('hex'));
+console.log('');
+console.log('# Signing secrets — do not share or change after first run');
+console.log('ENGINEER_SECRET='+c.randomBytes(32).toString('hex'));
+console.log('APP_SECRET='+c.randomBytes(32).toString('hex'));
+console.log('');
+console.log('APP_URL=http://localhost:8080');
+console.log('TRUST_PROXY=');
+" > .env
+chmod 600 .env
+cat .env
 ```
 
-Open in browser: `http://<PI_IP>:8080`
+**Save the `ENGINEER_CODE` value** — you will need it to access the commissioning tools in the UI. Everything else is internal.
 
-First run will ask you to create an admin account.
+> You can set `ENGINEER_CODE` to any value you want (e.g. a PIN you will remember). The other two secrets (`ENGINEER_SECRET`, `APP_SECRET`) must stay as long random strings.
+
+> **Running behind nginx / Cloudflare / a reverse proxy?**
+> Set `TRUST_PROXY=1` so rate-limiting uses the real client IP instead of the proxy IP.
+> Leave it blank if Elaris is exposed directly.
+
+> The server **will refuse to start** if `NODE_ENV=production` and any of the three secrets are missing or empty.
 
 ---
 
-## 7. Run as a Service (auto-start on boot)
+## 6. Start Elaris with PM2 (recommended)
+
+PM2 is a process manager for Node.js that keeps ELARIS running, restarts it on crash, and starts it automatically on boot.
+
+### Install PM2
+
+```bash
+sudo npm install -g pm2
+```
+
+### Start ELARIS
+
+```bash
+cd ~/elaris/elaris-core
+pm2 start ecosystem.config.js
+```
+
+The `ecosystem.config.js` file tells PM2 to load the `.env` automatically via Node's built-in `--env-file` flag (requires Node 20.6+).
+
+### Auto-start on boot
+
+```bash
+pm2 startup
+# Copy and run the command it prints (looks like: sudo env PATH=... pm2 startup ...)
+pm2 save
+```
+
+### Common PM2 commands
+
+| What | Command |
+|------|---------|
+| Start | `pm2 start ecosystem.config.js` |
+| Stop | `pm2 stop elaris` |
+| Restart | `pm2 restart elaris` |
+| Reload (zero-downtime) | `pm2 reload elaris` |
+| View logs (live) | `pm2 logs elaris` |
+| View logs (last 100 lines) | `pm2 logs elaris --lines 100` |
+| Status / overview | `pm2 status` |
+| Details | `pm2 show elaris` |
+| Remove from PM2 | `pm2 delete elaris` |
+| Save current process list | `pm2 save` |
+
+---
+
+## 7. Run as systemd service (alternative to PM2)
+
+If you prefer systemd over PM2, skip step 6 and use this instead. **Pick one or the other — not both.**
 
 ```bash
 sudo nano /etc/systemd/system/elaris.service
@@ -151,49 +194,7 @@ sudo journalctl -u elaris -f
 
 ---
 
-## 8. Run with PM2 (recommended alternative to systemd)
-
-PM2 is a process manager for Node.js that keeps ELARIS running, restarts it on crash, and starts it automatically on boot. Easier to use than systemd for most setups.
-
-### Install PM2
-
-```bash
-sudo npm install -g pm2
-```
-
-### Start ELARIS with PM2
-
-```bash
-cd ~/elaris/elaris-core
-pm2 start src/index.js --name elaris
-```
-
-### Auto-start on boot
-
-```bash
-pm2 startup
-# Copy and run the command it prints, then:
-pm2 save
-```
-
-### Common PM2 commands
-
-| What | Command |
-|------|---------|
-| Start | `pm2 start src/index.js --name elaris` |
-| Stop | `pm2 stop elaris` |
-| Restart | `pm2 restart elaris` |
-| View logs (live) | `pm2 logs elaris` |
-| View logs (last 100 lines) | `pm2 logs elaris --lines 100` |
-| Status / overview | `pm2 status` |
-| Remove from PM2 | `pm2 delete elaris` |
-| Save current process list | `pm2 save` |
-
-> If you use PM2, you don't need the systemd service in step 7 — pick one or the other.
-
----
-
-## 9. ESPHome (for flashing ESP devices)
+## 8. ESPHome (for flashing ESP devices)
 
 Only needed if you want to use the ESPHome Installer page to flash firmware directly from ELARIS.
 
@@ -231,7 +232,7 @@ Then open: `http://<PI_IP>:8080/esphome.html`
 
 ---
 
-## 10. ESPHome Native API (external devices)
+## 9. ESPHome Native API (external devices)
 
 The native API import lets you connect to any existing ESPHome device over TCP (port 6053) without reflashing it. No extra install is needed — ELARIS connects directly.
 
@@ -261,7 +262,7 @@ Enter it once in the **Encryption key** field — ELARIS stores it in the databa
 
 ---
 
-## 11. Mosquitto — Allow LAN devices
+## 10. Mosquitto — Allow LAN devices
 
 For ESPHome boards on the LAN (like the KC868-A16) Mosquitto must accept connections from other devices on the network.
 
@@ -282,7 +283,7 @@ and restarts Mosquitto.
 
 ---
 
-## 12. Find Your Pi's IP Address
+## 11. Find Your Pi's IP Address
 
 ```bash
 hostname -I
@@ -297,15 +298,15 @@ Use this IP to open the app from any device on the same network:
 
 | What | Command |
 |------|---------|
-| Start app | `npm start` |
+| Start app (PM2) | `pm2 start ecosystem.config.js` |
+| Restart (PM2) | `pm2 restart elaris` |
+| Logs live (PM2) | `pm2 logs elaris` |
+| Start app (dev, no PM2) | `npm start` |
 | Start (dev mode) | `npm run dev` |
 | Recover admin account | `npm run recover-admin` |
 | MQTT broker status | `sudo systemctl status mosquitto` |
-| Elaris service logs (systemd) | `sudo journalctl -u elaris -f` |
-| Restart service (systemd) | `sudo systemctl restart elaris` |
-| PM2 status | `pm2 status` |
-| PM2 logs (live) | `pm2 logs elaris` |
-| PM2 restart | `pm2 restart elaris` |
+| Elaris logs (systemd) | `sudo journalctl -u elaris -f` |
+| Restart (systemd) | `sudo systemctl restart elaris` |
 | ESPHome version | `data/esphome_venv/bin/esphome version` |
 | View DB (interactive) | `sqlite3 data/elaris.db` |
 | List all tables | `sqlite3 data/elaris.db ".tables"` |
@@ -314,27 +315,45 @@ Use this IP to open the app from any device on the same network:
 
 ## Troubleshooting
 
-### Users disappear after restart
-The DB path is relative to the working directory. Always start from the project root:
+### Server refuses to start — `FATAL: Missing required env vars`
+
+The `.env` file is missing or one of `ENGINEER_CODE`, `ENGINEER_SECRET`, `APP_SECRET` is empty.
+Re-run step 5 to generate a new `.env`.
+
+### PM2 starts but env vars are not loaded
+
+Make sure you start with `pm2 start ecosystem.config.js` and **not** `pm2 start src/index.js`.
+The `ecosystem.config.js` adds the `--env-file=.env` flag that loads the `.env`.
+
+To fix an existing PM2 process:
 ```bash
-cd ~/elaris/elaris-core && npm start
+pm2 stop elaris
+pm2 delete elaris
+pm2 start ecosystem.config.js
+pm2 save
 ```
-Or use the systemd service which sets `WorkingDirectory` correctly.
+
+### Users disappear after restart
+
+The DB path is relative to the working directory. Always start from the project root, or use PM2/systemd which sets the working directory correctly.
 
 ### `invalid ELF header` / `better-sqlite3` error
+
 Node modules were compiled on Windows and copied to the Pi. Fix:
 ```bash
 cd ~/elaris/elaris-core && npm rebuild
 ```
 
 ### `Cannot find module 'js-yaml'`
+
 Dependencies not installed on the Pi. Fix:
 ```bash
 cd ~/elaris/elaris-core && npm install
 ```
 
 ### Rate limited on login
+
 Too many failed login attempts triggered the in-memory rate limiter. Fix: restart the app.
 ```bash
-sudo systemctl restart elaris
+pm2 restart elaris
 ```
