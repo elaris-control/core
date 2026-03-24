@@ -257,6 +257,7 @@ function buildPayload() {
   var boardInfo = boards.find(function(b) { return b.id === boardId; }) || {};
   var payload = {
     device_name: document.getElementById('deviceName').value.trim(),
+    device_id: (document.getElementById('deviceId').value || '').trim() || undefined,
     board_profile_id: boardId,
     board_custom: document.getElementById('customBoard').value.trim(),
     platform: boardInfo.platform || 'esp32',

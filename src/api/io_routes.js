@@ -18,13 +18,21 @@ function initIoRoutes({ db, engine, access, requireLogin, requireEngineerAccess 
     try {
       const rows = db.prepare(`
         SELECT io.*, ds.site_id,
-               (SELECT sv.value FROM device_state sv WHERE sv.device_id=io.device_id AND sv.key=io.key ORDER BY sv.ts DESC LIMIT 1) AS value
+               (SELECT sv.value FROM device_state sv WHERE sv.device_id=io.device_id AND sv.key=io.group_name||'.'||io.key ORDER BY sv.ts DESC LIMIT 1) AS value
         FROM io
         LEFT JOIN device_site ds ON ds.device_id = io.device_id
         WHERE io.pinned = 1 AND COALESCE(io.enabled, 1) = 1
         ORDER BY io.name
       `).all().filter(row => access.canAccessSiteRef(req, access.getDeviceSiteRef(row.device_id)));
-      res.json({ ok: true, io: rows });
+      // Apply active engine overrides so dashboard shows forced value
+      const result = rows.map(row => {
+        const ov = engine?.getActiveIOOverride?.(row.id);
+        if (ov?.active && ov.value !== '' && ov.value !== undefined) {
+          return { ...row, value: String(ov.value), overridden: true };
+        }
+        return row;
+      });
+      res.json({ ok: true, io: result });
     } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 

@@ -555,8 +555,27 @@ function collectEntities() {
   return result;
 }
 
+function _genDeviceId(label) {
+  var prefix = (label || 'esp').toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').substring(0, 10) || 'esp';
+  var suffix = Math.random().toString(16).substring(2, 6);
+  return prefix + '_' + suffix;
+}
+
 function updateSafeName() {
-  var v = document.getElementById('deviceName').value.trim()
-    .toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
-  document.getElementById('safeNamePreview').textContent = v || '—';
+  var label = document.getElementById('deviceName').value.trim();
+  var idEl = document.getElementById('deviceId');
+  // Only auto-generate if the field is empty (don't overwrite user-locked ID)
+  if (idEl && !idEl.dataset.locked) {
+    var newId = _genDeviceId(label);
+    idEl.value = newId;
+    document.getElementById('safeNamePreview').textContent = newId || '—';
+  }
+}
+
+function regenerateDeviceId() {
+  var label = document.getElementById('deviceName').value.trim();
+  var idEl = document.getElementById('deviceId');
+  var newId = _genDeviceId(label);
+  if (idEl) { idEl.value = newId; idEl.dataset.locked = ''; }
+  document.getElementById('safeNamePreview').textContent = newId || '—';
 }

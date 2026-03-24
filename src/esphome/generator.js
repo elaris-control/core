@@ -427,7 +427,7 @@ function pinLines(entity) {
 }
 
 function generateYAML({ profile, payload }) {
-  const sname = safeName(payload.device_name);
+  const sname = safeName(payload.device_id || payload.device_name);
   const framework = payload.framework || profile.frameworkDefault || 'esp-idf';
   const entities = payload.entities || [];
   const relays = entities.filter(e => e.type === 'relay');

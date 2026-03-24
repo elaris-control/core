@@ -92,7 +92,14 @@ async function main() {
   }
 
   app.use(express.json({ limit: '256kb' }));
-  app.use(morgan('dev'));
+  const _SKIP_LOG = ['/api/me','/api/version','/api/nav/pages','/api/sites','/api/io/pinned','/api/logs','/api/scenes','/api/zones','/api/entities','/api/io/overrides','/api/blocked-io','/api/modules/instances','/api/weather','/api/automation/status'];
+  app.use(morgan('dev', {
+    skip(req, res) {
+      if (res.statusCode === 304) return true;
+      if (/\.(js|css|png|ico|html|map|woff2?|ttf|svg)(\?|$)/.test(req.path)) return true;
+      return _SKIP_LOG.some(p => req.path === p || req.path.startsWith(p + '/') || req.path.startsWith(p + '?'));
+    }
+  }));
 
   // ── Core services ─────────────────────────────────────────────────────
   const DB_PATH = getDBPath();

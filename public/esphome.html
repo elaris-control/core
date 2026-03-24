@@ -705,8 +705,10 @@
           <label style="font-size:11px;font-weight:800;color:var(--muted2);display:block;margin-bottom:8px">Step 3 — Device name &amp; network</label>
           <div class="form-grid">
             <div class="form-row">
-              <label>Device name</label>
-              <input type="text" id="umyDeviceName" placeholder="e.g. my-sensor">
+              <label>Device Label</label>
+              <input type="text" id="umyDeviceName" placeholder="e.g. Boiler Room" oninput="umyUpdateDeviceId()">
+              <input type="hidden" id="umyDeviceId">
+              <span class="form-hint">Device ID (used in MQTT): <code id="umySafeNamePreview">—</code> <button type="button" onclick="umyRegenerateDeviceId()" style="font-size:10px;padding:1px 6px;margin-left:4px;cursor:pointer">↺ new</button></span>
             </div>
             <div class="form-row">
               <label>WiFi SSID</label>
@@ -882,9 +884,10 @@
       <div class="card-step" id="step2" style="display:none">
         <h2>&#129504; Step 2 — Device</h2>
         <div class="form-row">
-          <label>Device Name</label>
-          <input type="text" id="deviceName" placeholder="e.g. boiler_node" oninput="updateSafeName()">
-          <span class="form-hint">Safe name: <code id="safeNamePreview">—</code></span>
+          <label>Device Label</label>
+          <input type="text" id="deviceName" placeholder="e.g. Boiler Room" oninput="updateSafeName()">
+          <input type="hidden" id="deviceId">
+          <span class="form-hint">Device ID (used in MQTT): <code id="safeNamePreview">—</code> <button type="button" onclick="regenerateDeviceId()" style="font-size:10px;padding:1px 6px;margin-left:4px;cursor:pointer">↺ new</button></span>
         </div>
         <div id="selectedCardBanner" style="display:none;padding:10px 12px;border:1px solid rgba(34,217,122,.25);border-radius:10px;background:rgba(34,217,122,.08);font-size:12px;color:var(--muted2);margin-bottom:14px"></div>
 

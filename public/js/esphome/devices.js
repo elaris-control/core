@@ -479,7 +479,12 @@ function loadDeviceRecord(id) {
     localStorage.setItem('elaris_installer_board_profile_id', d.board_profile_id || '');
     localStorage.setItem('elaris_installer_device_name', d.name || d.friendly_name || '');
   } catch(e) {}
-  if (d.name) { document.getElementById('deviceName').value = d.name; updateSafeName(); }
+  if (d.friendly_name || d.name) {
+    document.getElementById('deviceName').value = d.friendly_name || d.name;
+    var idEl = document.getElementById('deviceId');
+    if (idEl) { idEl.value = d.name; idEl.dataset.locked = '1'; }
+    document.getElementById('safeNamePreview').textContent = d.name || '—';
+  }
   if (d.board_profile_id) {
     var sel = document.getElementById('boardSelect');
     for (var j = 0; j < sel.options.length; j++) {
@@ -506,7 +511,12 @@ function loadConfig(i) {
   try { window.selectedInstallerDeviceId = null; } catch(e) {}
   updateBoardSelectionUX();
   renderEspModeBanner();
-  if (c.device_name) { document.getElementById('deviceName').value = c.device_name; updateSafeName(); }
+  if (c.device_name || c.device_id) {
+    document.getElementById('deviceName').value = c.device_name || c.device_id;
+    var idEl = document.getElementById('deviceId');
+    if (idEl && c.device_id) { idEl.value = c.device_id; idEl.dataset.locked = '1'; document.getElementById('safeNamePreview').textContent = c.device_id; }
+    else updateSafeName();
+  }
   if (c.board_profile_id || c.board_id) {
     var sel = document.getElementById('boardSelect');
     for (var j = 0; j < sel.options.length; j++) {

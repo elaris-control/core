@@ -14,6 +14,7 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
         SELECT io.id, io.device_id, io.group_name, io.key, io.type, io.name,
                io.zone_id, z.name AS zone_name,
                COALESCE(io.enabled, 1) AS enabled,
+               COALESCE(io.pinned, 0) AS pinned,
                io.hw_type, io.kind, io.unit, io.device_class,
                io.source, io.port_id, io.bus_id, io.board_profile_id,
                ds.site_id AS site_id, s.name AS site_name

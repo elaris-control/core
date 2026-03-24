@@ -42,6 +42,10 @@ async function refreshOverridesOnly(){
   try{
     const ov = await api('/io/overrides');
     state.ioOverrides = ov.overrides || {};
+    // Don't re-render while user is editing a field in the table
+    var active = document.activeElement;
+    var rows = document.getElementById('rows');
+    if (active && rows && rows.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return;
     applyFilterAndRender();
   }catch(e){}
 }

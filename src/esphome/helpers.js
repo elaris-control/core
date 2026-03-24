@@ -704,7 +704,7 @@ function persistInstallState(db, { payload, profile, validation, yaml, yamlPath,
   if (!db) return null;
   ensureEsphomeTables(db);
   const siteId = payload.site_id || defaultSiteId(db);
-  const canonicalName = safeName(payload.device_name || 'device');
+  const canonicalName = safeName(payload.device_id || payload.device_name || 'device');
   const yamlHash = yaml ? sha256(yaml) : null;
   const now = new Date().toISOString();
   const validationJson = JSON.stringify(validation);

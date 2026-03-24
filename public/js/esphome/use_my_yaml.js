@@ -29,14 +29,44 @@ function umyDetectNetwork(yamlText) {
   };
 }
 
+function umyUpdateDeviceId() {
+  var label = (document.getElementById('umyDeviceName') || {}).value || '';
+  label = label.trim();
+  var idEl = document.getElementById('umyDeviceId');
+  if (idEl && !idEl.dataset.locked) {
+    var newId = typeof _genDeviceId === 'function' ? _genDeviceId(label) : label.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').substring(0, 10) + '_' + Math.random().toString(16).substring(2, 6);
+    idEl.value = newId;
+    var prev = document.getElementById('umySafeNamePreview');
+    if (prev) prev.textContent = newId || '—';
+  }
+}
+
+function umyRegenerateDeviceId() {
+  var label = (document.getElementById('umyDeviceName') || {}).value || '';
+  label = label.trim();
+  var newId = typeof _genDeviceId === 'function' ? _genDeviceId(label) : label.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').substring(0, 10) + '_' + Math.random().toString(16).substring(2, 6);
+  var idEl = document.getElementById('umyDeviceId');
+  if (idEl) { idEl.value = newId; idEl.dataset.locked = ''; }
+  var prev = document.getElementById('umySafeNamePreview');
+  if (prev) prev.textContent = newId || '—';
+}
+
 function umyApplyContextDefaults() {
   var card = umySelectedInstallerCard();
   if (!card) return;
   var nameEl = document.getElementById('umyDeviceName');
+  var idEl = document.getElementById('umyDeviceId');
   var portEl = document.getElementById('umyPort');
   var ssidEl = document.getElementById('umyWifiSsid');
   var passEl = document.getElementById('umyWifiPass');
-  if (nameEl && !nameEl.value.trim()) nameEl.value = card.name || card.friendly_name || '';
+  if (nameEl && !nameEl.value.trim()) nameEl.value = card.friendly_name || card.name || '';
+  // Lock device_id to existing card's name (MQTT identifier)
+  if (idEl && card.name) {
+    idEl.value = card.name;
+    idEl.dataset.locked = '1';
+    var prev = document.getElementById('umySafeNamePreview');
+    if (prev) prev.textContent = card.name;
+  }
   if (portEl && !portEl.value.trim()) portEl.value = card.ip_address || card.target_ip || card.serial_port || card.target_port || '';
   if (card.network_mode === 'ethernet') {
     if (ssidEl) ssidEl.disabled = true;
@@ -138,7 +168,23 @@ async function umyParse() {
     document.getElementById('umyStep4').style.display = 'block';
     var parsedName = (r.parsed.id || r.parsed.label || '').replace(/[^a-z0-9_-]/gi, '-').toLowerCase() || 'my-device';
     var card = umySelectedInstallerCard();
-    document.getElementById('umyDeviceName').value = (card && (card.name || card.friendly_name)) || parsedName;
+    var labelVal = (card && (card.friendly_name || card.name)) || parsedName;
+    document.getElementById('umyDeviceName').value = labelVal;
+    var idEl = document.getElementById('umyDeviceId');
+    if (idEl) {
+      if (card && card.name) {
+        idEl.value = card.name;
+        idEl.dataset.locked = '1';
+        var prev = document.getElementById('umySafeNamePreview');
+        if (prev) prev.textContent = card.name;
+      } else if (!idEl.dataset.locked || !idEl.value) {
+        var newId = typeof _genDeviceId === 'function' ? _genDeviceId(labelVal) : parsedName;
+        idEl.value = newId;
+        idEl.dataset.locked = '';
+        var prev2 = document.getElementById('umySafeNamePreview');
+        if (prev2) prev2.textContent = newId || '—';
+      }
+    }
     var net = umyDetectNetwork(text);
     var hasEncryption = /^\s*api\s*:/m.test(text) && /encryption\s*:/m.test(text);
     var baseMsg = '';
@@ -182,11 +228,13 @@ async function umyAddPeripheral() {
 async function umyFlash() {
   if (!_umyCurrentYaml) { umyError('Parse YAML first.'); return; }
   var device_name = document.getElementById('umyDeviceName').value.trim();
+  var device_id = (document.getElementById('umyDeviceId') || {}).value || '';
+  device_id = device_id.trim() || undefined;
   var wifi_ssid = document.getElementById('umyWifiSsid').value.trim();
   var wifi_pass = document.getElementById('umyWifiPass').value;
   var mqtt_host = document.getElementById('umyMqttHost').value.trim();
   var port = document.getElementById('umyPort').value.trim();
-  if (!device_name) { umyError('Enter device name.'); return; }
+  if (!device_name) { umyError('Enter device label.'); return; }
   if (!port) { umyError('Enter USB port or OTA IP.'); return; }
   var net = umyDetectNetwork(_umyCurrentYaml);
   if (net.hasWifi && net.hasEthernet) { umyError('This YAML contains both WiFi and Ethernet. Keep only one before flashing.'); return; }
@@ -206,6 +254,7 @@ async function umyFlash() {
       body: JSON.stringify({
         yaml_text: _umyCurrentYaml,
         device_name: device_name,
+        device_id: device_id,
         wifi_ssid: wifi_ssid,
         wifi_pass: wifi_pass,
         mqtt_host: mqtt_host,
