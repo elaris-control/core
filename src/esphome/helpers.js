@@ -388,16 +388,25 @@ function fetchUrl(url) {
 
 function listPorts() {
   try {
-    return fs.readdirSync('/dev', { withFileTypes: true })
+    if (process.platform === 'win32') {
+      const out = execSync('wmic path Win32_SerialPort get DeviceID /format:list', { encoding: 'utf8', stdio: 'pipe' });
+      return out.split(/\r?\n/).map(l => l.replace(/^DeviceID=/, '').trim()).filter(Boolean).sort();
+    }
+    const devDir = process.platform === 'darwin' ? '/dev' : '/dev';
+    const pattern = process.platform === 'darwin' ? /^(cu\.(usbserial|usbmodem)|tty\.(usbserial|usbmodem))/ : /^tty(USB|ACM)\d+$/;
+    return fs.readdirSync(devDir, { withFileTypes: true })
       .map(d => d.name)
-      .filter(name => /^tty(USB|ACM)\d+$/.test(name))
-      .map(name => path.join('/dev', name))
+      .filter(name => pattern.test(name))
+      .map(name => path.join(devDir, name))
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   } catch { return []; }
 }
 
 function getEspHomeBin(dataDir) {
-  const venvBin = path.join(dataDir, 'esphome_venv', 'bin', 'esphome');
+  const isWin = process.platform === 'win32';
+  const venvBin = isWin
+    ? path.join(dataDir, 'esphome_venv', 'Scripts', 'esphome.exe')
+    : path.join(dataDir, 'esphome_venv', 'bin', 'esphome');
   if (fs.existsSync(venvBin)) return venvBin;
   try { execSync('esphome version 2>&1', { encoding: 'utf8' }); return 'esphome'; } catch {}
   return null;
