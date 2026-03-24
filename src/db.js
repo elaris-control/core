@@ -821,7 +821,7 @@ db.exec(`
     if (anyRow?.deleted_at && !reviveDeleted) return { id: anyRow.id, suppressed: true, deleted_at: anyRow.deleted_at };
 
     let row = visibleRow || anyRow || null;
-    const effectiveLastSeen = retained ? null : nowIso;
+    const effectiveLastSeen = retained ? (row?.last_seen_at || nowIso) : nowIso;
     const shouldRevive = !!(row?.deleted_at && reviveDeleted);
     if (!row) {
       const inserted = insertEspHomeDevice.run(
