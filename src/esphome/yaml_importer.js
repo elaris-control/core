@@ -176,7 +176,17 @@ function parseEsphomeYaml(yamlText) {
     result.entityDefaults.push(entity);
   }
 
-  // ── sensor → AI / ds18b20 / dht ─────────────────────────────────────────
+  // ── one_wire buses ─────────────────────────────────────────────────────
+  const oneWireMap = new Map();
+  for (const ow of toArray(doc.one_wire)) {
+    if (!ow) continue;
+    const busId = String(ow.id || '').trim();
+    const pin = resolvePin(ow.pin);
+    if (!busId) continue;
+    oneWireMap.set(busId, { id: busId, pin: pin.label || '', source: pin.label || busId });
+  }
+
+  // ── sensor → AI / ds18b20 / dht / i2c ─────────────────────────────────
   let aiIdx = 0;
   let dsIdx = 0;
   for (const s of toArray(doc.sensor)) {
@@ -195,23 +205,59 @@ function parseEsphomeYaml(yamlText) {
       });
     } else if (plat === 'dallas' || plat === 'dallas_temp') {
       dsIdx++;
+      const busId = String(s.one_wire_id || s.dallas_id || '').trim();
+      const bus = busId ? oneWireMap.get(busId) : null;
       result.entityDefaults.push({
-        key: `ds18b20_${dsIdx}`,
-        name: s.name || `Temperature ${dsIdx}`,
+        key: String(s.id || '').trim() || `ht_${dsIdx}`,
+        name: s.name || `DS18B20 ${dsIdx}`,
         type: 'ds18b20',
-        source: `DS${dsIdx}`,
+        source: (bus && (bus.pin || bus.id)) || `DS${dsIdx}`,
+        pin: (bus && bus.pin) || '',
+        bus_id: busId || null,
         address: s.address,
         index: s.index ?? dsIdx - 1,
       });
     } else if (plat === 'dht') {
       const pin = resolvePin(s.pin);
       result.entityDefaults.push({
-        key: 'dht_temp',
+        key: String(s.id || '').trim() || 'dht_temp',
         name: s.name || 'Temperature',
         type: 'dht',
         source: pin.label || 'DHT',
         pin: pin.label,
         model: s.model || 'DHT22',
+      });
+    } else if (plat === 'sht3xd' || plat === 'sht3x') {
+      const busId = String(s.i2c_id || (result.i2c && result.i2c.id) || '').trim() || null;
+      const busLabel = busId || 'I2C';
+      const t = s.temperature || {};
+      const h = s.humidity || {};
+      result.entityDefaults.push({
+        key: String(t.id || '').trim() || 'sht3x_temp',
+        name: t.name || 'SHT3x Temperature',
+        type: 'sensor',
+        source: busLabel,
+        bus_id: busId,
+        address: s.address || '0x44',
+      });
+      result.entityDefaults.push({
+        key: String(h.id || '').trim() || 'sht3x_hum',
+        name: h.name || 'SHT3x Humidity',
+        type: 'sensor',
+        source: busLabel,
+        bus_id: busId,
+        address: s.address || '0x44',
+      });
+    } else if (plat === 'bh1750') {
+      const busId = String(s.i2c_id || (result.i2c && result.i2c.id) || '').trim() || null;
+      const busLabel = busId || 'I2C';
+      result.entityDefaults.push({
+        key: String(s.id || '').trim() || 'bh1750_lux',
+        name: s.name || 'BH1750 Illuminance',
+        type: 'sensor',
+        source: busLabel,
+        bus_id: busId,
+        address: s.address || '0x23',
       });
     }
   }

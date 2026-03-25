@@ -541,10 +541,14 @@ db.exec(`
     return getCatalogProfile(db, id) || getProfile(id) || null;
   }
 
-  function getDeviceBoardProfileId(deviceId) {
+  function getDeviceEspHomeRow(deviceId) {
     const id = String(deviceId || '').trim();
     if (!id) return null;
-    const row = getEspHomeByName.get(id) || getEspHomeAnyByName.get(id) || null;
+    return getEspHomeByName.get(id) || getEspHomeAnyByName.get(id) || null;
+  }
+
+  function getDeviceBoardProfileId(deviceId) {
+    const row = getDeviceEspHomeRow(deviceId);
     return row?.board_profile_id ? String(row.board_profile_id).trim() : null;
   }
 
@@ -559,6 +563,18 @@ db.exec(`
     const rawGroup = String(group || '').trim().toLowerCase() || 'tele';
     const rawKey = String(key || '').trim();
     const rawSource = String(source || '').trim();
+    const deviceRow = getDeviceEspHomeRow(deviceId);
+    const configSource = String(deviceRow?.config_source || '').trim().toLowerCase();
+    if (configSource === 'use_my_yaml_overlay') {
+      return {
+        group_name: rawGroup === 'state' ? 'state' : 'tele',
+        key: rawKey,
+        source: rawSource || null,
+        port_id: rawSource || null,
+        board_profile_id: deviceRow?.board_profile_id ? String(deviceRow.board_profile_id).trim() : null,
+        canonical: false,
+      };
+    }
     const resolvedProfileId = String(boardProfileId || getDeviceBoardProfileId(deviceId) || '').trim();
     const profile = getRuntimeBoardProfile(resolvedProfileId);
     if (!profile || (!rawKey && !rawSource)) {
@@ -922,6 +938,93 @@ db.exec(`
     return dupIds;
   }
 
+  function _purgeOldEsphomeIdentityRowsByIds(deviceRows) {
+    const rows = Array.isArray(deviceRows) ? deviceRows.filter(Boolean) : [];
+    if (!rows.length) return { ok: true, purged: [] };
+    const purged = [];
+    db.transaction(() => {
+      for (const row of rows) {
+        const deviceId = String(row.name || '').trim();
+        if (!deviceId) continue;
+        const ioIds = db.prepare(`SELECT id FROM io WHERE device_id=?`).all(deviceId).map(r => Number(r.id)).filter(Boolean);
+        if (ioIds.length) {
+          const qm = ioIds.map(() => '?').join(',');
+          try { db.prepare(`DELETE FROM module_mappings WHERE io_id IN (${qm})`).run(...ioIds); } catch (_) {}
+          try { db.prepare(`DELETE FROM io_runtime_overrides WHERE io_id IN (${qm})`).run(...ioIds); } catch (_) {}
+          const ioIdSet = new Set(ioIds);
+          let patchScene = null;
+          try { patchScene = db.prepare('UPDATE scenes SET actions_json=? WHERE id=?'); } catch (_) { patchScene = null; }
+          if (patchScene) {
+            for (const scene of db.prepare('SELECT id, actions_json FROM scenes').all()) {
+              let actions; try { actions = JSON.parse(scene.actions_json || '[]'); } catch (_) { continue; }
+              let changed = false;
+              actions = actions.map(a => {
+                if (a && a.type === 'send_command' && ioIdSet.has(Number(a.io_id))) {
+                  changed = true;
+                  return { ...a, io_id: null };
+                }
+                return a;
+              });
+              if (changed) patchScene.run(JSON.stringify(actions), scene.id);
+            }
+          }
+        }
+        db.prepare('DELETE FROM io WHERE device_id=?').run(deviceId);
+        db.prepare('DELETE FROM pending_io WHERE device_id=?').run(deviceId);
+        db.prepare('DELETE FROM blocked_io WHERE device_id=?').run(deviceId);
+        db.prepare('DELETE FROM device_state WHERE device_id=?').run(deviceId);
+        db.prepare('DELETE FROM device_site WHERE device_id=?').run(deviceId);
+        db.prepare('DELETE FROM events WHERE device_id=?').run(deviceId);
+        db.prepare('DELETE FROM esphome_install_jobs WHERE esphome_device_id=?').run(row.id);
+        db.prepare('DELETE FROM esphome_generated_configs WHERE esphome_device_id=?').run(row.id);
+        db.prepare('DELETE FROM esphome_device_overrides WHERE esphome_device_id=?').run(row.id);
+        db.prepare('DELETE FROM esphome_devices WHERE id=?').run(row.id);
+        purged.push({ id: row.id, device_id: deviceId, mqtt_topic_root: String(row.mqtt_topic_root || '').trim() || null });
+      }
+    })();
+    return { ok: true, purged };
+  }
+
+  function purgeEsphomeSameMacDuplicates(deviceId, macAddress) {
+    const topicRoot = `elaris/${deviceId}`;
+    const row = getEspHomeAnyByName.get(deviceId) || getEspHomeAnyByTopicRoot.get(topicRoot) || null;
+    const mac = String(macAddress || '').trim().toLowerCase();
+    if (!row || row.deleted_at || !mac) return { ok: true, purged: [] };
+    const dupRows = db.prepare(`SELECT id, name, mqtt_topic_root FROM esphome_devices WHERE id<>? AND deleted_at IS NULL AND lower(trim(coalesce(mac_address,'')))=? ORDER BY updated_at DESC, id DESC`).all(row.id, mac);
+    let out = { ok: true, purged: [] };
+    if (dupRows.length) out = _purgeOldEsphomeIdentityRowsByIds(dupRows);
+    try { purgeOrphanEspHomeArtifacts(); } catch (_) {}
+    return out;
+  }
+
+  function purgeOrphanEspHomeArtifacts() {
+    const active = new Set(db.prepare(`SELECT name FROM esphome_devices WHERE deleted_at IS NULL`).all().map(r => String(r.name || '').trim()).filter(Boolean));
+    if (!active.size) return { ok: true, purged: [] };
+    const seen = new Set();
+    const collect = (table) => {
+      try {
+        db.prepare(`SELECT DISTINCT device_id FROM ${table}`).all().forEach(r => {
+          const id = String(r.device_id || '').trim();
+          if (id && !active.has(id)) seen.add(id);
+        });
+      } catch (_) {}
+    };
+    ['pending_io','blocked_io','io','device_state','events','device_site'].forEach(collect);
+    const purged = Array.from(seen);
+    if (!purged.length) return { ok: true, purged: [] };
+    db.transaction(() => {
+      for (const id of purged) {
+        db.prepare('DELETE FROM pending_io WHERE device_id=?').run(id);
+        db.prepare('DELETE FROM blocked_io WHERE device_id=?').run(id);
+        db.prepare('DELETE FROM io WHERE device_id=?').run(id);
+        db.prepare('DELETE FROM device_state WHERE device_id=?').run(id);
+        db.prepare('DELETE FROM device_site WHERE device_id=?').run(id);
+        db.prepare('DELETE FROM events WHERE device_id=?').run(id);
+      }
+    })();
+    return { ok: true, purged };
+  }
+
   function updateEspHomeIdentity(deviceId, fields = {}) {
     const topicRoot = `elaris/${deviceId}`;
     const row = getEspHomeAnyByName.get(deviceId) || getEspHomeAnyByTopicRoot.get(topicRoot) || null;
@@ -933,6 +1036,7 @@ db.exec(`
     const nowIso = new Date(Number.isFinite(Number(fields.ts)) ? Number(fields.ts) : Date.now()).toISOString();
     db.prepare(`UPDATE esphome_devices SET mac_address=COALESCE(?, mac_address), ip_address=COALESCE(?, ip_address), firmware_version=COALESCE(?, firmware_version), hostname=COALESCE(?, hostname), updated_at=? WHERE id=?`).run(mac, ip, fw, host, nowIso, row.id);
     try { _cleanupEsphomeDuplicatesForCanonical(row.id); } catch (_) {}
+    try { purgeOrphanEspHomeArtifacts(); } catch (_) {}
     return row.id;
   }
 
@@ -1057,6 +1161,8 @@ db.exec(`
     isEspHomeRegistrySuppressed,
     touchEspHomeRegistry,
     updateEspHomeIdentity,
+    purgeEsphomeSameMacDuplicates,
+    purgeOrphanEspHomeArtifacts,
     getAppSetting,
     setAppSetting,
     getBoolAppSetting,

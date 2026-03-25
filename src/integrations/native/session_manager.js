@@ -213,6 +213,13 @@ function createNativeSessionManager(opts) {
     session.protocol_phase = 'connect';
     session.last_error = null;
     session.updated_at = toIsoNow();
+    if (!session._client) {
+      var freshClient = assertNativeClient(adapter.createNativeClient({ db: opts.db, sessionKey: session.session_key, onUpdate: attachClientUpdates(session) }, session.payload || {}), integrationKey);
+      session.transport = freshClient.transport || null;
+      session.session_mode = freshClient.sessionMode || null;
+      session.reconnect_interval_ms = Number(freshClient.refreshMs || 0) > 0 ? Number(freshClient.refreshMs) : null;
+      session._client = freshClient;
+    }
     publish('native_session_update', session);
     var result = await session._client.connect(session.payload || {}, { session: snapshotSession(session) });
     mergeSessionResult(session, result, { protocol_phase: 'connected' });
@@ -275,6 +282,7 @@ function createNativeSessionManager(opts) {
     mergeSessionResult(session, result, { state: 'disconnected', transport_state: 'idle', protocol_phase: 'disconnect' });
     session.connected = false;
     session.live_stream = false;
+    session._client = null;
     session.last_disconnect_at = toIsoNow();
     session.updated_at = session.last_disconnect_at;
     publish('native_session_update', session);

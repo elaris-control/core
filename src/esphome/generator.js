@@ -1082,17 +1082,29 @@ function _insertSensorItem(yamlText, sensorItemText) {
 function applyYamlOverrides(yamlText, overrides = {}) {
   let out = String(yamlText || '');
   const name = String(overrides.device_name || '').trim();
+  // friendly_name is the human label — separate from the MQTT device_id.
+  // Falls back to name if not provided.
+  const friendlyLabel = String(overrides.friendly_name || overrides.device_name || '').trim();
   const wifiSsid = String(overrides.wifi_ssid || '').trim();
   const wifiPass = String(overrides.wifi_pass ?? '');
   const mqttHost = String(overrides.mqtt_host || '').trim();
 
   if (name) {
     const nameSafe = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-    const quotedFriendly = `"${yamlStr(name)}"`;
+    const quotedFriendly = `"${yamlStr(friendlyLabel || nameSafe)}"`;
+    // Extract old name before replacing so we can rewrite hardcoded topic strings.
+    const oldNameMatch = out.match(/^[ \t]{1,4}name\s*:\s*(\S+)/m);
+    const oldNameRaw = oldNameMatch ? String(oldNameMatch[1]).trim() : null;
+    const oldNameSafe = oldNameRaw ? oldNameRaw.toLowerCase().replace(/[^a-z0-9_-]/g, '-') : null;
     out = out.replace(/^(\s{2})name\s*:\s*.*$/m, `$1name: ${nameSafe}`);
     out = out.replace(/^(\s{2})friendly_name\s*:\s*.*$/m, `$1friendly_name: ${quotedFriendly}`);
     if (!/^\s{2}name\s*:/m.test(out) && /^esphome:\s*$/m.test(out)) {
       out = out.replace(/(^esphome:\s*)\n/m, `$1\n  name: ${nameSafe}\n  friendly_name: ${quotedFriendly}\n`);
+    }
+    // Replace hardcoded old device name in MQTT topic strings (lambdas, on_connect, etc.)
+    // e.g. "elaris/kc868-a16/tele/..." → "elaris/gamhseme_7df4/tele/..."
+    if (oldNameSafe && oldNameSafe !== nameSafe) {
+      out = out.split(`elaris/${oldNameSafe}/`).join(`elaris/${nameSafe}/`);
     }
   }
 

@@ -705,10 +705,9 @@
           <label style="font-size:11px;font-weight:800;color:var(--muted2);display:block;margin-bottom:8px">Step 3 — Device name &amp; network</label>
           <div class="form-grid">
             <div class="form-row">
-              <label>Device Label</label>
+              <label>Device Name</label>
               <input type="text" id="umyDeviceName" placeholder="e.g. Boiler Room" oninput="umyUpdateDeviceId()">
               <input type="hidden" id="umyDeviceId">
-              <span class="form-hint">Device ID (used in MQTT): <code id="umySafeNamePreview">—</code> <button type="button" onclick="umyRegenerateDeviceId()" style="font-size:10px;padding:1px 6px;margin-left:4px;cursor:pointer">↺ new</button></span>
             </div>
             <div class="form-row">
               <label>WiFi SSID</label>

@@ -158,6 +158,22 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
     }
     mqttDebug('standard_topic_registry_hit', { deviceId, topic, retained, registry_id: known?.id || null, board_profile_id: known?.board_profile_id || null, mqtt_topic_root: known?.mqtt_topic_root || null });
 
+    const diagKey = (parts.length === 4 && parts[3] === 'state') ? String(parts[2] || '').trim().toLowerCase() : '';
+    const isIdentityDiag = !!diagKey && (
+      /mac/.test(diagKey) || diagKey.endsWith('mac_address') ||
+      diagKey === 'ip_address' || diagKey.endsWith('_ip') || diagKey.endsWith('_ip_address') ||
+      diagKey === 'version' || diagKey === 'esphome_version' || diagKey === 'firmware_version'
+    );
+
+    // If device uses custom MQTT, keep custom sensor topics as primary source to avoid duplicates.
+    // But DO/DI standard topics are still valuable fallback when the YAML does not mirror them
+    // to custom ELARIS topics. Identity diagnostics must also always be kept.
+    if (known?.mqtt_topic_root && parts.length === 4 && parts[3] === 'state' &&
+        parts[1] === 'sensor' && !isIdentityDiag) {
+      mqttDebug('native_topic_skipped', { deviceId, topic, reason: 'has_custom_mqtt' });
+      return;
+    }
+
     if (parts.length === 2 && parts[1] === 'status') {
       const noteResult = dbApi.noteDeviceAndMaybePendingIO({ deviceId, group: 'meta', key: 'status', value: payload, ts, retained, allowRetained: true });
       mqttDebug('status_processed', { deviceId, retained, payload: trimmedPayload || payload, result: noteResult?.reason || null, pending: !!noteResult?.ok });
@@ -172,12 +188,40 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
       return;
     }
 
-    if (parts.length === 4 && parts[1] === 'text_sensor' && parts[3] === 'state') {
-      const diagKey = String(parts[2] || '').trim().toLowerCase();
+    if (parts.length === 4 && (parts[1] === 'text_sensor' || parts[1] === 'sensor') && parts[3] === 'state') {
       if (diagKey) {
         if ((/mac/.test(diagKey) || diagKey.endsWith('mac_address')) && typeof dbApi.updateEspHomeIdentity === 'function') {
           dbApi.updateEspHomeIdentity(deviceId, { mac_address: trimmedPayload, ts });
-          mqttDebug('identity_update', { deviceId, field: 'mac_address', value: trimmedPayload });
+          let purgeInfo = { ok: true, purged: [] };
+          try {
+            if (typeof dbApi.purgeEsphomeSameMacDuplicates === 'function') {
+              purgeInfo = dbApi.purgeEsphomeSameMacDuplicates(deviceId, trimmedPayload) || purgeInfo;
+            }
+          } catch (_) {}
+          if (Array.isArray(purgeInfo?.purged)) {
+            for (const item of purgeInfo.purged) {
+              const oldId = String(item?.device_id || '').trim();
+              const oldRoot = String(item?.mqtt_topic_root || '').trim();
+              const roots = Array.from(new Set([oldRoot, oldId ? `elaris/${oldId}` : ''].filter(Boolean)));
+              for (const root of roots) {
+                try { client.publish(root + '/config', '', { qos: 0, retain: true }); } catch (_) {}
+                try { client.publish(root + '/status', '', { qos: 0, retain: true }); } catch (_) {}
+              }
+              const leaf = oldId || (oldRoot.startsWith('elaris/') ? oldRoot.slice('elaris/'.length) : '');
+              if (leaf) {
+                const knownTopics = [
+                  'ht_1','ht_2','ht_3','sht3x_temp','sht3x_hum','bh1750_lux',
+                  'di_1','di_2','di_3','di_4','di_5','di_6','di_7','di_8','di_9','di_10','di_11','di_12','di_13','di_14','di_15','di_16',
+                  'relay_1','relay_2','relay_3','relay_4','relay_5','relay_6','relay_7','relay_8','relay_9','relay_10','relay_11','relay_12','relay_13','relay_14','relay_15','relay_16'
+                ];
+                for (const k of knownTopics) {
+                  const grp = k.startsWith('relay_') ? 'state' : 'tele';
+                  try { client.publish(`elaris/${leaf}/${grp}/${k}`, '', { qos: 0, retain: true }); } catch (_) {}
+                }
+              }
+            }
+          }
+          mqttDebug('identity_update', { deviceId, field: 'mac_address', value: trimmedPayload, purged_same_mac: purgeInfo?.purged?.map(x => x.device_id) || [] });
           dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
           emit("mqtt", { topic, deviceId, group: 'meta', key: 'mac_address', payload });
           return;

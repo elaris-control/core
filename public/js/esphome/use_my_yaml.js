@@ -29,27 +29,21 @@ function umyDetectNetwork(yamlText) {
   };
 }
 
+function _umyLabelToId(label) {
+  var s = String(label || '').trim().toLowerCase();
+  s = s.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return s || 'device';
+}
+
 function umyUpdateDeviceId() {
   var label = (document.getElementById('umyDeviceName') || {}).value || '';
-  label = label.trim();
   var idEl = document.getElementById('umyDeviceId');
   if (idEl && !idEl.dataset.locked) {
-    var newId = typeof _genDeviceId === 'function' ? _genDeviceId(label) : label.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').substring(0, 10) + '_' + Math.random().toString(16).substring(2, 6);
-    idEl.value = newId;
-    var prev = document.getElementById('umySafeNamePreview');
-    if (prev) prev.textContent = newId || '—';
+    idEl.value = _umyLabelToId(label);
   }
 }
 
-function umyRegenerateDeviceId() {
-  var label = (document.getElementById('umyDeviceName') || {}).value || '';
-  label = label.trim();
-  var newId = typeof _genDeviceId === 'function' ? _genDeviceId(label) : label.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').substring(0, 10) + '_' + Math.random().toString(16).substring(2, 6);
-  var idEl = document.getElementById('umyDeviceId');
-  if (idEl) { idEl.value = newId; idEl.dataset.locked = ''; }
-  var prev = document.getElementById('umySafeNamePreview');
-  if (prev) prev.textContent = newId || '—';
-}
+function umyRegenerateDeviceId() {} // no-op — ID always derived from label
 
 function umyApplyContextDefaults() {
   var card = umySelectedInstallerCard();
@@ -60,12 +54,10 @@ function umyApplyContextDefaults() {
   var ssidEl = document.getElementById('umyWifiSsid');
   var passEl = document.getElementById('umyWifiPass');
   if (nameEl && !nameEl.value.trim()) nameEl.value = card.friendly_name || card.name || '';
-  // Lock device_id to existing card's name (MQTT identifier)
+  // Lock device_id to existing card's MQTT name when re-flashing
   if (idEl && card.name) {
     idEl.value = card.name;
     idEl.dataset.locked = '1';
-    var prev = document.getElementById('umySafeNamePreview');
-    if (prev) prev.textContent = card.name;
   }
   if (portEl && !portEl.value.trim()) portEl.value = card.ip_address || card.target_ip || card.serial_port || card.target_port || '';
   if (card.network_mode === 'ethernet') {
@@ -166,23 +158,17 @@ async function umyParse() {
     document.getElementById('umyStep2').style.display = 'block';
     document.getElementById('umyStep3').style.display = 'block';
     document.getElementById('umyStep4').style.display = 'block';
-    var parsedName = (r.parsed.id || r.parsed.label || '').replace(/[^a-z0-9_-]/gi, '-').toLowerCase() || 'my-device';
     var card = umySelectedInstallerCard();
-    var labelVal = (card && (card.friendly_name || card.name)) || parsedName;
+    var labelVal = (card && (card.friendly_name || card.name)) || (r.parsed.label || r.parsed.id || 'device');
     document.getElementById('umyDeviceName').value = labelVal;
     var idEl = document.getElementById('umyDeviceId');
     if (idEl) {
       if (card && card.name) {
         idEl.value = card.name;
         idEl.dataset.locked = '1';
-        var prev = document.getElementById('umySafeNamePreview');
-        if (prev) prev.textContent = card.name;
-      } else if (!idEl.dataset.locked || !idEl.value) {
-        var newId = typeof _genDeviceId === 'function' ? _genDeviceId(labelVal) : parsedName;
-        idEl.value = newId;
+      } else {
+        idEl.value = _umyLabelToId(labelVal);
         idEl.dataset.locked = '';
-        var prev2 = document.getElementById('umySafeNamePreview');
-        if (prev2) prev2.textContent = newId || '—';
       }
     }
     var net = umyDetectNetwork(text);
@@ -275,6 +261,7 @@ async function umyFlash() {
     var msg = String(e && e.message || e || 'Unknown error');
     if (/esphome_not_installed/i.test(msg)) msg = 'ESPHome is not installed yet. Install ESPHome first, then retry.';
     else if (/flash_in_progress/i.test(msg)) msg = 'Another ESPHome flash is already running. Wait for it to finish or cancel it first.';
+    else if (/device_name_already_exists/i.test(msg)) msg = 'A device with this name already exists. Choose a different name.';
     else if (/port_or_ip_required|missing_target_port_or_ip/i.test(msg)) msg = 'Select a USB port for first flash, or enter a device IP for OTA reflash.';
     else if (/validation_failed/i.test(msg)) msg = 'Validation failed. Review the generated YAML/validation output before flashing.';
     document.getElementById('umyFlashMsg').textContent = 'Error: ' + msg;

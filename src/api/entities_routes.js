@@ -2,6 +2,8 @@
 // src/api/entities_routes.js — /api/entities, /api/pending-io, /api/blocked-io
 const express = require('express');
 const { getCatalogProfile } = require('../esphome/profile_registry');
+const { parseEsphomeYaml } = require('../esphome/yaml_importer');
+const fs = require('fs');
 const { findBoardPort, findBoardBus, matchBoardPathFromText } = require('../esphome/board_port_registry');
 
 function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
@@ -31,11 +33,41 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
   // ── Pending IO ────────────────────────────────────────────────────────
   router.get('/pending-io', requireEngineerAccess, (req, res) => {
     try {
+      if (typeof dbApi.purgeOrphanEspHomeArtifacts === 'function') dbApi.purgeOrphanEspHomeArtifacts();
       if (typeof dbApi.normalizePendingRowsForDevice === 'function') {
         const ids = dbApi.db.prepare(`SELECT DISTINCT device_id FROM pending_io ORDER BY device_id`).all().map(r => String(r.device_id || '').trim()).filter(Boolean);
         for (const id of ids) dbApi.normalizePendingRowsForDevice(id);
       }
-      res.json({ ok: true, pending: dbApi.listPendingIO.all() });
+      const pending = dbApi.listPendingIO.all();
+      const devRows = dbApi.db.prepare(`SELECT name, friendly_name, hostname, board_profile_id, yaml_path, config_source FROM esphome_devices WHERE deleted_at IS NULL`).all();
+      const yamlMetaByDevice = new Map();
+      for (const dev of devRows) {
+        const deviceId = String(dev.name || '').trim();
+        const yamlPath = String(dev.yaml_path || '').trim();
+        if (!deviceId || !yamlPath || !fs.existsSync(yamlPath)) continue;
+        try {
+          const parsed = parseEsphomeYaml(fs.readFileSync(yamlPath, 'utf8'));
+          const map = new Map();
+          for (const ent of Array.isArray(parsed.entityDefaults) ? parsed.entityDefaults : []) {
+            const k = String(ent.key || '').trim();
+            if (!k) continue;
+            map.set(k, ent);
+          }
+          yamlMetaByDevice.set(deviceId, { parsed, entities: map });
+        } catch (_) {}
+      }
+      const enriched = pending.map((row) => {
+        const meta = yamlMetaByDevice.get(String(row.device_id || '').trim());
+        const ent = meta?.entities?.get(String(row.key || '').trim()) || null;
+        return Object.assign({}, row, ent ? {
+          source: ent.source || null,
+          port_id: ent.port_id || null,
+          bus_id: ent.bus_id || null,
+          pin: ent.pin || null,
+          entity_name: ent.name || null,
+        } : {});
+      });
+      res.json({ ok: true, pending: enriched });
     } catch (e) {
       res.status(500).json({ ok: false, error: String(e?.message || e) });
     }

@@ -533,6 +533,7 @@
 
   function defaultPendingName(p, inferred){
     const meta = pendingMeta(p);
+    if (p && p.entity_name) return String(p.entity_name);
     if (meta && meta.name) return String(meta.name);
     if (inferred && inferred.name) return String(inferred.name);
     if (meta && meta.source) return installerPortFriendly(meta.source);
@@ -619,9 +620,31 @@
     if (!profile) return { source: '', klass: '', note: '', name: '' };
     const defaults = Array.isArray(profile.defaults) ? profile.defaults : [];
     const meta = pendingMeta(p);
-    const rawCandidates = [p && p.key, (p && p.group_name ? (p.group_name + '.' + p.key) : ''), p && p.device_id, meta && meta.source, meta && meta.port_id, meta && meta.bus_id];
+    const rowSource = String((p && (p.source || p.port_id || p.bus_id || p.pin)) || '').trim();
+    const rawCandidates = [p && p.key, (p && p.group_name ? (p.group_name + '.' + p.key) : ''), p && p.device_id, rowSource, p && p.port_id, p && p.bus_id, p && p.pin, meta && meta.source, meta && meta.port_id, meta && meta.bus_id];
     const wanted = new Set(buildBoardLookupTokens(rawCandidates));
     const key = String(p && p.key || '').trim().toLowerCase();
+
+    if (rowSource || (p && p.pin) || (p && p.bus_id)) {
+      var rowPort = installerFindPortMatch(profile, [rowSource, p && p.port_id, p && p.pin], 'AI');
+      if (rowPort && rowPort.port) {
+        return {
+          source: String(rowPort.port.id || rowSource || '').trim(),
+          klass: installerClassFromPortGroup(rowPort.port.group) || 'AI',
+          note: 'Matched YAML source metadata.',
+          name: String((p && p.entity_name) || installerPortFriendly(rowPort.port.label || rowPort.port.id || '')).trim()
+        };
+      }
+      var rowBus = installerFindBusMatch(profile, [rowSource, p && p.bus_id]);
+      if (rowBus && rowBus.bus) {
+        return {
+          source: String(rowBus.bus.id || rowSource || '').trim(),
+          klass: 'AI',
+          note: 'Matched YAML bus metadata.',
+          name: String((p && p.entity_name) || rowBus.bus.label || rowBus.bus.id || '').trim()
+        };
+      }
+    }
 
     for (var i = 0; i < defaults.length; i++) {
       var def = defaults[i] || {};

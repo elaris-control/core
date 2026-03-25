@@ -412,10 +412,11 @@ function getEspHomeBin(dataDir) {
   return null;
 }
 
-function checkEsphome(dataDir) {
+function checkEsphome(dataDir, execFn) {
   const bin = getEspHomeBin(dataDir);
   if (!bin) return { ok: false };
-  try { const v = execSync(`"${bin}" version 2>&1`, { encoding: 'utf8' }).trim(); return { ok: true, version: v, bin }; }
+  const exec = typeof execFn === 'function' ? execFn : execSync;
+  try { const v = exec(`"${bin}" version 2>&1`, { encoding: 'utf8' }).trim(); return { ok: true, version: v, bin }; }
   catch { return { ok: false }; }
 }
 

@@ -254,6 +254,9 @@ function mountFlashRoutes({ app, db, wsApi, dataDir, cfgDir, venvDir, requireEng
     const body = req.body || {};
     let yamlText = String(body.yaml_text || '').trim();
     const device_name = String(body.device_name || '').trim();
+    // device_id is the MQTT identifier (safe name used as topic prefix, esphome name, etc.)
+    // Falls back to device_name if not provided (backwards compat).
+    const device_id = String(body.device_id || '').trim() || device_name;
     const wifi_ssid = String(body.wifi_ssid || '').trim();
     const wifi_pass = String(body.wifi_pass ?? '');
     const mqtt_host = String(body.mqtt_host || '').trim();
@@ -263,7 +266,15 @@ function mountFlashRoutes({ app, db, wsApi, dataDir, cfgDir, venvDir, requireEng
     if (!yamlText) return res.status(400).json({ ok: false, error: 'yaml_text_required' });
     if (!device_name) return res.status(400).json({ ok: false, error: 'device_name_required' });
     if (!port) return res.status(400).json({ ok: false, error: 'port_or_ip_required' });
-    let finalYaml = applyYamlOverrides(yamlText, { device_name, wifi_ssid, wifi_pass, mqtt_host });
+    // Duplicate name check — reject if another device already uses this device_id.
+    const existingId = Number(body.existing_device_id || 0) || null;
+    const duplicate = db.prepare(`SELECT id FROM esphome_devices WHERE name=? AND deleted_at IS NULL AND id != COALESCE(?,0) LIMIT 1`).get(safeName(device_id), existingId);
+    if (duplicate) return res.status(409).json({ ok: false, error: 'device_name_already_exists', device_id: safeName(device_id) });
+    // Extract old device name from YAML before overrides — needed to auto-clean stale blocked/pending rows.
+    const oldNameMatch = yamlText.match(/^[ \t]{1,4}name\s*:\s*(\S+)/m);
+    const oldDeviceId = oldNameMatch ? String(oldNameMatch[1]).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') : null;
+    // Use device_id for YAML name/MQTT substitution; device_name becomes friendly_name only.
+    let finalYaml = applyYamlOverrides(yamlText, { device_name: device_id, friendly_name: device_name, wifi_ssid, wifi_pass, mqtt_host });
     // Strip remaining !secret tags — HA-specific secrets (api key, ota password, etc.)
     // not needed by ELARIS. Replace *key* secrets with a valid random base64 value,
     // everything else with an empty string so ESPHome doesn't abort on missing secrets.yaml.
@@ -303,16 +314,16 @@ function mountFlashRoutes({ app, db, wsApi, dataDir, cfgDir, venvDir, requireEng
     })) : [];
     if (mqtt_host) {
       const configJson = buildManagedConfigJson({
-        deviceName: device_name,
+        deviceName: device_id,
         boardProfileId: resolvedProfile.id,
-        boardLabel: resolvedProfile.label,
+        boardLabel: resolvedProfile.label || device_name,
         entities: managedEntities,
       });
-      finalYaml = injectManagedOverlay(finalYaml, { deviceName: device_name, mqttHost: mqtt_host, configJson });
+      finalYaml = injectManagedOverlay(finalYaml, { deviceName: device_id, mqttHost: mqtt_host, configJson });
     }
     const payload = {
       site_id,
-      device_name,
+      device_name: device_id,
       board_profile_id: resolvedProfile.id,
       wifi_ssid,
       wifi_pass,
@@ -328,9 +339,13 @@ function mountFlashRoutes({ app, db, wsApi, dataDir, cfgDir, venvDir, requireEng
       read_only: 0
     };
     const validation = { ok: true };
-    const yamlPath = path.join(cfgDir, `${safeName(device_name)}.yaml`);
+    const yamlPath = path.join(cfgDir, `${safeName(device_id)}.yaml`);
     fs.writeFileSync(yamlPath, finalYaml, 'utf8');
-    const reset = resetManagedDiscoveryRows(db, device_name);
+    const reset = resetManagedDiscoveryRows(db, device_id);
+    // If YAML had a different old name, auto-clear its stale blocked/pending rows too.
+    if (oldDeviceId && oldDeviceId !== safeName(device_id)) {
+      resetManagedDiscoveryRows(db, oldDeviceId);
+    }
     const persisted = persistInstallState(db, { payload, profile: resolvedProfile, validation, yaml: finalYaml, yamlPath, port, jobStatus: 'queued' });
     res.json({ ok: true, yaml: finalYaml, validation, reset, job_id: persisted?.jobId || null, device_id: persisted?.deviceId || null });
     const logs = [];
