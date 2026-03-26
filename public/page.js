@@ -136,7 +136,7 @@ async function renderThermostat(inst){
     if(!zoneHas(i)) continue;
     var tempKey='zone_'+i+'_temp', callKey='zone_'+i+'_call', outKey='zone_'+i+'_output', pumpKey='zone_'+i+'_pump';
     if(i===1){ if(vals[tempKey]==null && vals.temp_room!=null) tempKey='temp_room'; if(vals[outKey]==null && vals.ac_relay!=null) outKey='ac_relay'; }
-    var tempVal=vals[tempKey];
+    var tempVal=vals[tempKey]!=null?vals[tempKey]:(sp['_zone_'+i+'_last_temp']!=null&&sp['_zone_'+i+'_last_temp']!==''?parseFloat(sp['_zone_'+i+'_last_temp']):null);
     var callVal=vals[callKey];
     var outVal=vals[outKey];
     var pumpVal=vals[pumpKey];
@@ -188,7 +188,7 @@ async function renderThermostat(inst){
     var zspIsOverride = (rawZSP !== undefined && rawZSP !== '' && !isNaN(parseFloat(rawZSP)));
     h+='<div title="'+title.replace(/"/g,'&quot;')+'" style="border:1px solid '+border+';background:'+bg+';border-radius:9px;padding:7px 8px">';
     h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:4px">';
-    h+='<strong style="font-size:11px">Z'+z.idx+'</strong>';
+    h+='<strong style="font-size:11px">'+(sp['zone_'+z.idx+'_name']||'Z'+z.idx)+'</strong>';
     h+='<span style="font-size:10px;font-weight:800;color:'+stateColor+'">'+(invalidCall?'ERR':(z.demand?'ON':'OFF'))+'</span>';
     h+='</div>';
     h+='<div style="font-size:10px;color:'+srcColor+';font-weight:'+(invalidCall||z.temp!==null?'800':'700')+';margin-top:3px;line-height:1.1">'+srcLabel+'</div>';

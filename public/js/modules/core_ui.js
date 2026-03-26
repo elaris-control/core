@@ -149,6 +149,12 @@ function ioLabelById(ioId) {
   return escapeHTML(`${io.device_id}·${io.group_name}.${io.key}`) + (io.name && io.name !== io.key ? ` (${escapeHTML(io.name)})` : '');
 }
 
+function ioFriendlyLabel(ioId) {
+  const io = siteIO.find(x => Number(x.id) === Number(ioId));
+  if (!io) return `IO ${Number(ioId)}`;
+  return escapeHTML(io.name && io.name !== io.key ? io.name : io.key);
+}
+
 function renderInstances() {
   const q = (document.getElementById("search")?.value||"").toLowerCase().trim();
   const list = !q ? instances : instances.filter(i =>

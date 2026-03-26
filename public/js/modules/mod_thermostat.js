@@ -11,7 +11,7 @@ function thermostatZoneDefs(zoneNo) {
 
 function thermostatZoneState(zoneNo, currentMappings={}) {
   const defs = thermostatZoneDefs(zoneNo);
-  const mapped = defs.filter(inp => !!(currentMappings[inp.key] || suggestions[inp.key]));
+  const mapped = defs.filter(inp => !!(currentMappings[inp.key] || (!editingId && suggestions[inp.key])));
   const active = zoneNo === 1 || mapped.length > 0;
   return { defs, active, mappedCount: mapped.length };
 }
@@ -95,7 +95,7 @@ function analyzeThermostatMappings(currentMappings={}) {
 
   for (const [ioId, labels] of actuatorUsage.entries()) {
     if (labels.length > 1) {
-      issues.push({ severity:'bad', message:`Same actuator mapped more than once: <strong>${ioLabelById(ioId)}</strong> used by ${labels.join(', ')}.` });
+      issues.push({ severity:'bad', message:`Same actuator mapped more than once: <strong>${ioFriendlyLabel(ioId)}</strong> used by ${labels.join(', ')}.` });
     }
   }
 
@@ -132,7 +132,7 @@ function renderThermostatCommissioningSummary(currentMappings={}) {
     return `<span class="thermo-zone-pill"><strong>Z${z.n}</strong><span class="mini">${parts.join(' • ') || 'EMPTY'}</span></span>`;
   }).join('') || `<span class="thermo-zone-pill"><strong>No zones yet</strong><span class="mini">Map Zone 1 to start</span></span>`;
   const issues = a.issues.length
-    ? `<div class="thermo-issues">${a.issues.map(i => { const sev = ['bad','warn','info'].includes(i.severity) ? i.severity : 'info'; return `<div class="thermo-issue sev-${sev}"><strong>${sev === 'bad' ? 'Fix' : sev === 'warn' ? 'Check' : 'Info'}:</strong> ${escapeHTML(i.message)}</div>`; }).join('')}</div>`
+    ? `<div class="thermo-issues">${a.issues.map(i => { const sev = ['bad','warn','info'].includes(i.severity) ? i.severity : 'info'; return `<div class="thermo-issue sev-${sev}"><strong>${sev === 'bad' ? 'Fix' : sev === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`; }).join('')}</div>`
     : `<div class="thermo-issues"><div class="thermo-issue sev-info"><strong>Ready:</strong> This thermostat setup looks clean so far.</div></div>`;
   const legacyMode = (a.legacy.temp_room || a.legacy.ac_relay || a.legacy.temp_outdoor) ? 'Legacy mapped' : 'Unused';
   return `
@@ -150,7 +150,7 @@ function renderThermostatCommissioningSummary(currentMappings={}) {
         <div class="thermo-stat"><div class="thermo-stat-k">Zones with temp</div><div class="thermo-stat-v">${a.zonesWithTemp}</div></div>
         <div class="thermo-stat"><div class="thermo-stat-k">Zone outputs</div><div class="thermo-stat-v">${a.zonesWithOutput}</div></div>
         <div class="thermo-stat"><div class="thermo-stat-k">Zone pumps</div><div class="thermo-stat-v">${a.zonesWithPump}</div></div>
-        <div class="thermo-stat"><div class="thermo-stat-k">Central pump</div><div class="thermo-stat-v">${a.centralPump ? ioLabelById(a.centralPump) : 'Not mapped'}</div></div>
+        <div class="thermo-stat"><div class="thermo-stat-k">Central pump</div><div class="thermo-stat-v">${a.centralPump ? ioFriendlyLabel(a.centralPump) : 'Not mapped'}</div></div>
         <div class="thermo-stat"><div class="thermo-stat-k">Legacy</div><div class="thermo-stat-v">${legacyMode}</div></div>
       </div>
       <div class="thermo-zone-sum">${zonePills}</div>

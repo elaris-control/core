@@ -608,6 +608,30 @@ db.exec(`
 
     const port = findBoardPort(profile, [rawSource, rawKey]);
     if (!port) {
+      // Reverse lookup: if no source was provided, try to find the port via entityDefaults.
+      // e.g. MQTT sends key='relay_1' (no source), but the approved entity was stored as
+      // canonical key='DO1' (via entityDefault source='OUT1'). Without this, the approved
+      // entity would not be found and a duplicate pending row would be created.
+      if (!rawSource && rawKey && Array.isArray(profile.entityDefaults)) {
+        const def = profile.entityDefaults.find(e => String(e.key || '').trim() === rawKey);
+        if (def?.source) {
+          const altPort = findBoardPort(profile, def.source);
+          if (altPort) {
+            const canonicalKey = String(altPort.id || altPort.label || rawKey || '').trim() || rawKey;
+            return {
+              group_name: canonicalGroupFromPortGroup(altPort.group, rawGroup),
+              key: canonicalKey,
+              source: canonicalKey,
+              port_id: canonicalKey,
+              board_profile_id: resolvedProfileId || null,
+              canonical: true,
+              port_group: String(altPort.group || '').trim().toLowerCase() || null,
+              raw_key: rawKey || null,
+              raw_source: null,
+            };
+          }
+        }
+      }
       return {
         group_name: rawGroup === 'state' ? 'state' : 'tele',
         key: rawKey,

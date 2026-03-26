@@ -441,6 +441,12 @@ function ioLabelById(ioId) {
   return escapeHTML(`${io.device_id}·${io.group_name}.${io.key}`) + (io.name && io.name !== io.key ? ` (${escapeHTML(io.name)})` : '');
 }
 
+function ioFriendlyLabel(ioId) {
+  const io = siteIO.find(x => Number(x.id) === Number(ioId));
+  if (!io) return `IO ${Number(ioId)}`;
+  return escapeHTML(io.name && io.name !== io.key ? io.name : io.key);
+}
+
 function collectCurrentWizardMappings() {
   const mappings = {};
   (selectedDef?.inputs || []).forEach(input => {
@@ -462,7 +468,7 @@ function renderThermostatWizard(currentMappings={}, rowRenderer) {
   const sharedDefs = ['central_pump']
     .map(key => (selectedDef?.inputs||[]).find(inp => inp.key === key)).filter(Boolean);
   const suggestedCount = thermostatSuggestedVisibleZones(currentMappings);
-  const visibleCount = Math.max(thermostatVisibleZones || 1, suggestedCount);
+  const visibleCount = editingId ? (thermostatVisibleZones || 1) : Math.max(thermostatVisibleZones || 1, suggestedCount);
   thermostatVisibleZones = visibleCount;
 
   let html = `<div class="thermo-note"><strong>Thermostat mapping</strong><br>Use <strong>zones</strong> for the normal setup. Add only the zone sensors/outputs you need. <strong>Central Pump</strong> is optional and turns ON when any active zone calls. The <strong>Legacy</strong> section is only for classic single-zone compatibility.</div>`;
@@ -841,7 +847,7 @@ function renderWizardInputs(currentMappings={}) {
     const selOpts = ['<option value="">— '+p.label+' —</option>',
       ...fopts.map(e=>'<option value="'+e.id+'" '+(String(e.id)===String(sug)?"selected":"")+'>'+e.device_id+'·'+e.group_name+'.'+e.key+(e.name&&e.name!==e.key?' ('+e.name+')':'')+'</option>')
     ].join("");
-    const isEnabled = input.required || !!currentMappings[input.key] || !!suggestions[input.key];
+    const isEnabled = input.required || !!currentMappings[input.key] || (!editingId && !!suggestions[input.key]);
     return '<div class="input-row" id="irow_'+input.key+'" style="'+((!input.required && !isEnabled && !isDynamic) ? "opacity:.5" : "")+'">'+
       '<div>'+
       '<div class="input-label">'+
@@ -906,7 +912,7 @@ function renderWizardInputs(currentMappings={}) {
     if (modSummaryBox) ModuleRegistry[selectedDef?.id].updateCommissioningSummary(currentMappings);
   } else {
     if (selectedDef?.id === 'thermostat') {
-      thermostatVisibleZones = thermostatSuggestedVisibleZones(currentMappings);
+      if (!editingId) thermostatVisibleZones = thermostatSuggestedVisibleZones(currentMappings);
       renderThermostatWizardIntoDom(currentMappings, makeRow);
     } else if (ModuleRegistry[selectedDef?.id]?.renderWizardInputs) {
       ModuleRegistry[selectedDef?.id].renderWizardInputs(currentMappings, makeRow);

@@ -183,7 +183,7 @@ function renderWizardInputs(currentMappings={}) {
     const selOpts = ['<option value="">— '+p.label+' —</option>',
       ...fopts.map(e=>'<option value="'+e.id+'" '+(String(e.id)===String(sug)?"selected":"")+'>'+e.device_id+'·'+e.group_name+'.'+e.key+(e.name&&e.name!==e.key?' ('+e.name+')':'')+'</option>')
     ].join("");
-    const isEnabled = input.required || !!currentMappings[input.key] || !!suggestions[input.key];
+    const isEnabled = input.required || !!currentMappings[input.key] || (!editingId && !!suggestions[input.key]);
     return '<div class="input-row" id="irow_'+input.key+'" style="'+((!input.required && !isEnabled && !isDynamic) ? "opacity:.5" : "")+'">'+
       '<div>'+
       '<div class="input-label">'+

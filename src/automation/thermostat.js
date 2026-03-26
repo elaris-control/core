@@ -586,6 +586,14 @@ const THERMOSTAT_MODULE = {
     { group: "pre",    key: "pre_target_time", label: "Target ready time", type: "text", default: "07:00",
       help: "Legacy single-zone feature. Time (HH:MM) when the room should be ready." },
 
+    // ── Per-Zone Names ────────────────────────────────────────────────
+    { group: "per_zone", key: "zone_1_name", label: "Zone 1 Name", type: "text", default: "", help: "Custom display name for zone 1 (e.g. 'Living Room')." },
+    { group: "per_zone", key: "zone_2_name", label: "Zone 2 Name", type: "text", default: "", help: "Custom display name for zone 2." },
+    { group: "per_zone", key: "zone_3_name", label: "Zone 3 Name", type: "text", default: "", help: "Custom display name for zone 3." },
+    { group: "per_zone", key: "zone_4_name", label: "Zone 4 Name", type: "text", default: "", help: "Custom display name for zone 4." },
+    { group: "per_zone", key: "zone_5_name", label: "Zone 5 Name", type: "text", default: "", help: "Custom display name for zone 5." },
+    { group: "per_zone", key: "zone_6_name", label: "Zone 6 Name", type: "text", default: "", help: "Custom display name for zone 6." },
+
     // ── Per-Zone Setpoints ────────────────────────────────────────────
     { group: "per_zone", key: "zone_1_setpoint",   label: "Zone 1 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null,
       help: "Override the global setpoint for zone 1 only. Leave empty to use the global setpoint." },
