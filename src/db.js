@@ -113,6 +113,24 @@ db.exec(`
     );
 
     CREATE INDEX IF NOT EXISTS idx_io_history_rollups_lookup ON io_history_rollups(io_id, bucket_size, bucket_start_ts);
+
+    CREATE TABLE IF NOT EXISTS module_instances (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      site_id     INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+      module_id   TEXT NOT NULL,
+      name        TEXT,
+      active      INTEGER NOT NULL DEFAULT 1,
+      config      TEXT,
+      created_ts  INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS module_mappings (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      instance_id INTEGER NOT NULL REFERENCES module_instances(id) ON DELETE CASCADE,
+      input_key   TEXT NOT NULL,
+      io_id       INTEGER,
+      UNIQUE(instance_id, input_key)
+    );
   `);
 
   // Ensure optional columns exist (safe for older DBs)

@@ -10,12 +10,12 @@ const MODULE = {
   color: "#ff9a3a", category: "hydraulic",
 
   inputs: [
-    { key: "temp_solar",   label: "Collector Temperature",             type: "sensor", unit: "°C", required: true,
-      description: "Temperature sensor at the outlet of the solar collector panel (the hottest point). This is the main input for the differential thermostat calculation." },
+    { key: "temp_solar",   label: "Solar Temperature",                 type: "sensor", unit: "°C", required: true,
+      description: "Temperature sensor at the outlet of the solar panel (the hottest point). This is the main input for the differential thermostat calculation." },
     { key: "temp_boiler",  label: "Boiler Temperature",                type: "sensor", unit: "°C", required: true,
-      description: "Temperature sensor in the solar storage tank/boiler. Used to calculate ΔT (collector − boiler) and stop the pump when the tank is hot enough." },
+      description: "Temperature sensor in the solar storage tank/boiler. Used to calculate ΔT (solar − boiler) and stop the pump when the tank is hot enough." },
     { key: "pump",         label: "Circulation Pump (RUN)",            type: "relay",              required: true,
-      description: "Relay that starts/stops the circulation pump between the collector and the boiler. This is the primary controlled output." },
+      description: "Relay that starts/stops the circulation pump between the solar panel and the boiler. This is the primary controlled output." },
     { key: "pump_speed",   label: "Pump Speed (0–100%)",               type: "analog", unit: "%",  required: false,
       description: "Analog output (0–100%) connected to an inverter-driven pump. When mapped, enables variable-speed control to maintain the target ΔT." },
     { key: "heater",       label: "Electric Heater (resistance)",      type: "relay",              required: false,
@@ -23,7 +23,7 @@ const MODULE = {
     { key: "backup",       label: "Backup Heat Source (boiler/H/P)",   type: "relay",              required: false,
       description: "Backup heat source relay (gas boiler, heat pump, or other). Activates when neither solar nor electric heater can maintain the minimum boiler temperature." },
     { key: "temp_return",  label: "Return Temperature",                type: "sensor", unit: "°C", required: false,
-      description: "Optional temperature sensor on the return pipe from the boiler back to the collector. Used for advanced efficiency monitoring." },
+      description: "Optional temperature sensor on the return pipe from the return water collector back to the boiler. Used for advanced efficiency monitoring." },
   ],
 
   groups: [
@@ -39,10 +39,10 @@ const MODULE = {
     { group: "basic", key: "profile",          label: "Pump control profile",  type: "select",  default: "basic",
       options: ["basic","inverter_dt"],
       help: "basic: simple ON/OFF pump control based on ΔT thresholds. inverter_dt: variable-speed control that adjusts pump speed to maintain the target ΔT (requires pump_speed output)." },
-    { group: "basic", key: "min_solar_temp",   label: "Min collector temp",    type: "number",  unit: "°C", step: 1,    default: 40,
-      help: "The pump will not start unless the collector is above this temperature, even if ΔT is met. Prevents cold water from the collector cooling the boiler on cloudy days." },
+    { group: "basic", key: "min_solar_temp",   label: "Min solar temp",        type: "number",  unit: "°C", step: 1,    default: 40,
+      help: "The pump will not start unless the solar temp is above this temperature, even if ΔT is met. Prevents cold water from the solar panel cooling the boiler on cloudy days." },
     { group: "basic", key: "dt_on",            label: "ΔT ON (pump start)",    type: "number",  unit: "°C", step: 0.5,  default: 8,
-      help: "Temperature difference (collector − boiler) required to start the pump. Example: dt_on=8 → pump starts when collector is 8°C hotter than boiler." },
+      help: "Temperature difference (solar − boiler) required to start the pump. Example: dt_on=8 → pump starts when solar is 8°C hotter than boiler." },
     { group: "basic", key: "dt_off",           label: "ΔT OFF (pump stop)",    type: "number",  unit: "°C", step: 0.5,  default: 3,
       help: "Temperature difference at which the pump stops. Must be lower than dt_on to create a hysteresis band and prevent rapid cycling." },
     { group: "basic", key: "max_boiler_temp",  label: "Max boiler (safety)",   type: "number",  unit: "°C", step: 1,    default: 85,
@@ -53,7 +53,7 @@ const MODULE = {
 
     // ── Inverter / Speed ──────────────────────────────────────────────
     { group: "inverter", key: "dt_target",       label: "ΔT target",             type: "number",  unit: "°C", step: 0.5,  default: 10,
-      help: "The ideal temperature difference (collector − boiler) to maintain. The speed controller adjusts pump speed up or down to keep ΔT near this value." },
+      help: "The ideal temperature difference (solar − boiler) to maintain. The speed controller adjusts pump speed up or down to keep ΔT near this value." },
     { group: "inverter", key: "min_speed",        label: "Min pump speed",        type: "number",  unit: "%",  step: 1,    default: 25,
       help: "Minimum pump speed percentage when running. Prevents the pump from running too slow (insufficient flow, air locks). Typical minimum: 20–30%." },
     { group: "inverter", key: "max_speed",        label: "Max pump speed",        type: "number",  unit: "%",  step: 1,    default: 100,
@@ -127,11 +127,11 @@ const MODULE = {
 
     // ── Anti-Freeze ───────────────────────────────────────────────────
     { group: "basic", key: "anti_freeze_enable", label: "Anti-freeze protection", type: "select",  default: "0", options: ["0","1"],
-      help: "Periodically circulates the pump when the collector temperature is near freezing, preventing water from freezing in the solar panel pipes." },
+      help: "Periodically circulates the pump when the solar temperature is near freezing, preventing water from freezing in the solar panel pipes." },
     { group: "basic", key: "anti_freeze_temp",   label: "Anti-freeze below",      type: "number",  unit: "°C", step: 0.5, default: 4,
-      help: "Collector temperature below which anti-freeze circulation activates. Should be above 0°C to give time before actual freezing." },
+      help: "Solar temperature below which anti-freeze circulation activates. Should be above 0°C to give time before actual freezing." },
     { group: "basic", key: "anti_freeze_run_s",  label: "Pump run time",          type: "number",  unit: "s",  step: 5,   default: 30,
-      help: "Duration of each anti-freeze pump burst. 20–60 seconds is typically sufficient to circulate warm water from the tank through the collectors." },
+      help: "Duration of each anti-freeze pump burst. 20–60 seconds is typically sufficient to circulate warm water from the tank through the solar panels." },
 
     // ── Legionella ────────────────────────────────────────────────────
     { group: "heater", key: "legionella_enable",   label: "Legionella cycle",         type: "select", default: "0", options: ["0","1"],
@@ -188,6 +188,8 @@ function routes(app, ctx) {
             max_boiler_temp: parseFloat(sp.max_boiler_temp ?? 85),
             min_solar_temp:  parseFloat(sp.min_solar_temp  ?? 40),
             test_mode:       String(sp.test_mode ?? '0'),
+            force_pump_on:   String(sp.force_pump_on ?? '0'),
+            manual_override: String(sp.manual_override ?? '0'),
             heater_enable:   parseFloat(sp.heater_enable   ?? 0),
             heater_on_below: parseFloat(sp.heater_on_below ?? 40),
             heater_off_above:parseFloat(sp.heater_off_above?? 45),

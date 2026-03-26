@@ -90,8 +90,14 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
     upsertSetting.run({ instance_id, key, value: String(value), ts: Date.now() });
   }
 
-  function getLatestValue(deviceId, key) {
-    const row = getLatestState.get(deviceId, key);
+  function getLatestRaw(io) {
+    if (!io) return null;
+    const stateKey = io.group_name ? `${io.group_name}.${io.key}` : io.key;
+    return getLatestState.get(io.device_id, stateKey) || getLatestState.get(io.device_id, io.key);
+  }
+
+  function getLatestValue(io) {
+    const row = getLatestRaw(io);
     if (!row) return null;
     const v = parseFloat(row.value);
     return isNaN(v) ? null : v;
@@ -119,8 +125,8 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
 
     if (!solarIO || !boilerIO || !pumpIO) return null;
 
-    const tempSolar  = getLatestValue(solarIO.device_id,  solarIO.key);
-    const tempBoiler = getLatestValue(boilerIO.device_id, boilerIO.key);
+    const tempSolar  = getLatestValue(solarIO);
+    const tempBoiler = getLatestValue(boilerIO);
 
     if (tempSolar === null || tempBoiler === null) return null;
 
@@ -135,7 +141,7 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
     const diff = tempSolar - tempBoiler;
 
     // Current pump state
-    const pumpState = getLatestState.get(pumpIO.device_id, pumpIO.key);
+    const pumpState = getLatestRaw(pumpIO);
     const isOn = pumpState?.value === "ON";
 
     let targetState = null;
@@ -398,9 +404,9 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
     const boilerIO = getIOById.get(inst.boiler_io_id);
     const pumpIO   = getIOById.get(inst.pump_io_id);
 
-    const tempSolar  = solarIO  ? getLatestValue(solarIO.device_id,  solarIO.key)  : null;
-    const tempBoiler = boilerIO ? getLatestValue(boilerIO.device_id, boilerIO.key) : null;
-    const pumpState  = pumpIO   ? getLatestState.get(pumpIO.device_id, pumpIO.key) : null;
+    const tempSolar  = solarIO  ? getLatestValue(solarIO)  : null;
+    const tempBoiler = boilerIO ? getLatestValue(boilerIO) : null;
+    const pumpState  = pumpIO   ? getLatestRaw(pumpIO)     : null;
 
     const diff = (tempSolar !== null && tempBoiler !== null) ? tempSolar - tempBoiler : null;
     const sp   = getSetpointsForInstance(instance_id);

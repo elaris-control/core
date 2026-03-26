@@ -167,7 +167,8 @@ class AutomationEngine {
         if (!io) return null;
         const ov = engine.getActiveIOOverride(io.id);
         if (ov && ov.active) { const v = parseFloat(ov.value); return isNaN(v) ? null : v; }
-        const row = engine._getLatestState.get(io.device_id, io.key);
+        const stateKey = io.group_name ? `${io.group_name}.${io.key}` : io.key;
+        const row = engine._getLatestState.get(io.device_id, stateKey) || engine._getLatestState.get(io.device_id, io.key);
         if (!row) return null;
         const v = parseFloat(row.value);
         return isNaN(v) ? null : v;
@@ -179,7 +180,8 @@ class AutomationEngine {
         if (!io) return null;
         const ov = engine.getActiveIOOverride(io.id);
         if (ov && ov.active) return String(ov.value);
-        const row = engine._getLatestState.get(io.device_id, io.key);
+        const stateKey = io.group_name ? `${io.group_name}.${io.key}` : io.key;
+        const row = engine._getLatestState.get(io.device_id, stateKey) || engine._getLatestState.get(io.device_id, io.key);
         return row?.value ?? null;
       },
 

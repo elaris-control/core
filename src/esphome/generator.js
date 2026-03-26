@@ -1090,24 +1090,74 @@ function applyYamlOverrides(yamlText, overrides = {}) {
   const mqttHost = String(overrides.mqtt_host || '').trim();
 
   if (name) {
-    const nameSafe = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-    const quotedFriendly = `"${yamlStr(friendlyLabel || nameSafe)}"`;
-    // Extract old name before replacing so we can rewrite hardcoded topic strings.
-    const oldNameMatch = out.match(/^[ \t]{1,4}name\s*:\s*(\S+)/m);
-    const oldNameRaw = oldNameMatch ? String(oldNameMatch[1]).trim() : null;
-    const oldNameSafe = oldNameRaw ? oldNameRaw.toLowerCase().replace(/[^a-z0-9_-]/g, '-') : null;
-    out = out.replace(/^(\s{2})name\s*:\s*.*$/m, `$1name: ${nameSafe}`);
-    out = out.replace(/^(\s{2})friendly_name\s*:\s*.*$/m, `$1friendly_name: ${quotedFriendly}`);
-    if (!/^\s{2}name\s*:/m.test(out) && /^esphome:\s*$/m.test(out)) {
-      out = out.replace(/(^esphome:\s*)\n/m, `$1\n  name: ${nameSafe}\n  friendly_name: ${quotedFriendly}\n`);
-    }
-    // Replace hardcoded old device name in MQTT topic strings (lambdas, on_connect, etc.)
-    // e.g. "elaris/kc868-a16/tele/..." → "elaris/gamhseme_7df4/tele/..."
-    if (oldNameSafe && oldNameSafe !== nameSafe) {
-      out = out.split(`elaris/${oldNameSafe}/`).join(`elaris/${nameSafe}/`);
+  const nameSafe = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+  const quotedFriendly = `"${yamlStr(friendlyLabel || nameSafe)}"`;
+  const oldNameMatch = out.match(/^[ \t]{1,4}name\s*:\s*(\S+)/m);
+  const oldNameRaw = oldNameMatch ? String(oldNameMatch[1]).trim() : null;
+  const oldNameSafe = oldNameRaw ? oldNameRaw.toLowerCase().replace(/[^a-z0-9_-]/g, '-') : null;
+
+  out = out.replace(/^(\s{2})name\s*:\s*.*$/m, `$1name: ${nameSafe}`);
+  out = out.replace(/^(\s{2})friendly_name\s*:\s*.*$/m, `$1friendly_name: ${quotedFriendly}`);
+
+  if (!/^\s{2}name\s*:/m.test(out) && /^esphome:\s*$/m.test(out)) {
+    out = out.replace(/(^esphome:\s*)\n/m, `$1\n  name: ${nameSafe}\n  friendly_name: ${quotedFriendly}\n`);
+  }
+
+  if (oldNameSafe && oldNameSafe !== nameSafe) {
+    out = out.split(`elaris/${oldNameSafe}/`).join(`elaris/${nameSafe}/`);
+    // Update device name inside on_connect config JSON payload
+    if (oldNameRaw) {
+      out = out.split(`"name":"${oldNameRaw}"`).join(`"name":"${name}"`);
+      out = out.split(`"hostname":"${oldNameSafe}"`).join(`"hostname":"${nameSafe}"`);
     }
   }
 
+  const lines = out.split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].includes(`topic: "elaris/${nameSafe}/config"`)) continue;
+
+    let payloadIdx = -1;
+    for (let j = i + 1; j < Math.min(lines.length, i + 12); j++) {
+      if (/^\s*payload:\s*/.test(lines[j])) {
+        payloadIdx = j;
+        break;
+      }
+      if (/^\s*topic:\s*/.test(lines[j])) break;
+    }
+    if (payloadIdx < 0) continue;
+
+    // Case 1: payload: '...json...'
+    let m = lines[payloadIdx].match(/^(\s*payload:\s*)'(.*)'\s*$/);
+    if (m) {
+      try {
+        const parsed = JSON.parse(m[2].replace(/''/g, "'"));
+        if (!parsed.device || typeof parsed.device !== 'object') parsed.device = {};
+        parsed.device.name = nameSafe;
+        parsed.device.hostname = nameSafe;
+        lines[payloadIdx] = `${m[1]}'${JSON.stringify(parsed).replace(/'/g, "''")}'`;
+      } catch (_) {}
+      continue;
+    }
+
+    // Case 2: payload: >-   then next line is JSON
+    if (/^\s*payload:\s*>-\s*$/.test(lines[payloadIdx])) {
+      const jsonIdx = payloadIdx + 1;
+      if (jsonIdx >= lines.length) continue;
+      try {
+        const raw = String(lines[jsonIdx] || '').trim();
+        const parsed = JSON.parse(raw);
+        if (!parsed.device || typeof parsed.device !== 'object') parsed.device = {};
+        parsed.device.name = nameSafe;
+        parsed.device.hostname = nameSafe;
+        lines[jsonIdx] = lines[jsonIdx].match(/^\s*/)[0] + JSON.stringify(parsed);
+      } catch (_) {}
+    }
+  }
+
+  out = lines.join('\n');
+}
+	
   const hasWifiBlock = /^wifi:\s*$/m.test(out) || /^wifi:\s*\n/m.test(out);
   if (hasWifiBlock && (wifiSsid || wifiPass !== undefined)) {
     out = out.replace(/(^wifi:\s*[\s\S]*?^\S|^wifi:\s*[\s\S]*$)/m, (block) => {

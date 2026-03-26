@@ -76,7 +76,7 @@ async function renderSolar(inst){
     if(manualOn){h+='<input type="range" min="25" max="100" value="'+Math.round(manualSpd)+'" style="width:100%;accent-color:var(--orange)" oninput="this.nextElementSibling.textContent=this.value+'%'" onchange="setSolarManualSpeed('+inst.id+',this.value)"><div style="text-align:right;font-size:11px;color:var(--muted2)">'+Math.round(manualSpd)+'%</div>';}
     h+='</div>';
   }
-  h+='<button onclick="toggleSolarForce('+inst.id+','+forceOn+')" style="width:100%;margin-top:12px;padding:9px;border-radius:9px;border:1px solid '+(forceOn?'rgba(239,68,68,.5)':'var(--line2)')+';background:'+(forceOn?'rgba(239,68,68,.15)':'rgba(255,255,255,.03)')+';color:'+(forceOn?'#ef4444':'var(--muted2)')+';font-size:12px;font-weight:800;cursor:pointer">'+( forceOn?'\u2715 Force ON — Click to cancel':'\ud83d\udd34 Force Pump ON')+'</button>';
+  h+='<button onclick="toggleSolarForce('+inst.id+','+forceOn+')" style="width:100%;margin-top:12px;padding:9px;border-radius:9px;border:1px solid '+(forceOn?'rgba(34,197,94,.5)':'var(--line2)')+';background:'+(forceOn?'rgba(34,197,94,.15)':'rgba(255,255,255,.03)')+';color:'+(forceOn?'#22c55e':'var(--muted2)')+';font-size:12px;font-weight:800;cursor:pointer">'+(forceOn?'\u25cf Force ON \u2014 Return to Auto':'\ud83d\udd34 Force Pump ON')+'</button>';
   h+='<button onclick="toggleSolarPause('+inst.id+','+isPaused+')" style="width:100%;margin-top:6px;padding:9px;border-radius:9px;border:1px solid '+(isPaused?'rgba(245,158,11,.4)':'var(--line2)')+';background:'+(isPaused?'rgba(245,158,11,.1)':'rgba(255,255,255,.03)')+';color:'+(isPaused?'#f59e0b':'var(--muted2)')+';font-size:12px;font-weight:800;cursor:pointer">'+(isPaused?'\u25b6 Resume':'\u23f8 Pause Automation')+'</button>';
   return h;
 }
