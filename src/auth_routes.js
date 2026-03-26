@@ -9,7 +9,7 @@ function initAuthRoutes({ users, google, github, appSecret }) {
   const router  = express.Router();
 
   const SESSION_COOKIE = "elaris_session";
-  const SECURE = process.env.COOKIE_SECURE === "1" || process.env.NODE_ENV === "production";
+  const SECURE = process.env.COOKIE_SECURE === "1";
   const csrf = makeCsrfTools({ users, secret: appSecret || process.env.APP_SECRET || "elaris-csrf", secure: SECURE, sessionCookie: SESSION_COOKIE });
   const rateLimit = createAuthRateLimiter({
     windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS) || (15 * 60 * 1000),
