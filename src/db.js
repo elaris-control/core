@@ -453,6 +453,12 @@ db.exec(`
     if (ssExists) db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_scene_schedules_unique ON scene_schedules(scene_id, time, days)`);
   });
 
+  // Fix: old unique index included inactive (soft-deleted) instances, blocking re-create with same name
+  applyMigration("module_instances_active_unique_v1", () => {
+    db.exec(`DROP INDEX IF EXISTS idx_module_instances_unique`);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_module_instances_unique ON module_instances(site_id, module_id, COALESCE(name,'')) WHERE active = 1`);
+  });
+
   applyMigration("sites_created_ts_alignment_v1", () => {
     const siteCols = db.prepare(`PRAGMA table_info(sites)`).all().map(r => r.name);
     if (siteCols.includes("created_at") && !siteCols.includes("created_ts")) {

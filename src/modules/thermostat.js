@@ -38,6 +38,15 @@ function routes(app, ctx) {
           out[zKey] = v;
         }
       }
+      // Per-zone names: zone_1_name … zone_6_name
+      for (let z = 1; z <= 6; z++) {
+        const nKey = `zone_${z}_name`;
+        if (body[nKey] !== undefined) {
+          const name = String(body[nKey] || '').trim().slice(0, 32);
+          engine.setSetting(id, nKey, name);
+          out[nKey] = name;
+        }
+      }
       // Global override: set all zones at once
       if (body.all_zones_setpoint !== undefined) {
         const v = Math.max(5, Math.min(45, Number(body.all_zones_setpoint)));

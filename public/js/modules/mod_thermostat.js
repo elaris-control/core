@@ -19,8 +19,8 @@ function thermostatZoneState(zoneNo, currentMappings={}) {
 function thermostatSuggestedVisibleZones(currentMappings={}) {
   let highest = 1;
   for (let i = 1; i <= 6; i++) {
-    const { mappedCount } = thermostatZoneState(i, currentMappings);
-    if (mappedCount > 0) highest = i;
+    const defs = thermostatZoneDefs(i);
+    if (defs.some(inp => !!currentMappings[inp.key])) highest = i;
   }
   return Math.max(1, Math.min(6, highest));
 }

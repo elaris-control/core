@@ -53,6 +53,9 @@ async function renderSolar(inst){
   var tempB=sRes.tempBoiler!=null?Number(sRes.tempBoiler).toFixed(1):null;
   var diff=sRes.diff!=null?sRes.diff:null;
   var pumpOn=sRes.pumpOn; var pumpSpd=sRes.pumpSpeed; var isPaused=sRes.paused;
+  var heaterOn=!!(sRes.heaterOn??sRes.heater_on); var backupOn=!!(sRes.backupOn??sRes.backup_on);
+  var hasHeater=(inst.mappings||[]).some(function(m){return m.input_key==='heater'&&m.io_id;});
+  var hasBackup=(inst.mappings||[]).some(function(m){return m.input_key==='backup'&&m.io_id;});
   var profile=sp.profile||'basic';
   var forceOn=sp.force_pump_on==='1'||sp.force_pump_on===1;
   var manualOn=sp.manual_override==='1'||sp.manual_override===1;
@@ -68,6 +71,12 @@ async function renderSolar(inst){
   h+='</div>';
   h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)"><span style="font-weight:700">\ud83d\udca7 Pump</span>';
   h+='<span style="font-weight:800;font-size:14px;color:'+(pumpOn?'var(--good)':'var(--bad)')+'">'+( pumpOn?'\u25cf ON':'\u25cb OFF')+(pumpSpd!=null?' \u00b7 '+Math.round(pumpSpd)+'%':'')+'</span></div>';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)"><span style="font-weight:700">🔥 Heater</span>';
+  h+=hasHeater?'<span style="font-weight:800;font-size:14px;color:'+(heaterOn?'#ff6b35':'var(--muted2)')+'">'+( heaterOn?'● ON':'○ OFF')+'</span>':'<span style="font-size:12px;color:var(--muted2)">not in use</span>';
+  h+='</div>';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)"><span style="font-weight:700">🛡️ Backup</span>';
+  h+=hasBackup?'<span style="font-weight:800;font-size:14px;color:'+(backupOn?'#a855f7':'var(--muted2)')+'">'+( backupOn?'● ON':'○ OFF')+'</span>':'<span style="font-size:12px;color:var(--muted2)">not in use</span>';
+  h+='</div>';
   if(history.temp_solar)h+='<div style="margin:8px 0 4px;opacity:.7">'+sparklineSVG(history.temp_solar,'#ff9a3a')+'</div>';
   h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><span class="pill" style="font-size:10px">profile: '+profile+'</span>'+(testMode?'<span class="pill" style="font-size:10px;border-color:rgba(255,201,71,.35);color:#ffd978">TEST MODE</span>':'')+'</div>';
   if(hasInverter){
@@ -187,11 +196,12 @@ async function renderThermostat(inst){
     var zsp = (rawZSP !== undefined && rawZSP !== '' && !isNaN(parseFloat(rawZSP))) ? parseFloat(rawZSP) : setpoint;
     var zspIsOverride = (rawZSP !== undefined && rawZSP !== '' && !isNaN(parseFloat(rawZSP)));
     h+='<div title="'+title.replace(/"/g,'&quot;')+'" style="border:1px solid '+border+';background:'+bg+';border-radius:9px;padding:7px 8px">';
+    var zoneName=sp['zone_'+z.idx+'_name']||'Z'+z.idx;
     h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:4px">';
-    h+='<strong style="font-size:11px">'+(sp['zone_'+z.idx+'_name']||'Z'+z.idx)+'</strong>';
+    h+='<strong style="font-size:11px;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px" onclick="renameZone('+inst.id+','+z.idx+',\''+zoneName.replace(/'/g,"\\'")+'\')" title="Rename zone">'+zoneName+'</strong>';
     h+='<span style="font-size:10px;font-weight:800;color:'+stateColor+'">'+(invalidCall?'ERR':(z.demand?'ON':'OFF'))+'</span>';
     h+='</div>';
-    h+='<div style="font-size:10px;color:'+srcColor+';font-weight:'+(invalidCall||z.temp!==null?'800':'700')+';margin-top:3px;line-height:1.1">'+srcLabel+'</div>';
+    h+='<div style="font-size:10px;color:'+srcColor+';font-weight:'+(invalidCall||z.temp!==null?'800':'700')+';margin-top:3px;line-height:1.1">'+srcLabel+(z.source==='call'&&z.temp!==null?' · '+z.temp+'°':'')+'</div>';
     h+='<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">';
     h+='<span class="pill" style="font-size:9px;padding:2px 6px">OUT '+(z.outputOn?'ON':'OFF')+'</span>';
     if(hasZonePump) h+='<span class="pill" style="font-size:9px;padding:2px 6px">P '+(z.pumpOn?'ON':'OFF')+'</span>';
@@ -218,6 +228,7 @@ async function adjZoneSP(id,zone,cur,delta){ var v=Math.round((parseFloat(cur)+p
 async function setAllZonesSP(id,cur,delta){ var v=Math.round((parseFloat(cur)+parseFloat(delta))*10)/10; try{await api('/automation/thermostat/'+id+'/control',{method:'POST',body:JSON.stringify({all_zones_setpoint:v})});}catch(e){toast('Error: '+e.message);} rerenderInstance(id); }
 async function setThermoMode(id,mode){ try{await api('/automation/thermostat/'+id+'/control',{method:'POST',body:JSON.stringify({mode:mode})});}catch(e){toast('Error: '+e.message);} rerenderInstance(id); }
 async function toggleThermoPause(id,cur){ try{await api('/automation/override/'+id,{method:'POST',body:JSON.stringify({paused:!cur})});}catch(e){toast('Error: '+e.message);} rerenderInstance(id); }
+async function renameZone(id,zone,cur){ var n=prompt('Zone name:',cur); if(n===null)return; var b={}; b['zone_'+zone+'_name']=n.trim(); try{await api('/automation/thermostat/'+id+'/control',{method:'POST',body:JSON.stringify(b)});}catch(e){toast('Error: '+e.message);return;} rerenderInstance(id); }
 
 
 async function irrigationCommand(id, command, args){

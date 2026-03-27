@@ -289,7 +289,34 @@ function initModuleRoutes({ db, requireLogin, requireEngineer, access, engine = 
   router.delete("/instances/:id", requireEngineer, (req, res) => {
     const id = Number(req.params.id);
     if (!requireSiteRefAccess(req, res, access.getModuleInstanceSiteRef(id), "not_found")) return;
+
+    const inst = getInstance.get(id);
+    const mappingRows = inst ? getMappings.all(id) : [];
+
     deleteInstance.run(id);
+
+    for (const row of mappingRows) {
+      if (!row.io_id) continue;
+      const io = getIOById.get(row.io_id);
+      if (!io) continue;
+      const isOutput = engine?.isOutputIO ? engine.isOutputIO(io) : ['DO','AO','RELAY','DIMMER','OUTPUT','DIGITAL_OUTPUT','ANALOG_OUTPUT'].includes(String(io.type || '').trim().toUpperCase());
+      if (!isOutput) continue;
+      const refs = Number(countActiveMappingsForIO.get(row.io_id)?.c || 0);
+      if (refs > 0) continue;
+      const t = String(io.type || '').trim().toUpperCase();
+      const safeValue = ['AO','DIMMER','ANALOG','ANALOGOUT','ANALOG_OUTPUT'].includes(t) ? '0' : 'OFF';
+      try {
+        if (engine?.sendIOCommand) {
+          engine.sendIOCommand(io, safeValue, {
+            moduleId: inst.module_id,
+            instanceId: id,
+            siteId: inst.site_id,
+            reason: 'module deleted: release output',
+          });
+        }
+      } catch (_) {}
+    }
+
     res.json({ ok: true });
   });
 

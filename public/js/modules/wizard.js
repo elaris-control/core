@@ -17,6 +17,16 @@ function collectCurrentWizardMappings() {
   return mappings;
 }
 
+function buildEffectiveMappings(currentMappings) {
+  const eff = {};
+  (selectedDef?.inputs || []).forEach(inp => {
+    const v = currentMappings[inp.key] ?? suggestions[inp.key];
+    const enabled = inp.required || !!currentMappings[inp.key] || (!editingId && !!suggestions[inp.key]);
+    if (enabled && v) eff[inp.key] = Number(v);
+  });
+  return eff;
+}
+
 function renderThermostatWizard(currentMappings={}, rowRenderer) {
   const legacyDefs = ['temp_room','ac_relay','temp_outdoor']
     .map(key => (selectedDef?.inputs||[]).find(inp => inp.key === key)).filter(Boolean);
@@ -245,7 +255,7 @@ function renderWizardInputs(currentMappings={}) {
 
     const modSummaryBox = ModuleRegistry[selectedDef?.id]?.summaryBoxId;
     document.getElementById("wizardInputs").innerHTML = (modSummaryBox ? '<div id="'+modSummaryBox+'"></div>' : '') + html;
-    if (modSummaryBox) ModuleRegistry[selectedDef?.id].updateCommissioningSummary(currentMappings);
+    if (modSummaryBox) ModuleRegistry[selectedDef?.id].updateCommissioningSummary(buildEffectiveMappings(currentMappings));
   } else {
     if (selectedDef?.id === 'thermostat') {
       thermostatVisibleZones = thermostatSuggestedVisibleZones(currentMappings);
@@ -256,7 +266,7 @@ function renderWizardInputs(currentMappings={}) {
       const modSummaryBox = ModuleRegistry[selectedDef?.id]?.summaryBoxId;
       const rows = (selectedDef?.inputs||[]).map(input => makeRow(input, false)).join("");
       document.getElementById("wizardInputs").innerHTML = (modSummaryBox ? '<div id="'+modSummaryBox+'"></div>' : '') + rows;
-      if (modSummaryBox) ModuleRegistry[selectedDef?.id].updateCommissioningSummary(currentMappings);
+      if (modSummaryBox) ModuleRegistry[selectedDef?.id].updateCommissioningSummary(buildEffectiveMappings(currentMappings));
     }
   }
 }
@@ -292,6 +302,7 @@ async function saveModule(existingId=null) {
   (selectedDef?.inputs||[]).forEach(input=>{
     const sel = document.getElementById("map_"+input.key);
     if (sel?.value) mappings[input.key] = Number(sel.value);
+    else if (id) mappings[input.key] = 0; // explicitly remove when editing
   });
   // Dynamic inputs (smart_lighting, engineering rules)
   if (selectedDef?.dynamic) {
