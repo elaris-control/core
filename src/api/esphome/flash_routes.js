@@ -124,7 +124,30 @@ function resetManagedDiscoveryRows(db, deviceName) {
   return { cleared_blocked: clearedBlocked, cleared_pending: clearedPending };
 }
 
-function mountFlashRoutes({ app, db, wsApi, dataDir, cfgDir, venvDir, requireEngineerAccess, state }) {
+function seedPendingFromManagedEntities(dbApi, deviceId, boardProfileId, entities) {
+  if (!dbApi || !deviceId || !Array.isArray(entities) || !entities.length) return;
+  if (typeof dbApi.noteDeviceConfig !== 'function') return;
+
+  dbApi.noteDeviceConfig({
+    deviceId: String(deviceId).trim(),
+    ts: Date.now(),
+    retained: false,
+    config: {
+      board_profile_id: boardProfileId || null,
+      entities: entities.map((e) => ({
+        key: e.key,
+        group: e.group || (String(e.type || '').toLowerCase() === 'relay' ? 'state' : 'tele'),
+        type: e.type,
+        name: e.name || e.key,
+        source: e.source || e.port_id || e.bus_id || null,
+        port_id: e.port_id || null,
+        bus_id: e.bus_id || null,
+      })),
+    },
+  });
+}
+
+function mountFlashRoutes({ app, db, dbApi, wsApi, dataDir, cfgDir, venvDir, requireEngineerAccess, state }) {
 
   function getSetupPrereqs() {
     const probe = spawnSync('python3', ['-c', 'import ensurepip; print("ok")'], { encoding: 'utf8' });
@@ -232,8 +255,16 @@ function mountFlashRoutes({ app, db, wsApi, dataDir, cfgDir, venvDir, requireEng
       const ok = code === 0;
       if (db && persisted?.deviceId) db.prepare('UPDATE esphome_devices SET status=?, updated_at=? WHERE id=?').run(ok ? 'flashed' : 'error', new Date().toISOString(), persisted.deviceId);
       updateJob(db, persisted?.jobId, { status: ok ? 'success' : 'failed', finished_at: new Date().toISOString(), exit_code: code, output_log: logs.join('\n'), error_text: ok ? null : logs.slice(-20).join('\n') });
+      if (ok) {
+        seedPendingFromManagedEntities(
+          dbApi,
+          payload.device_name,
+          profile?.id || payload.board_profile_id || null,
+          Array.isArray(payload.entities) ? payload.entities : []
+        );
+      }
       if (clientId && wsApi.sendToClient) wsApi.sendToClient(clientId, { type: 'esphome_done', ok, code });
-      appendLog(ok ? 'info' : 'error', ok ? `✓ Flash complete — "${payload.device_name}" will appear in Installer once it connects` : `✗ Flash failed (exit ${code})`);
+      appendLog(ok ? 'info' : 'error', ok ? `✓ Flash complete — "${payload.device_name}" seeded into Installer` : `✗ Flash failed (exit ${code})`);
     });
     proc.on('error', err => {
       state.activeFlash = null;
@@ -365,8 +396,16 @@ function mountFlashRoutes({ app, db, wsApi, dataDir, cfgDir, venvDir, requireEng
       console.log(`[ESPHOME] process closed, exit=${code}`);
       if (db && persisted?.deviceId) db.prepare('UPDATE esphome_devices SET status=?, updated_at=? WHERE id=?').run(ok ? 'flashed' : 'error', new Date().toISOString(), persisted.deviceId);
       updateJob(db, persisted?.jobId, { status: ok ? 'success' : 'failed', finished_at: new Date().toISOString(), exit_code: code, output_log: logs.join('\n'), error_text: ok ? null : logs.slice(-20).join('\n') });
+      if (ok) {
+        seedPendingFromManagedEntities(
+          dbApi,
+          device_id,
+          resolvedProfile?.id || payload.board_profile_id || null,
+          managedEntities
+        );
+      }
       if (client_id && wsApi.sendToClient) wsApi.sendToClient(client_id, { type: 'esphome_done', ok, code });
-      appendLog(ok ? 'info' : 'error', ok ? `✓ Flash complete — "${device_name}" will appear in Installer once the ELARIS MQTT announce arrives` : `✗ Flash failed (exit ${code})`);
+      appendLog(ok ? 'info' : 'error', ok ? `✓ Flash complete — "${device_name}" seeded into Installer` : `✗ Flash failed (exit ${code})`);
     });
     proc.on('error', err => {
       state.activeFlash = null;
