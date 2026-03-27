@@ -316,16 +316,18 @@ const typeMatches = (ioType, inputType) => {
       return ioType === inputType;
     };
 
+    const usedIds = new Set();
     for (const input of def.inputs) {
       // Try exact key match first
       let match = io.find(e => e.key === input.key && typeMatches(e.type, input.type));
-      // Then partial match (e.g. "pump" matches "state.pump")
+      // Then partial match — skip already-used IOs
       if (!match) match = io.find(e =>
-        (e.key.includes(input.key) || input.key.includes(e.key)) && typeMatches(e.type, input.type)
+        (e.key.includes(input.key) || input.key.includes(e.key)) && typeMatches(e.type, input.type) && !usedIds.has(e.id)
       );
-      // Then just type match
-      if (!match) match = io.find(e => typeMatches(e.type, input.type));
+      // Then just type match — skip already-used IOs
+      if (!match) match = io.find(e => typeMatches(e.type, input.type) && !usedIds.has(e.id));
 
+      if (match) usedIds.add(match.id);
       suggestions[input.key] = match ? match.id : null;
     }
 

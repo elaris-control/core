@@ -6,12 +6,12 @@ function collectCurrentWizardMappings() {
   const mappings = {};
   (selectedDef?.inputs || []).forEach(input => {
     const sel = document.getElementById('map_' + input.key);
-    if (sel?.value) mappings[input.key] = Number(sel.value);
+    if (sel && !sel.disabled && sel.value) mappings[input.key] = Number(sel.value);
   });
   if (selectedDef?.dynamic) {
     dynSlots.forEach(slot => {
       const sel = document.getElementById('map_' + slot.key);
-      if (sel?.value) mappings[slot.key] = Number(sel.value);
+      if (sel && !sel.disabled && sel.value) mappings[slot.key] = Number(sel.value);
     });
   }
   return mappings;
@@ -197,7 +197,7 @@ function renderWizardInputs(currentMappings={}) {
       '</div>'+
       '<select class="map-sel '+(isAuto?"auto-matched":"")+'" id="map_'+input.key+'"'+
       ((!input.required && !isEnabled && !isDynamic) ? " disabled" : "")+
-      ' onchange="this.classList.remove(\'auto-matched\')">'+selOpts+'</select>'+
+      ' onchange="this.classList.remove(\'auto-matched\'); onWizardMapChanged()">'+selOpts+'</select>'+
       '</div>';
   }
 
