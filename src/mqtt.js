@@ -165,13 +165,23 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
       diagKey === 'version' || diagKey === 'esphome_version' || diagKey === 'firmware_version'
     );
 
-    // If device uses custom MQTT, keep custom sensor topics as primary source to avoid duplicates.
-    // But DO/DI standard topics are still valuable fallback when the YAML does not mirror them
-    // to custom ELARIS topics. Identity diagnostics must also always be kept.
-    if (known?.mqtt_topic_root && parts.length === 4 && parts[3] === 'state' &&
-        parts[1] === 'sensor' && !isIdentityDiag) {
-      mqttDebug('native_topic_skipped', { deviceId, topic, reason: 'has_custom_mqtt' });
-      return;
+    // If device uses custom MQTT (managed via Elaris), skip native sensor topics entirely —
+    // state comes through elaris/<device>/tele/<key> instead.
+    // For switch and binary_sensor, skip pending-IO discovery too: entity keys in the native
+    // topic (actual ESPHome component ID) may differ from the normalized keys injected by
+    // injectManagedOverlay into the elaris/<device>/config message, which would create ghost
+    // pending entries even after the real entity has been approved. State-cache updates still
+    // happen below. Identity diagnostics are always kept.
+    if (known?.mqtt_topic_root && parts.length === 4 && parts[3] === 'state' && !isIdentityDiag) {
+      if (parts[1] === 'sensor') {
+        mqttDebug('native_topic_skipped', { deviceId, topic, reason: 'has_custom_mqtt' });
+        return;
+      }
+      if (parts[1] === 'switch' || parts[1] === 'binary_sensor') {
+        mqttDebug('native_topic_state_only', { deviceId, topic, reason: 'managed_device_config_discovery' });
+        // Fall through — upsertState / touchEspHomeRegistry / emit still run below,
+        // but noteDeviceAndMaybePendingIO is skipped via skipPendingDiscovery flag.
+      }
     }
 
     if (parts.length === 2 && parts[1] === 'status') {
@@ -245,12 +255,15 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
 
     let group = null;
     let key = null;
+    let skipPendingDiscovery = false;
     if (parts.length === 4 && parts[1] === 'switch' && parts[3] === 'state') {
       group = 'state';
       key = parts[2];
+      skipPendingDiscovery = !!(known?.mqtt_topic_root);
     } else if (parts.length === 4 && parts[1] === 'binary_sensor' && parts[3] === 'state') {
       group = 'tele';
       key = parts[2];
+      skipPendingDiscovery = !!(known?.mqtt_topic_root);
     } else if (parts.length === 4 && (parts[1] === 'sensor' || parts[1] === 'text_sensor') && parts[3] === 'state') {
       group = 'tele';
       key = parts[2];
@@ -263,8 +276,10 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
       return;
     }
 
-    const noteResult = dbApi.noteDeviceAndMaybePendingIO({ deviceId, group, key, value: payload, ts, retained, allowRetained: true });
-    mqttDebug('standard_state_processed', { deviceId, group, key, retained, result: noteResult?.reason || null, pending: !!noteResult?.ok });
+    if (!skipPendingDiscovery) {
+      const noteResult = dbApi.noteDeviceAndMaybePendingIO({ deviceId, group, key, value: payload, ts, retained, allowRetained: true });
+      mqttDebug('standard_state_processed', { deviceId, group, key, retained, result: noteResult?.reason || null, pending: !!noteResult?.ok });
+    }
     if (typeof dbApi.touchEspHomeRegistry === 'function') {
       dbApi.touchEspHomeRegistry(deviceId, { status: 'online', ts });
       mqttDebug('registry_touch', { deviceId, status: 'online', retained, from: 'standard_state' });

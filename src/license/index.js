@@ -10,7 +10,7 @@ let features = {
   multi_site: false,
   dashboard_builder: false,
   automations: false,
-  engineer_tools: false,
+  engineer_tools: true,
   remote_access: false,
 };
 

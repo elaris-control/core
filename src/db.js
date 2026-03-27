@@ -696,6 +696,7 @@ db.exec(`
     db.transaction(() => {
       db.prepare(`DELETE FROM pending_io WHERE device_id=?`).run(id);
       for (const row of aggregated.values()) {
+        if (isApprovedIO.get(id, row.group_name, row.key)) continue;
         upsertPendingIOWithSite.run(row);
       }
     })();
