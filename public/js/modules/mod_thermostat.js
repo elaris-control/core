@@ -43,39 +43,6 @@ function renderThermostatWizardIntoDom(currentMappings={}, rowRenderer) {
   updateThermostatCommissioningSummary(currentMappings);
 }
 
-
-function thermostatSettingsForUi(fallback = {}) {
-  const base = fallback && typeof fallback === 'object' ? fallback : {};
-  if (editingId && Array.isArray(instances)) {
-    const inst = instances.find(x => Number(x?.id) === Number(editingId));
-    if (inst?.settings && typeof inst.settings === 'object') return { ...base, ...inst.settings };
-    if (inst?.setpoints && typeof inst.setpoints === 'object') return { ...base, ...inst.setpoints };
-  }
-  return base;
-}
-
-function thermostatZoneDisplayName(zoneNo, settings = {}) {
-  const key = `zone_${zoneNo}_name`;
-  const raw = settings && settings[key] != null ? String(settings[key]).trim() : '';
-  return raw || `Zone ${zoneNo}`;
-}
-
-function thermostatFormatTemp(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return null;
-  return `${Math.round(n * 10) / 10}°C`;
-}
-
-function thermostatZoneLiveTemp(zoneNo, live = {}) {
-  const values = live?.values || {};
-  return thermostatFormatTemp(values[`zone_${zoneNo}_temp`]);
-}
-
-function thermostatZoneMapValue(currentMappings, key) {
-  const ioId = Number(currentMappings?.[key] || 0) || null;
-  return ioId ? ioFriendlyLabel(ioId) : null;
-}
-
 function analyzeThermostatMappings(currentMappings={}) {
   const centralPump = Number(currentMappings.central_pump || 0) || null;
   const legacy = {
@@ -156,15 +123,13 @@ function analyzeThermostatMappings(currentMappings={}) {
 
 function renderThermostatCommissioningSummary(currentMappings={}) {
   const a = analyzeThermostatMappings(currentMappings);
-  const uiSettings = thermostatSettingsForUi();
   const zonePills = a.zones.map(z => {
     const parts = [];
     if (z.call) parts.push('CALL');
     if (z.temp) parts.push('TEMP');
     if (z.output) parts.push('OUT');
     if (z.pump) parts.push('PUMP');
-    const zoneName = thermostatZoneDisplayName(z.n, uiSettings);
-    return `<span class="thermo-zone-pill"><strong>${escapeHTML(zoneName)}</strong><span class="mini">${parts.join(' • ') || 'EMPTY'}</span></span>`;
+    return `<span class="thermo-zone-pill"><strong>Z${z.n}</strong><span class="mini">${parts.join(' • ') || 'EMPTY'}</span></span>`;
   }).join('') || `<span class="thermo-zone-pill"><strong>No zones yet</strong><span class="mini">Map Zone 1 to start</span></span>`;
   const issues = a.issues.length
     ? `<div class="thermo-issues">${a.issues.map(i => { const sev = ['bad','warn','info'].includes(i.severity) ? i.severity : 'info'; return `<div class="thermo-issue sev-${sev}"><strong>${sev === 'bad' ? 'Fix' : sev === 'warn' ? 'Check' : 'Info'}:</strong> ${i.message}</div>`; }).join('')}</div>`
@@ -200,74 +165,10 @@ function updateThermostatCommissioningSummary(currentMappings=null) {
   box.innerHTML = renderThermostatCommissioningSummary(mappings);
 }
 
-
-function renderThermostatZoneSummaryCard(zoneNo, settings = {}, live = {}) {
-  const name = thermostatZoneDisplayName(zoneNo, settings);
-  const temp = thermostatZoneLiveTemp(zoneNo, live);
-  const values = live?.values || {};
-  const call = stateOn(values[`zone_${zoneNo}_call`]);
-  const output = stateOn(values[`zone_${zoneNo}_output`]);
-  const pump = stateOn(values[`zone_${zoneNo}_pump`]);
-  const mapped = [];
-  if (live?.mappings?.[`zone_${zoneNo}_temp`]) mapped.push(renderCompactBadge('sensor', live.mappings[`zone_${zoneNo}_temp`]));
-  if (live?.mappings?.[`zone_${zoneNo}_call`]) mapped.push(renderCompactBadge('call', live.mappings[`zone_${zoneNo}_call`]));
-  if (live?.mappings?.[`zone_${zoneNo}_output`]) mapped.push(renderCompactBadge('out', live.mappings[`zone_${zoneNo}_output`]));
-  if (live?.mappings?.[`zone_${zoneNo}_pump`]) mapped.push(renderCompactBadge('pump', live.mappings[`zone_${zoneNo}_pump`]));
-  const chips = [
-    temp ? renderCompactBadge('temp', temp, 'live-on') : '',
-    values[`zone_${zoneNo}_call`] != null ? renderCompactBadge('call', call ? 'ON' : 'OFF', call ? 'live-on' : 'live-off') : '',
-    values[`zone_${zoneNo}_output`] != null ? renderCompactBadge('out', output ? 'ON' : 'OFF', output ? 'live-on' : 'live-off') : '',
-    values[`zone_${zoneNo}_pump`] != null ? renderCompactBadge('pump', pump ? 'ON' : 'OFF', pump ? 'live-on' : 'live-off') : '',
-  ].filter(Boolean).join('');
-  return `<div class="map-item thermo-zone-summary-item">
-    <span class="map-key">${escapeHTML(name)}</span>
-    <span class="map-val rich">${chips || '<span class="muted">No live data yet</span>'}${mapped.length ? `<div style="margin-top:6px">${mapped.join('')}</div>` : ''}</span>
-  </div>`;
-}
-
-function buildThermostatLiveMappings(inst, settings = {}, live = {}) {
-  const out = {};
-  const maps = Array.isArray(inst?.mappings) ? inst.mappings : [];
-  const byKey = (key) => maps.find(x => x.input_key === key && x.io_id);
-  const toName = (key) => {
-    const m = byKey(key);
-    return m?.io_id ? ioFriendlyLabel(m.io_id) : null;
-  };
-  for (let z = 1; z <= 6; z++) {
-    out[`zone_${z}_temp`] = toName(`zone_${z}_temp`);
-    out[`zone_${z}_call`] = toName(`zone_${z}_call`);
-    out[`zone_${z}_output`] = toName(`zone_${z}_output`);
-    out[`zone_${z}_pump`] = toName(`zone_${z}_pump`);
-  }
-  return out;
-}
-
-function renderThermostatSummary(inst, settings = {}, live = {}) {
-  const mergedSettings = { ...(settings || {}) };
-  const values = live?.values || {};
-  const mappedZones = [];
-  for (let z = 1; z <= 6; z++) {
-    const hasMap = (inst?.mappings || []).some(m => m.input_key && m.input_key.startsWith(`zone_${z}_`) && m.io_id);
-    const hasName = String(mergedSettings[`zone_${z}_name`] || '').trim();
-    const hasLive = values[`zone_${z}_temp`] != null || values[`zone_${z}_call`] != null || values[`zone_${z}_output`] != null || values[`zone_${z}_pump`] != null;
-    if (z === 1 || hasMap || hasName || hasLive) mappedZones.push(z);
-  }
-  const liveWithMappings = { ...live, mappings: buildThermostatLiveMappings(inst, mergedSettings, live) };
-  const mode = String(mergedSettings.mode || 'heating');
-  const setpoint = thermostatFormatTemp(mergedSettings.setpoint);
-  const top = [
-    renderCompactBadge('mode', mode),
-    setpoint ? renderCompactBadge('target', setpoint) : '',
-    renderCompactBadge('zones', String(mappedZones.length || 1)),
-  ].filter(Boolean).join('');
-  const zonesHtml = mappedZones.map(z => renderThermostatZoneSummaryCard(z, mergedSettings, liveWithMappings)).join('');
-  return `<div class="map-item"><span class="map-key">Thermostat</span><span class="map-val rich">${top}</span></div>${zonesHtml}`;
-}
-
 registerModule('thermostat', {
   hasAuto: true,
   updateCommissioningSummary(m) { updateThermostatCommissioningSummary(m); },
-  renderSummary(inst, settings, live) { return renderThermostatSummary(inst, settings, live); },
+  renderSummary(inst, settings, live) { return ''; },
   renderWizardInputs(currentMappings, makeRow) {
     window.thermostatVisibleZones = thermostatSuggestedVisibleZones(currentMappings);
     renderThermostatWizardIntoDom(currentMappings, makeRow);
