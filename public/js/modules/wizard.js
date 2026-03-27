@@ -50,18 +50,22 @@ function renderThermostatWizard(currentMappings={}, rowRenderer) {
         </div>
       </div>
       <div class="zone-grid">`;
+  const uiSettings = typeof thermostatSettingsForUi === 'function' ? thermostatSettingsForUi() : {};
   for (let i = 1; i <= visibleCount; i++) {
     const { defs, active, mappedCount } = thermostatZoneState(i, currentMappings);
     const badge = active ? `<span class="zone-badge active">active</span>` : `<span class="zone-badge">optional</span>`;
+    const zoneLabel = typeof thermostatZoneDisplayName === 'function' ? thermostatZoneDisplayName(i, uiSettings) : `Zone ${i}`;
+    const mappedTemp = typeof thermostatZoneMapValue === 'function' ? thermostatZoneMapValue(currentMappings, `zone_${i}_temp`) : null;
+    const mappedCall = typeof thermostatZoneMapValue === 'function' ? thermostatZoneMapValue(currentMappings, `zone_${i}_call`) : null;
     html += `<div class="zone-card ${active ? 'active' : ''}">
       <div class="zone-head">
         <div>
-          <div class="zone-title">Zone ${i}</div>
+          <div class="zone-title">${escapeHTML(zoneLabel)}</div>
           <div class="zone-meta">sensor / thermostat • output • pump</div>
         </div>
         ${badge}
       </div>
-      <div class="zone-hint">${mappedCount ? `${mappedCount} mapping${mappedCount === 1 ? '' : 's'} selected or suggested.` : 'Leave empty if this zone is not used.'}</div>
+      <div class="zone-hint">${mappedCount ? `${mappedCount} mapping${mappedCount === 1 ? '' : 's'} selected or suggested.` : 'Leave empty if this zone is not used.'}${mappedTemp ? ` Sensor: ${escapeHTML(mappedTemp)}.` : ''}${mappedCall ? ` Call: ${escapeHTML(mappedCall)}.` : ''}</div>
       ${defs.map(inp => rowRenderer(inp, false, 'compact')).join('')}
     </div>`;
   }
@@ -197,7 +201,7 @@ function renderWizardInputs(currentMappings={}) {
       '</div>'+
       '<select class="map-sel '+(isAuto?"auto-matched":"")+'" id="map_'+input.key+'"'+
       ((!input.required && !isEnabled && !isDynamic) ? " disabled" : "")+
-      ' onchange="this.classList.remove(\'auto-matched\')">'+selOpts+'</select>'+
+      ' onchange="this.classList.remove(\'auto-matched\'); onWizardMapChanged()">'+selOpts+'</select>'+
       '</div>';
   }
 

@@ -722,19 +722,25 @@ db.exec(`
   }
 
   function noteDeviceAndMaybePendingIO({ deviceId, group, key, value, ts, retained, allowRetained = false, source = null, boardProfileId = null }) {
-    if (retained && !allowRetained) return { ok: false, reason: 'retained_ignored' };
-    const canonical = canonicalizePendingIdentity({ deviceId, group, key, source, boardProfileId });
-    const finalGroup = canonical.group_name;
-    const finalKey = canonical.key;
-    if (isApprovedIO.get(deviceId, finalGroup, finalKey)) return { ok: false, reason: 'already_approved' };
-    if (canonical.port_id && findApprovedIOByPath.get(deviceId, canonical.port_id, canonical.source || canonical.port_id, canonical.port_id)) {
-      return { ok: false, reason: 'already_approved' };
-    }
-    if (isBlockedIO.get(deviceId, finalGroup, finalKey)) return { ok: false, reason: 'blocked' };
-    upsertPendingIO.run({ device_id: deviceId, key: finalKey, group_name: finalGroup, ts, last_value: value });
-    normalizePendingRowsForDevice(deviceId);
-    return { ok: true, reason: 'pending_upserted', canonical };
+  if (retained && !allowRetained) return { ok: false, reason: 'retained_ignored' };
+
+  const rawGroup = String(group || '').trim().toLowerCase();
+  if (rawGroup === 'cmnd') return { ok: false, reason: 'command_topic_ignored' };
+
+  const canonical = canonicalizePendingIdentity({ deviceId, group, key, source, boardProfileId });
+  const finalGroup = canonical.group_name;
+  const finalKey = canonical.key;
+
+  if (isApprovedIO.get(deviceId, finalGroup, finalKey)) return { ok: false, reason: 'already_approved' };
+  if (canonical.port_id && findApprovedIOByPath.get(deviceId, canonical.port_id, canonical.source || canonical.port_id, canonical.port_id)) {
+    return { ok: false, reason: 'already_approved' };
   }
+  if (isBlockedIO.get(deviceId, finalGroup, finalKey)) return { ok: false, reason: 'blocked' };
+
+  upsertPendingIO.run({ device_id: deviceId, key: finalKey, group_name: finalGroup, ts, last_value: value });
+  normalizePendingRowsForDevice(deviceId);
+  return { ok: true, reason: 'pending_upserted', canonical };
+}
 
   const markAllIoStale  = db.prepare(`UPDATE io SET stale=1 WHERE device_id=?`);
   const clearIoStale    = db.prepare(`UPDATE io SET stale=0 WHERE device_id=? AND group_name=? AND key=?`);

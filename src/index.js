@@ -276,7 +276,7 @@ async function main() {
   app.use('/api/admin', initAdminRoutes({ db: dbApi.db, users, requireAdmin, historyRollups, mqttApi }));
 
   // 4. Modules (BEFORE /api to avoid prefix collision)
-  app.use('/api/modules', initModuleRoutes({ db: dbApi.db, requireLogin, requireEngineer: requireEngineerAccess, access }));
+  app.use('/api/modules', initModuleRoutes({ db: dbApi.db, requireLogin, requireEngineer: requireEngineerAccess, access, engine }));
 
   // 5. Nav
   app.use('/api/nav', initNavRoutes({ db: dbApi.db, requireLogin, access }));

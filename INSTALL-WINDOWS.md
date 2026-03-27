@@ -60,14 +60,10 @@ For USB flashing on Windows, install the CP210x or CH340 driver for your board (
 ## Install ELARIS
 
 ```powershell
-mkdir C:\elaris
-git clone https://github.com/elaris-control/core.git C:\elaris\elaris-core
-cd C:\elaris\elaris-core
+git clone https://github.com/elaris-control/core.git
+cd core
 npm install
 ```
-
-> This creates the folder `C:\elaris\elaris-core`. **All commands from this point forward must be run from inside that folder.**
-> If you open a new terminal later, run `cd C:\elaris\elaris-core` first.
 
 ---
 
@@ -76,7 +72,6 @@ npm install
 Create a `.env` file in the project root. You can generate random secrets with:
 
 ```powershell
-cd C:\elaris\elaris-core
 node -e "const c=require('crypto'); console.log('PORT=8080\nNODE_ENV=production\nMQTT_URL=mqtt://localhost:1883\nENGINEER_CODE='+c.randomBytes(16).toString('hex')+'\nENGINEER_SECRET='+c.randomBytes(32).toString('hex')+'\nAPP_SECRET='+c.randomBytes(32).toString('hex'))"
 ```
 
@@ -102,7 +97,6 @@ APP_SECRET=<random hex>
 ### Option A — Manual (development / testing)
 
 ```powershell
-cd C:\elaris\elaris-core
 npm start
 ```
 
@@ -113,7 +107,6 @@ Open `http://localhost:8080` in your browser.
 PM2 keeps ELARIS running in the background and restarts it automatically:
 
 ```powershell
-cd C:\elaris\elaris-core
 npm install -g pm2
 pm2 start ecosystem.config.js
 pm2 save
@@ -134,8 +127,8 @@ pm2 restart elaris  # restart
 Download [NSSM](https://nssm.cc/download) and run:
 
 ```powershell
-nssm install elaris "node" "C:\elaris\elaris-core\src\index.js"
-nssm set elaris AppDirectory "C:\elaris\elaris-core"
+nssm install elaris "node" "C:\path\to\core\src\index.js"
+nssm set elaris AppDirectory "C:\path\to\core"
 nssm set elaris AppEnvironmentExtra "PORT=8080" "NODE_ENV=production" "MQTT_URL=mqtt://localhost:1883"
 nssm start elaris
 ```

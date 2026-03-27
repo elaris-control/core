@@ -32,7 +32,7 @@ function validateModuleMappings(def, mappings) {
   return { ok: true };
 }
 
-function initModuleRoutes({ db, requireLogin, requireEngineer, access }) {
+function initModuleRoutes({ db, requireLogin, requireEngineer, access, engine = null }) {
   const express = require("express");
   const router  = express.Router();
 
@@ -100,6 +100,14 @@ function initModuleRoutes({ db, requireLogin, requireEngineer, access }) {
     INSERT INTO module_mappings(instance_id, input_key, io_id)
     VALUES(@instance_id, @input_key, @io_id)
     ON CONFLICT(instance_id, input_key) DO UPDATE SET io_id = excluded.io_id
+  `);
+  const deleteMapping = db.prepare(`DELETE FROM module_mappings WHERE instance_id = ? AND input_key = ?`);
+  const getIOById = db.prepare(`SELECT * FROM io WHERE id = ?`);
+  const countActiveMappingsForIO = db.prepare(`
+    SELECT COUNT(*) AS c
+    FROM module_mappings mm
+    JOIN module_instances mi ON mi.id = mm.instance_id
+    WHERE mm.io_id = ? AND mi.active = 1
   `);
 
   const deleteInstance = db.prepare(`UPDATE module_instances SET active = 0 WHERE id = ?`);
@@ -223,13 +231,53 @@ function initModuleRoutes({ db, requireLogin, requireEngineer, access }) {
       const validation = validateModuleMappings(def, mergedMappings);
       if (!validation.ok) return res.status(400).json({ ok: false, ...validation });
 
-      for (const [input_key, io_id] of Object.entries(mappings)) {
-        upsertMapping.run({
-          instance_id: inst.id,
-          input_key,
-          io_id: io_id ? Number(io_id) : null,
-        });
+      const oldMappingsByInput = currentMapRows.reduce((acc, row) => {
+        if (row.input_key) acc[row.input_key] = row.io_id ? Number(row.io_id) : null;
+        return acc;
+      }, {});
+      const releaseCandidates = new Map();
+
+      const tx = db.transaction(() => {
+        for (const [input_key, io_id] of Object.entries(mappings)) {
+          const nextIoId = io_id ? Number(io_id) : null;
+          const prevIoId = oldMappingsByInput[input_key] ? Number(oldMappingsByInput[input_key]) : null;
+          if (prevIoId && prevIoId !== nextIoId) releaseCandidates.set(prevIoId, input_key);
+
+          if (nextIoId) {
+            upsertMapping.run({
+              instance_id: inst.id,
+              input_key,
+              io_id: nextIoId,
+            });
+          } else {
+            deleteMapping.run(inst.id, input_key);
+          }
+        }
+      });
+      tx();
+
+      for (const [oldIoId, input_key] of releaseCandidates.entries()) {
+        const io = getIOById.get(oldIoId);
+        if (!io) continue;
+        const isOutput = engine?.isOutputIO ? engine.isOutputIO(io) : ['DO','AO','RELAY','DIMMER','OUTPUT','DIGITAL_OUTPUT','ANALOG_OUTPUT'].includes(String(io.type || '').trim().toUpperCase());
+        if (!isOutput) continue;
+        const refs = Number(countActiveMappingsForIO.get(oldIoId)?.c || 0);
+        if (refs > 0) continue;
+        const t = String(io.type || '').trim().toUpperCase();
+        const safeValue = ['AO','DIMMER','ANALOG','ANALOGOUT','ANALOG_OUTPUT'].includes(t) ? '0' : 'OFF';
+        try {
+          if (engine?.sendIOCommand) {
+            engine.sendIOCommand(io, safeValue, {
+              moduleId: inst.module_id,
+              instanceId: inst.id,
+              inputKey: input_key,
+              siteId: inst.site_id,
+              reason: `mapping changed: release old output for ${input_key}`,
+            });
+          }
+        } catch (_) {}
       }
+
       const maprows = getMappings.all(inst.id);
       res.json({ ok: true, mappings: maprows });
     } catch (e) {

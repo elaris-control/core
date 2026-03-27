@@ -116,6 +116,12 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
         return;
       }
 
+      if (group === "cmnd") {
+        dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
+        emit("mqtt_command_observed", { deviceId, topic, key, payload });
+        return;
+      }
+
       if ((group === 'tele' || group === 'state') && !trimmedPayload) {
         // Ignore retained-delete / empty state messages so deleted legacy topics
         // do not recreate pending IO rows.
