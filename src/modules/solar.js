@@ -124,6 +124,8 @@ const MODULE = {
       help: "1 = Backup source cannot run while the solar pump is active. Prioritizes free solar energy." },
     { group: "backup", key: "backup_lockout_when_heater_on",label: "Lockout if heater ON",       type: "select",  default: "1", options: ["0","1"],
       help: "1 = Backup source is locked out while the electric heater is running. Prevents dual heating." },
+    { group: "backup", key: "backup_legionella_enable",    label: "Allow in Legionella cycle",   type: "select",  default: "0", options: ["0","1"],
+      help: "1 = Backup heat source may assist during the DHW Legionella cycle. While Legionella is active, heater/backup mutual lockouts are ignored so both can help raise tank temperature faster." },
 
     // ── Anti-Freeze ───────────────────────────────────────────────────
     { group: "basic", key: "anti_freeze_enable", label: "Anti-freeze protection", type: "select",  default: "0", options: ["0","1"],

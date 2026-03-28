@@ -110,7 +110,9 @@ function initModuleRoutes({ db, requireLogin, requireEngineer, access, engine = 
     WHERE mm.io_id = ? AND mi.active = 1
   `);
 
-  const deleteInstance = db.prepare(`UPDATE module_instances SET active = 0 WHERE id = ?`);
+  const deleteInstance = db.prepare(`DELETE FROM module_instances WHERE id = ?`);
+  const updateInstanceName = db.prepare(`UPDATE module_instances SET name = ? WHERE id = ?`);
+  const deleteModuleRuntimeOverride = db.prepare(`DELETE FROM module_runtime_overrides WHERE instance_id = ?`);
 
   const listIOForSite = db.prepare(`
         SELECT io.id, io.device_id, io.key, io.name, io.type, io.group_name, io.unit,
@@ -217,7 +219,8 @@ function initModuleRoutes({ db, requireLogin, requireEngineer, access, engine = 
       if (!inst) return res.status(404).json({ ok: false, error: "not_found" });
       if (!requireSiteRefAccess(req, res, access.getModuleInstanceSiteRef(inst.id), "not_found")) return;
 
-      const { mappings = {} } = req.body || {};
+      const { mappings = {}, name } = req.body || {};
+      const nextName = String(name || '').trim();
       const currentMapRows = getMappings.all(inst.id);
       const mergedMappings = currentMapRows.reduce((acc, row) => {
         if (row.input_key && row.io_id) acc[row.input_key] = row.io_id;
@@ -238,6 +241,9 @@ function initModuleRoutes({ db, requireLogin, requireEngineer, access, engine = 
       const releaseCandidates = new Map();
 
       const tx = db.transaction(() => {
+        if (nextName && nextName !== String(inst.name || '').trim()) {
+          updateInstanceName.run(nextName.slice(0, 120), inst.id);
+        }
         for (const [input_key, io_id] of Object.entries(mappings)) {
           const nextIoId = io_id ? Number(io_id) : null;
           const prevIoId = oldMappingsByInput[input_key] ? Number(oldMappingsByInput[input_key]) : null;
@@ -293,6 +299,7 @@ function initModuleRoutes({ db, requireLogin, requireEngineer, access, engine = 
     const inst = getInstance.get(id);
     const mappingRows = inst ? getMappings.all(id) : [];
 
+    try { deleteModuleRuntimeOverride.run(id); } catch (_) {}
     deleteInstance.run(id);
 
     for (const row of mappingRows) {

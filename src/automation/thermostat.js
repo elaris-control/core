@@ -75,9 +75,29 @@ function rememberTransition(key, active) {
   }
 }
 
-function sendIfMapped(send, key, value, reason) {
+function sendIfMapped(send, key, value, reason, meta = {}) {
   if (!key) return;
-  send(key, value, reason);
+  send(key, value, reason, meta || {});
+}
+
+function zoneDisplayName(ctx, zone) {
+  const custom = String(ctx.settingStr(`zone_${zone}_name`, '') || '').trim();
+  return custom || `Zone ${zone}`;
+}
+
+function slugifyActionPart(input, fallback = 'Zone') {
+  const raw = String(input || '').trim();
+  if (!raw) return fallback;
+  const slug = raw
+    .replace(/\s+/g, '_')
+    .replace(/[^\p{L}\p{N}_-]+/gu, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return slug || fallback;
+}
+
+function thermostatAction(name, suffix) {
+  return `Thermostat_${slugifyActionPart(name)}_${suffix}`;
 }
 
 function stateReasonPrefix(mode) {
@@ -245,6 +265,7 @@ function zonedThermostatHandler(ctx, send) {
       if (!zoneConfigured(ctx, zone)) continue;
       configuredZones++;
       const keys = zoneKeys(ctx, zone);
+      const zoneName = zoneDisplayName(ctx, zone);
       ctx.setSetting(`_zone_${zone}_state`, '0');
       setZoneStatus(ctx, zone, {
         source: keys.call ? 'call' : (keys.temp ? 'temp' : 'none'),
@@ -253,10 +274,10 @@ function zonedThermostatHandler(ctx, send) {
         pump_state: '0',
         reason: 'Thermostat mode OFF',
       });
-      if (keys.output) sendIfMapped(send, keys.output, 'OFF', `Zone ${zone} thermostat OFF`);
-      if (keys.pump) sendIfMapped(send, keys.pump, 'OFF', `Zone ${zone} pump OFF`);
+      if (keys.output) sendIfMapped(send, keys.output, 'OFF', `${zoneName} thermostat OFF`, { action: thermostatAction(zoneName, 'Output_OFF') });
+      if (keys.pump) sendIfMapped(send, keys.pump, 'OFF', `${zoneName} pump OFF`, { action: thermostatAction(zoneName, 'Pump_OFF') });
     }
-    if (hasMapping(ctx, 'central_pump')) send('central_pump', 'OFF', 'Central pump OFF (thermostat mode OFF)');
+    if (hasMapping(ctx, 'central_pump')) send('central_pump', 'OFF', 'Central pump OFF (thermostat mode OFF)', { action: 'Thermostat_Central_Pump_OFF' });
     setCentralStatus(ctx, {
       state: '0',
       reason: 'Thermostat mode OFF',
@@ -274,6 +295,7 @@ function zonedThermostatHandler(ctx, send) {
     if (!zoneConfigured(ctx, zone)) continue;
     configuredZones++;
     const keys = zoneKeys(ctx, zone);
+    const zoneName = zoneDisplayName(ctx, zone);
     const zoneResolved = resolveZoneSetpoint(ctx, zone, holidayMode ? holidaySetpoint : setpoint, hyst);
     const evald = evaluateZoneDemand({ ctx, zone, keys, mode, setpoint: zoneResolved.setpoint, hyst: zoneResolved.hyst });
 
@@ -295,8 +317,8 @@ function zonedThermostatHandler(ctx, send) {
         pump_state: '0',
         reason: reason,
       });
-      if (keys.output) sendIfMapped(send, keys.output, 'OFF', `Zone ${zone} idle (no valid demand source)`);
-      if (keys.pump) sendIfMapped(send, keys.pump, 'OFF', `Zone ${zone} pump OFF (no valid demand source)`);
+      if (keys.output) sendIfMapped(send, keys.output, 'OFF', `${zoneName} idle (no valid demand source)`, { action: thermostatAction(zoneName, 'Output_OFF') });
+      if (keys.pump) sendIfMapped(send, keys.pump, 'OFF', `${zoneName} pump OFF (no valid demand source)`, { action: thermostatAction(zoneName, 'Pump_OFF') });
       continue;
     }
 
@@ -309,7 +331,7 @@ function zonedThermostatHandler(ctx, send) {
       const outKey = runtimeKey(instId, `zone_${zone}_output`);
       outputFinal = applyMinRunOff(outputCurrent, evald.desiredActive, outKey, minRunMs, minOffMs);
       if (outputFinal !== outputCurrent) rememberTransition(outKey, outputFinal);
-      sendIfMapped(send, keys.output, outputFinal ? 'ON' : 'OFF', `Zone ${zone} ${stateReasonPrefix(mode)} output ${outputFinal ? 'ON' : 'OFF'} (${reason})`);
+      sendIfMapped(send, keys.output, outputFinal ? 'ON' : 'OFF', `${zoneName} ${stateReasonPrefix(mode)} output ${outputFinal ? 'ON' : 'OFF'} (${reason})`, { action: thermostatAction(zoneName, `Output_${outputFinal ? 'ON' : 'OFF'}`) });
       if (outputFinal !== evald.desiredActive) reason += outputFinal ? ' · held by min run' : ' · held by min off';
     }
 
@@ -317,7 +339,7 @@ function zonedThermostatHandler(ctx, send) {
       const pumpKey = runtimeKey(instId, `zone_${zone}_pump`);
       pumpFinal = applyMinRunOff(pumpCurrent, evald.desiredActive, pumpKey, minRunMs, minOffMs);
       if (pumpFinal !== pumpCurrent) rememberTransition(pumpKey, pumpFinal);
-      sendIfMapped(send, keys.pump, pumpFinal ? 'ON' : 'OFF', `Zone ${zone} pump ${pumpFinal ? 'ON' : 'OFF'} (${reason})`);
+      sendIfMapped(send, keys.pump, pumpFinal ? 'ON' : 'OFF', `${zoneName} pump ${pumpFinal ? 'ON' : 'OFF'} (${reason})`, { action: thermostatAction(zoneName, `Pump_${pumpFinal ? 'ON' : 'OFF'}`) });
       if (!keys.output && pumpFinal !== evald.desiredActive) reason += pumpFinal ? ' · pump held by min run' : ' · pump held by min off';
     }
 
@@ -350,7 +372,7 @@ function zonedThermostatHandler(ctx, send) {
       ? 'At least one zone demands service'
       : (desired ? `Pump post-run active (${Math.ceil(((centralPumpPostRun.get(instId) || now) - now) / 1000)}s left)` : 'No zone demand');
     if (finalCentral !== desired) centralReason += finalCentral ? ' · held by min run' : ' · held by min off';
-    send('central_pump', finalCentral ? 'ON' : 'OFF', `Central pump ${finalCentral ? 'ON' : 'OFF'} (${centralReason})`);
+    send('central_pump', finalCentral ? 'ON' : 'OFF', `Central pump ${finalCentral ? 'ON' : 'OFF'} (${centralReason})`, { action: `Thermostat_Central_Pump_${finalCentral ? 'ON' : 'OFF'}` });
     setCentralStatus(ctx, {
       state: finalCentral ? '1' : '0',
       reason: centralReason,
@@ -380,7 +402,7 @@ function zonedThermostatHandler(ctx, send) {
       else if (humVal <= humSp - humHyst) humDesired = false;
       if (humDesired !== humOn) {
         send('humidity_relay', humDesired ? 'ON' : 'OFF',
-          `Humidity ${humVal.toFixed(1)}% ${humDesired ? '>=' : '<='} ${humDesired ? humSp + humHyst : humSp - humHyst}%`);
+          `Humidity ${humVal.toFixed(1)}% ${humDesired ? '>=' : '<='} ${humDesired ? humSp + humHyst : humSp - humHyst}%`, { action: `Thermostat_Humidity_${humDesired ? 'ON' : 'OFF'}` });
       }
       ctx.setSetting('_humidity', String(humVal.toFixed(1)));
       ctx.setSetting('_humidity_relay', humDesired ? '1' : '0');
@@ -393,7 +415,7 @@ function legacySingleZoneHandler(ctx, send) {
   const isCooling = mode === "cooling";
   const defaults  = DEFAULTS[mode] || DEFAULTS.cooling;
   if (mode === 'off') {
-    send('ac_relay', 'OFF', 'Thermostat OFF');
+    send('ac_relay', 'OFF', 'Thermostat OFF', { action: 'Thermostat_Legacy_Output_OFF' });
     return;
   }
   const setpoint  = ctx.setting("setpoint",    defaults.setpoint);
@@ -422,7 +444,7 @@ function legacySingleZoneHandler(ctx, send) {
     const unexpectedChange = isCooling ? change : -change;
     if (unexpectedChange >= windowDrop) {
       windowLockout.set(instId, now + 10 * 60 * 1000);
-      send("ac_relay", "OFF", `Open window: temp ${isCooling?"rose":"dropped"} ${Math.abs(change).toFixed(2)}°C in 2min — turning off`);
+      send("ac_relay", "OFF", `Open window: temp ${isCooling?"rose":"dropped"} ${Math.abs(change).toFixed(2)}°C in 2min — turning off`, { action: 'Thermostat_Legacy_Output_OFF' });
       lastOnTime.delete(runtimeKey(instId, 'legacy'));
       lastOffTime.set(runtimeKey(instId, 'legacy'), now);
       return;
@@ -456,7 +478,7 @@ function legacySingleZoneHandler(ctx, send) {
       : (nowMin >= startMin || nowMin < targetMin);
 
     if (inPreWindow && !isOn) {
-      send("ac_relay", "ON", `Pre-${mode}: starting ${leadMins}min early (outdoor: ${tempOutdoor}°C, gap: ${tempGap.toFixed(1)}°C)`);
+      send("ac_relay", "ON", `Pre-${mode}: starting ${leadMins}min early (outdoor: ${tempOutdoor}°C, gap: ${tempGap.toFixed(1)}°C)`, { action: 'Thermostat_Legacy_Output_ON' });
       lastOnTime.set(runtimeKey(instId, 'legacy'), now);
       return;
     }
@@ -501,7 +523,7 @@ function legacySingleZoneHandler(ctx, send) {
       lastOnTime.delete(legacyKey);
       lastOffTime.set(legacyKey, now);
     }
-    send("ac_relay", targetState, reason);
+    send("ac_relay", targetState, reason, { action: `Thermostat_Legacy_Output_${targetState}` });
   }
 }
 

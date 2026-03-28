@@ -1,6 +1,6 @@
 {
   "name": "elaris-core",
-  "version": "0.5.9",
+  "version": "0.6.0",
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {

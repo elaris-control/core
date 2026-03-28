@@ -480,7 +480,7 @@ class AutomationEngine {
   }
 
   // ── Command execution ─────────────────────────────────────────────────
-  sendCommand(instance, inputKey, value, reason) {
+  sendCommand(instance, inputKey, value, reason, meta = {}) {
     const mappings = this._getMappings.all(instance.id);
     const m        = mappings.find(x => x.input_key === inputKey);
     if (!m?.io_id) return { ok: false, error: "mapping_not_found" };
@@ -509,7 +509,10 @@ class AutomationEngine {
     }
 
     const isDryRun = result.dryRun === true;
-    const actionName = isDryRun ? `${inputKey}_DRYRUN_${result.value}` : `${inputKey}_${result.value}`;
+    const customAction = (meta && typeof meta.action === 'string') ? String(meta.action).trim() : '';
+    const actionName = customAction
+      ? (isDryRun ? `${customAction}_DRYRUN` : customAction)
+      : (isDryRun ? `${inputKey}_DRYRUN_${result.value}` : `${inputKey}_${result.value}`);
     const actionReason = isDryRun ? `[TEST MODE] ${reason}` : reason;
 
     this._logAction.run({
@@ -551,8 +554,8 @@ class AutomationEngine {
         const siteRow = this.db.prepare(`SELECT lat, lon, timezone FROM sites WHERE id = (SELECT site_id FROM module_instances WHERE id = ?)`).get(instance.id);
         if (siteRow?.lat) siteInfo = siteRow;
       } catch {}
-      handler(ctx, (inputKey, value, reason) => {
-        this.sendCommand(instance, inputKey, value, reason);
+      handler(ctx, (inputKey, value, reason, meta = {}) => {
+        this.sendCommand(instance, inputKey, value, reason, meta || {});
       }, siteInfo);
     } catch (e) {
       console.error(`[ENGINE] Error in ${instance.module_id}/${instance.id}:`, e.message);
