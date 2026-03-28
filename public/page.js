@@ -167,23 +167,34 @@ async function renderThermostat(inst){
   var centralReason = sp._central_reason || '';
   var h='';
   h+='<div style="display:flex;gap:6px;flex-wrap:nowrap;margin-bottom:8px">'+modeBtn('Heat','heating','🔥')+modeBtn('Cool','cooling','❄')+modeBtn('Off','off','⏻')+'</div>';
-  // Global override row — sets ALL zones + global setpoint at once
-  h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)">';
-  h+='<div><div style="font-size:10px;font-weight:800;color:var(--muted2);text-transform:uppercase;letter-spacing:.5px">All Zones</div><div style="font-size:9px;color:var(--muted);margin-top:1px">Override all at once</div></div>';
-  h+='<div style="display:flex;align-items:center;gap:6px">';
-  h+='<button onclick="setAllZonesSP('+inst.id+','+setpoint+',-0.5)" style="width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.05);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center">−</button>';
-  h+='<span style="font-size:18px;font-weight:900;min-width:44px;text-align:center;color:var(--muted2)">'+setpoint+'°</span>';
-  h+='<button onclick="setAllZonesSP('+inst.id+','+setpoint+',0.5)" style="width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.05);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center">+</button>';
-  h+='<div style="display:flex;gap:4px;flex-wrap:wrap;margin-left:4px">';
-  h+='<span class="pill" style="font-size:10px">'+configuredZones+' zones</span>';
-  h+='<span class="pill" style="font-size:10px;border-color:rgba(34,217,122,.22);color:#22d97a">'+callingCount+' calling</span>';
-  h+='<span class="pill" title="'+String(centralReason||'').replace(/"/g,'&quot;')+'" style="font-size:10px;border-color:'+(centralOn?'rgba(34,217,122,.22)':'var(--line2)')+';color:'+(centralOn?'#22d97a':'var(--muted2)')+'">Pump '+(centralOn?'ON':'OFF')+'</span>';
-  h+='</div></div></div>';
-  h+='<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:2px;margin-bottom:8px">'+pill('mode',modeKey)+(paused?pill('automation','paused','#f59e0b'):'')+(String(sp.test_mode||'0')==='1'?pill('TEST MODE','#ffd978','rgba(255,201,71,.35)'):'')+pill('hyst','±'+hyst+'°')+'</div>';
+  // Global override row — cleaner summary structure
+  var modeBadgeColor = modeKey==='heating' ? '#ff8a3d' : (modeKey==='cooling' ? '#4fb3ff' : 'var(--muted2)');
+  var modeBadgeBorder = modeKey==='heating' ? 'rgba(255,138,61,.28)' : (modeKey==='cooling' ? 'rgba(79,179,255,.28)' : 'var(--line)');
+  var modeBadgeBg = modeKey==='heating' ? 'rgba(255,138,61,.08)' : (modeKey==='cooling' ? 'rgba(79,179,255,.08)' : 'rgba(255,255,255,.02)');
+  h+='<div style="margin-top:2px;margin-bottom:10px;border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:12px;padding:10px">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">';
+  h+='<div>';
+  h+='<div style="font-size:10px;font-weight:800;color:var(--muted2);text-transform:uppercase;letter-spacing:.6px">All Zones</div>';
+  h+='<div style="font-size:11px;color:var(--muted);margin-top:2px">Common setpoint</div>';
+  h+='</div>';
+  h+='<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end">';
+  h+='<button onclick="setAllZonesSP('+inst.id+','+setpoint+',-0.5)" style="width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.05);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">−</button>';
+  h+='<span style="font-size:20px;font-weight:900;min-width:40px;text-align:center;color:var(--muted2)">'+setpoint+'°</span>';
+  h+='<button onclick="setAllZonesSP('+inst.id+','+setpoint+',0.5)" style="width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.05);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">+</button>';
+  h+='<span style="border:1px solid '+modeBadgeBorder+';background:'+modeBadgeBg+';color:'+modeBadgeColor+';border-radius:999px;padding:5px 9px;font-size:11px;font-weight:800;letter-spacing:.35px">'+String(modeKey||'').toUpperCase()+'</span>';
+  h+='</div></div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:10px">';
+  h+='<div style="border:1px solid var(--line);border-radius:10px;padding:5px 7px;background:rgba(255,255,255,.02);display:flex;align-items:center;justify-content:flex-start;gap:4px;white-space:nowrap"><span style="font-size:7px;color:var(--muted);text-transform:uppercase;letter-spacing:.2px">Zones:</span><span style="font-size:10px;font-weight:800;color:var(--muted2)">'+configuredZones+'</span></div>';
+  h+='<div style="border:1px solid '+(callingCount>0?'rgba(34,217,122,.22)':'var(--line)')+';border-radius:10px;padding:5px 7px;background:'+(callingCount>0?'rgba(34,217,122,.06)':'rgba(255,255,255,.02)')+';display:flex;align-items:center;justify-content:flex-start;gap:4px;white-space:nowrap"><span style="font-size:7px;color:var(--muted);text-transform:uppercase;letter-spacing:.2px">Calling:</span><span style="font-size:9px;font-weight:800;color:'+(callingCount>0?'#22d97a':'var(--muted2)')+'">'+callingCount+'</span></div>';
+  h+='<div title="'+String(centralReason||'').replace(/"/g,'&quot;')+'" style="border:1px solid '+(centralOn?'rgba(34,217,122,.22)':'var(--line)')+';border-radius:10px;padding:5px 7px;background:'+(centralOn?'rgba(34,217,122,.06)':'rgba(255,255,255,.02)')+';display:flex;align-items:center;justify-content:flex-start;gap:4px;white-space:nowrap"><span style="font-size:7px;color:var(--muted);text-transform:uppercase;letter-spacing:.2px">Pump:</span><span style="font-size:9px;font-weight:800;color:'+(centralOn?'#22d97a':'var(--muted2)')+'">'+(centralOn?'ON':'OFF')+'</span></div>';
+  h+='<div style="border:1px solid var(--line);border-radius:10px;padding:5px 7px;background:rgba(255,255,255,.02);display:flex;align-items:center;justify-content:flex-start;gap:4px;white-space:nowrap"><span style="font-size:7px;color:var(--muted);text-transform:uppercase;letter-spacing:.2px">Hysteresis:</span><span style="font-size:8.5px;font-weight:800;color:var(--muted2)">±'+hyst+'°</span></div>';
+  h+='</div>';
+  h+='<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px">'+(paused?pill('automation','paused','#f59e0b'):'')+(String(sp.test_mode||'0')==='1'?pill('TEST MODE','#ffd978','rgba(255,201,71,.35)'):'')+'</div>';
+  h+='</div>';
   h+='<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px">';
   zones.forEach(function(z){
     var invalidCall = z.source==='invalid_call' || z.source==='call_unreadable';
-    var srcLabel = invalidCall ? 'CALL !' : (z.source==='call' ? 'DI' : (z.source==='temp' ? (z.temp!==null ? z.temp+'°' : 'TEMP') : 'NO INPUT'));
+    var srcLabel = invalidCall ? 'CALL !' : (z.source==='call' ? 'Call input' : (z.source==='temp' ? (z.temp!==null ? z.temp+'°' : 'Temp') : 'No input'));
     var hasZonePump = z.pumpOn || mappings.some(function(m){return m.input_key==='zone_'+z.idx+'_pump'&&m.io_id;}) || vals['zone_'+z.idx+'_pump']!=null;
     var title = 'Zone '+z.idx+' • '+(z.demand?'Demand ON':'Demand OFF');
     if(z.reason) title += ' • ' + String(z.reason).replace(/"/g,'&quot;');
@@ -203,10 +214,10 @@ async function renderThermostat(inst){
     h+='</div>';
     h+='<div style="font-size:10px;color:'+srcColor+';font-weight:'+(invalidCall||z.temp!==null?'800':'700')+';margin-top:3px;line-height:1.1">'+srcLabel+(z.source==='call'&&z.temp!==null?' · '+z.temp+'°':'')+'</div>';
     h+='<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">';
-    h+='<span class="pill" style="font-size:9px;padding:2px 6px">OUT '+(z.outputOn?'ON':'OFF')+'</span>';
-    if(hasZonePump) h+='<span class="pill" style="font-size:9px;padding:2px 6px">P '+(z.pumpOn?'ON':'OFF')+'</span>';
-    if(z.source==='call') h+='<span class="pill" style="font-size:9px;padding:2px 6px">CALL</span>';
-    else if(z.source==='temp') h+='<span class="pill" style="font-size:9px;padding:2px 6px">TEMP</span>';
+    h+='<span class="pill" style="font-size:9px;padding:2px 6px">Out '+(z.outputOn?'ON':'OFF')+'</span>';
+    if(hasZonePump) h+='<span class="pill" style="font-size:9px;padding:2px 6px">Pump '+(z.pumpOn?'ON':'OFF')+'</span>';
+    if(z.source==='call') h+='<span class="pill" style="font-size:9px;padding:2px 6px">Call</span>';
+    else if(z.source==='temp') h+='<span class="pill" style="font-size:9px;padding:2px 6px">Temp</span>';
     else if(invalidCall) h+='<span class="pill" style="font-size:9px;padding:2px 6px;border-color:rgba(239,68,68,.28);color:#ef4444">INVALID</span>';
     h+='</div>';
     // Per-zone setpoint row

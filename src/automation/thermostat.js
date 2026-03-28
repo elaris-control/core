@@ -96,8 +96,14 @@ function slugifyActionPart(input, fallback = 'Zone') {
   return slug || fallback;
 }
 
-function thermostatAction(name, suffix) {
-  return `Thermostat_${slugifyActionPart(name)}_${suffix}`;
+function zoneCallingAction(name, mode, state) {
+  const zone = slugifyActionPart(name);
+  const modePart = mode === 'cooling' ? 'Cool' : 'Heat';
+  return `${zone}_${modePart}_Calling_${state}`;
+}
+
+function zonePumpAction(name, state) {
+  return `${slugifyActionPart(name)}_Pump_${state}`;
 }
 
 function stateReasonPrefix(mode) {
@@ -274,10 +280,10 @@ function zonedThermostatHandler(ctx, send) {
         pump_state: '0',
         reason: 'Thermostat mode OFF',
       });
-      if (keys.output) sendIfMapped(send, keys.output, 'OFF', `${zoneName} thermostat OFF`, { action: thermostatAction(zoneName, 'Output_OFF') });
-      if (keys.pump) sendIfMapped(send, keys.pump, 'OFF', `${zoneName} pump OFF`, { action: thermostatAction(zoneName, 'Pump_OFF') });
+      if (keys.output) sendIfMapped(send, keys.output, 'OFF', `${zoneName} thermostat OFF`, { action: zoneCallingAction(zoneName, mode, 'OFF') });
+      if (keys.pump) sendIfMapped(send, keys.pump, 'OFF', `${zoneName} pump OFF`, { action: zonePumpAction(zoneName, 'OFF') });
     }
-    if (hasMapping(ctx, 'central_pump')) send('central_pump', 'OFF', 'Central pump OFF (thermostat mode OFF)', { action: 'Thermostat_Central_Pump_OFF' });
+    if (hasMapping(ctx, 'central_pump')) send('central_pump', 'OFF', 'Central pump OFF (thermostat mode OFF)', { action: 'Central_Pump_OFF' });
     setCentralStatus(ctx, {
       state: '0',
       reason: 'Thermostat mode OFF',
@@ -317,8 +323,8 @@ function zonedThermostatHandler(ctx, send) {
         pump_state: '0',
         reason: reason,
       });
-      if (keys.output) sendIfMapped(send, keys.output, 'OFF', `${zoneName} idle (no valid demand source)`, { action: thermostatAction(zoneName, 'Output_OFF') });
-      if (keys.pump) sendIfMapped(send, keys.pump, 'OFF', `${zoneName} pump OFF (no valid demand source)`, { action: thermostatAction(zoneName, 'Pump_OFF') });
+      if (keys.output) sendIfMapped(send, keys.output, 'OFF', `${zoneName} idle (no valid demand source)`, { action: zoneCallingAction(zoneName, mode, 'OFF') });
+      if (keys.pump) sendIfMapped(send, keys.pump, 'OFF', `${zoneName} pump OFF (no valid demand source)`, { action: zonePumpAction(zoneName, 'OFF') });
       continue;
     }
 
@@ -331,7 +337,7 @@ function zonedThermostatHandler(ctx, send) {
       const outKey = runtimeKey(instId, `zone_${zone}_output`);
       outputFinal = applyMinRunOff(outputCurrent, evald.desiredActive, outKey, minRunMs, minOffMs);
       if (outputFinal !== outputCurrent) rememberTransition(outKey, outputFinal);
-      sendIfMapped(send, keys.output, outputFinal ? 'ON' : 'OFF', `${zoneName} ${stateReasonPrefix(mode)} output ${outputFinal ? 'ON' : 'OFF'} (${reason})`, { action: thermostatAction(zoneName, `Output_${outputFinal ? 'ON' : 'OFF'}`) });
+      sendIfMapped(send, keys.output, outputFinal ? 'ON' : 'OFF', `${zoneName} ${stateReasonPrefix(mode)} output ${outputFinal ? 'ON' : 'OFF'} (${reason})`, { action: zoneCallingAction(zoneName, mode, outputFinal ? 'ON' : 'OFF') });
       if (outputFinal !== evald.desiredActive) reason += outputFinal ? ' · held by min run' : ' · held by min off';
     }
 
@@ -339,7 +345,7 @@ function zonedThermostatHandler(ctx, send) {
       const pumpKey = runtimeKey(instId, `zone_${zone}_pump`);
       pumpFinal = applyMinRunOff(pumpCurrent, evald.desiredActive, pumpKey, minRunMs, minOffMs);
       if (pumpFinal !== pumpCurrent) rememberTransition(pumpKey, pumpFinal);
-      sendIfMapped(send, keys.pump, pumpFinal ? 'ON' : 'OFF', `${zoneName} pump ${pumpFinal ? 'ON' : 'OFF'} (${reason})`, { action: thermostatAction(zoneName, `Pump_${pumpFinal ? 'ON' : 'OFF'}`) });
+      sendIfMapped(send, keys.pump, pumpFinal ? 'ON' : 'OFF', `${zoneName} pump ${pumpFinal ? 'ON' : 'OFF'} (${reason})`, { action: zonePumpAction(zoneName, pumpFinal ? 'ON' : 'OFF') });
       if (!keys.output && pumpFinal !== evald.desiredActive) reason += pumpFinal ? ' · pump held by min run' : ' · pump held by min off';
     }
 
@@ -372,7 +378,7 @@ function zonedThermostatHandler(ctx, send) {
       ? 'At least one zone demands service'
       : (desired ? `Pump post-run active (${Math.ceil(((centralPumpPostRun.get(instId) || now) - now) / 1000)}s left)` : 'No zone demand');
     if (finalCentral !== desired) centralReason += finalCentral ? ' · held by min run' : ' · held by min off';
-    send('central_pump', finalCentral ? 'ON' : 'OFF', `Central pump ${finalCentral ? 'ON' : 'OFF'} (${centralReason})`, { action: `Thermostat_Central_Pump_${finalCentral ? 'ON' : 'OFF'}` });
+    send('central_pump', finalCentral ? 'ON' : 'OFF', `Central pump ${finalCentral ? 'ON' : 'OFF'} (${centralReason})`, { action: `Central_Pump_${finalCentral ? 'ON' : 'OFF'}` });
     setCentralStatus(ctx, {
       state: finalCentral ? '1' : '0',
       reason: centralReason,
