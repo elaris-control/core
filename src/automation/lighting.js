@@ -80,9 +80,14 @@ function slugifyActionPart(input, fallback = 'Lighting') {
 }
 
 function lightingActionName(ctx, source, on) {
-  const instName = slugifyActionPart(ctx?.instance?.name || 'Lighting', 'Lighting');
+  const relayKeys = ['light_relay', 'light_relay_2', 'light_relay_3', 'light_relay_4'];
+  const mapped = relayKeys.filter((k) => !!ctx?.io?.(k));
+  const primaryRelayName = ctx?.io?.('light_relay')?.name || '';
+  const base = mapped.length <= 1 && primaryRelayName
+    ? slugifyActionPart(primaryRelayName, 'Lighting')
+    : slugifyActionPart(ctx?.instance?.name || 'Lighting', 'Lighting');
   const src = slugifyActionPart(source || 'Auto', 'Auto');
-  return `${instName}_${src}_Calling_${on ? 'ON' : 'OFF'}`;
+  return `${base}_${src}_Calling_${on ? 'ON' : 'OFF'}`;
 }
 
 function setOut(send, ctx, hasDimmer, on, dimOn, dimOff, reason, source = 'Auto') {
