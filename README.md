@@ -222,7 +222,6 @@ The admin panel (`/admin.html`) includes:
 | [docs/ESPHOME_PROFILE_CATALOG.md](docs/ESPHOME_PROFILE_CATALOG.md) | ESPHome board profile catalog |
 | [docs/ESPHOME_SENSOR_COMPATIBILITY.md](docs/ESPHOME_SENSOR_COMPATIBILITY.md) | ESPHome sensor compatibility matrix |
 | [docs/BUGS_AND_FIXES.md](docs/BUGS_AND_FIXES.md) | Known bugs and applied fixes |
-| [docs/CLEANUP_NOTES.md](docs/CLEANUP_NOTES.md) | Code cleanup notes |
 
 ---
 
