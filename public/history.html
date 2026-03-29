@@ -10,6 +10,7 @@
   <link rel="icon" href="/favicon.ico">
   <link rel="manifest" href="/manifest.json">
   <link rel="stylesheet" href="/styles.css?v=22">
+  <link rel="stylesheet" href="/mobile-nav.css">
 <style>
 .hpage { display:flex; flex-direction:column; flex:1; overflow:hidden; min-width:0; }
 .htopbar { display:flex; align-items:center; gap:10px; padding:12px 20px; flex-wrap:wrap; border-bottom:1px solid var(--line); flex-shrink:0; }
@@ -169,6 +170,29 @@ async function api(path, opts){
 
 function colorFor(idx){ return COLORS[idx % COLORS.length]; }
 
+function saveSelection(){
+  try {
+    var data = { ios: activeIOs.map(function(io){ return { id:io.id, color:io.color }; }), hours: hours };
+    localStorage.setItem('elaris_history_sel', JSON.stringify(data));
+  } catch(e){}
+}
+
+function loadSelection(){
+  try {
+    var raw = localStorage.getItem('elaris_history_sel');
+    if (!raw) return;
+    var data = JSON.parse(raw);
+    if (data.hours) hours = data.hours;
+    if (data.ios && data.ios.length && allIOs.length){
+      data.ios.forEach(function(saved){
+        var io = allIOs.find(function(x){ return x.id === saved.id; });
+        if (io && !activeIOs.find(function(a){ return a.id === saved.id; }))
+          activeIOs.push(Object.assign({}, io, { color: saved.color || colorFor(activeIOs.length) }));
+      });
+    }
+  } catch(e){}
+}
+
 async function boot(){
   try {
     var me = await api('/me');
@@ -188,7 +212,7 @@ async function boot(){
     var iosData = await api('/history/site/'+siteId);
     allIOs = iosData.ios||[];
 
-    // Check URL params for pre-selected IOs
+    // Check URL params for pre-selected IOs, otherwise restore saved selection
     var params = new URLSearchParams(location.search);
     var ioIds = (params.get('io')||'').split(',').map(Number).filter(Boolean);
     if (ioIds.length){
@@ -197,7 +221,12 @@ async function boot(){
         if (io && !activeIOs.find(function(a){ return a.id===id; }))
           activeIOs.push(Object.assign({}, io, { color: colorFor(i) }));
       });
+    } else {
+      loadSelection();
     }
+
+    // Sync range button highlight with restored hours
+    document.querySelectorAll('.range-btn').forEach(function(b){ b.classList.toggle('active', Number(b.dataset.h)===hours); });
 
     // Range buttons
     document.getElementById('rangeBtns').addEventListener('click', function(e){
@@ -205,6 +234,7 @@ async function boot(){
       if (!btn) return;
       hours = Number(btn.dataset.h);
       document.querySelectorAll('.range-btn').forEach(function(b){ b.classList.toggle('active', b===btn); });
+      saveSelection();
       renderAll();
     });
 
@@ -226,13 +256,24 @@ function renderAll(){
     card.id = 'chart-card-'+io.id;
     card.innerHTML = '<div class="chart-header">' +
       '<div class="chart-title">'+escHtml(io.name||io.key)+'<span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:6px">'+escHtml(io.device_id)+'.'+escHtml(io.key)+'</span></div>' +
-      '<div class="chart-meta"><span class="spinner"></span></div>' +
+      '<div style="display:flex;align-items:center;gap:8px"><div class="chart-meta"><span class="spinner"></span></div>' +
+      '<button class="remove-io-btn" data-io-id="'+io.id+'" title="Remove from chart" style="background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);cursor:pointer;font-size:14px;padding:2px 8px;line-height:1;transition:.15s">✕</button></div>' +
       '</div>' +
       '<div class="chart-stats" id="stats-'+io.id+'"></div>' +
       '<div class="chart-wrap" id="wrap-'+io.id+'"><div class="chart-empty">Loading…</div></div>' +
       '<div class="time-labels" id="tlabels-'+io.id+'"></div>';
     body.appendChild(card);
     loadChart(io);
+  });
+
+  // Delete IO buttons
+  body.addEventListener('click', function(e){
+    var btn = e.target.closest('.remove-io-btn');
+    if (!btn) return;
+    var ioId = Number(btn.dataset.ioId);
+    activeIOs = activeIOs.filter(function(a){ return a.id !== ioId; });
+    saveSelection();
+    renderAll();
   });
 
   // IO picker panel
@@ -528,6 +569,7 @@ function renderPicker(panel){
         btn.onclick = function(){
           var color = colorFor(activeIOs.length);
           activeIOs.push(Object.assign({}, io, { color: color }));
+          saveSelection();
           renderAll();
           // scroll to chart
           setTimeout(function(){

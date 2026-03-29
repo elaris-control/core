@@ -6,7 +6,7 @@
 const DEFAULT_DT_ON  = 8;   // °C — turn pump ON
 const DEFAULT_DT_OFF = 3;   // °C — turn pump OFF
 const MAX_BOILER_TEMP   = 85; // °C — safety cutoff, never exceed
-const MIN_SOLAR_TEMP  = 40; // °C — minimum collector temp to run pump
+const MIN_SOLAR_TEMP  = 40; // °C — minimum solar temp to run pump
 
 // Per-instance runtime state for Legionella + Anti-Freeze
 const legionellaState  = new Map(); // instId → { lastAbove60: ts, lastCycleTs: ts }
@@ -154,12 +154,12 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
       targetState = "OFF";
       reason = `Safety cutoff: boiler ${tempBoiler}°C >= max ${maxTemp}°C`;
     }
-    // Collector too cold — no point running pump
+    // Solar too cold — no point running pump
     else if (isOn && tempSolar < minSolar) {
       targetState = "OFF";
-      reason = `Collector too cold: ${tempSolar}°C < min ${minSolar}°C`;
+      reason = `Solar too cold: ${tempSolar}°C < min ${minSolar}°C`;
     }
-    // Turn ON: differential large enough AND collector warm enough
+    // Turn ON: differential large enough AND solar warm enough
     else if (!isOn && diff >= dtOn && tempSolar >= minSolar) {
       targetState = "ON";
       reason = `ΔT=${diff.toFixed(1)}°C >= ${dtOn}°C (ON threshold)`;
@@ -177,7 +177,7 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
       // Log it
       logAutomation.run({
         instance_id: instance.id,
-        action: `pump_${targetState}`,
+        action: `Solar_Pump_Calling_${targetState}`,
         reason,
         ts: Date.now(),
       });
@@ -189,7 +189,7 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
         type:       "automation",
         module:     "solar",
         instance:   instance.id,
-        action:     `pump_${targetState}`,
+        action:     `Solar_Pump_Calling_${targetState}`,
         reason,
         deviceId:   pumpIO.device_id,
         key:        pumpIO.key,
@@ -197,7 +197,7 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
       });
       broadcastStatus(instance.id);
 
-      return { action: `pump_${targetState}`, reason, tempSolar, tempBoiler, diff };
+      return { action: `Solar_Pump_Calling_${targetState}`, reason, tempSolar, tempBoiler, diff };
     }
 
     // ── Anti-Freeze Protection ─────────────────────────────────────────
@@ -208,7 +208,7 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
       const existingTimer = antiFreezeTimer.get(instance.id);
       if (!existingTimer) {
         publish(pumpIO.device_id, pumpIO.key, "ON");
-        logAutomation.run({ instance_id: instance.id, action: "pump_ON", reason: `Anti-freeze: solar ${tempSolar}°C < ${antiFreezeTemp}°C — running pump briefly`, ts: Date.now() });
+        logAutomation.run({ instance_id: instance.id, action: "Solar_Pump_Calling_ON", reason: `Anti-freeze: solar ${tempSolar}°C < ${antiFreezeTemp}°C — running pump briefly`, ts: Date.now() });
         console.log(`[SOLAR AUTO] Anti-freeze triggered at ${tempSolar}°C`);
         const t = setTimeout(() => {
           antiFreezeTimer.delete(instance.id);
@@ -251,12 +251,12 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
             // Safety: heater stuck ON longer than 2 hours — force off
             publish(hIO.device_id, hIO.key, "OFF");
             legionellaHeaterOnTs.delete(instance.id);
-            logAutomation.run({ instance_id: instance.id, action: "heater_OFF", reason: `Legionella safety: heater exceeded 2h max runtime — forced OFF`, ts: Date.now() });
+            logAutomation.run({ instance_id: instance.id, action: "Heater_Calling_DHW_OFF", reason: `Legionella safety: heater exceeded 2h max runtime — forced OFF`, ts: Date.now() });
             console.log(`[SOLAR AUTO] Legionella heater forced OFF: exceeded 2h max runtime`);
           } else {
             if (!heaterOnSince) legionellaHeaterOnTs.set(instance.id, nowTs);
             publish(hIO.device_id, hIO.key, "ON");
-            logAutomation.run({ instance_id: instance.id, action: "heater_ON", reason: `Legionella cycle: boiler ${tempBoiler}°C < ${legTemp}°C, ${daysSinceAbove.toFixed(1)}d since last high temp`, ts: Date.now() });
+            logAutomation.run({ instance_id: instance.id, action: "Heater_Calling_DHW_ON", reason: `Legionella cycle: boiler ${tempBoiler}°C < ${legTemp}°C, ${daysSinceAbove.toFixed(1)}d since last high temp`, ts: Date.now() });
             console.log(`[SOLAR AUTO] Legionella cycle: heater ON`);
           }
         } else if (hIO && tempBoiler >= legTemp) {
@@ -264,7 +264,7 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
           legionellaHeaterOnTs.delete(instance.id);
           ls.lastCycleTs = nowTs;
           ls.lastAbove60 = nowTs;
-          logAutomation.run({ instance_id: instance.id, action: "heater_OFF", reason: `Legionella cycle complete: boiler reached ${tempBoiler}°C`, ts: Date.now() });
+          logAutomation.run({ instance_id: instance.id, action: "Heater_Calling_DHW_OFF", reason: `Legionella cycle complete: boiler reached ${tempBoiler}°C`, ts: Date.now() });
         }
       }
     }
@@ -413,11 +413,11 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
     const paused = isPaused(instance_id);
 
     const overheat = tempBoiler !== null && tempBoiler >= sp.max_boiler_temp;
-    const collectorCold = tempSolar !== null && tempSolar < sp.min_solar_temp;
+    const solarCold = tempSolar !== null && tempSolar < sp.min_solar_temp;
     let reason = null;
     if (paused) reason = 'paused';
     else if (overheat) reason = 'overheat';
-    else if (collectorCold && (pumpState?.value === "ON")) reason = 'collector_too_cold';
+    else if (solarCold && (pumpState?.value === "ON")) reason = 'solar_too_cold';
 
     return {
       found:       true,
@@ -428,7 +428,7 @@ function createSolarAutomation({ db, mqttApi: _mqttApi, broadcast }) {
       diff:        diff !== null ? Math.round(diff * 10) / 10 : null,
       pumpOn:      pumpState?.value === "ON",
       overheat,
-      collectorCold,
+      solarCold,
       lockout_reason: reason,
       setpoints:   sp,
       lastLog:     getLog(instance_id, 3),
