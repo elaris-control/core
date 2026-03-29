@@ -18,6 +18,10 @@
   <a href="https://elariscontrol.online">🌐 elariscontrol.online</a>
 </p>
 
+<p align="center">
+  <img src="./assets/hero-dashboard.png" alt="ELARIS Dashboard" width="900" />
+</p>
+
 ELARIS Core is the open foundation of the ELARIS ecosystem — a runtime automation platform built around MQTT device integration, a role-aware control model, and a modular logic system designed for real installations.
 
 ---
