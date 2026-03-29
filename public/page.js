@@ -778,6 +778,7 @@ async function renderInstance(inst){
     if(inst.module_id==='solar')content=await renderSolar(inst);
     else if(inst.module_id==='thermostat')content=await renderThermostat(inst);
     else if(inst.module_id==='lighting')content=await renderLighting(inst);
+    else if(inst.module_id==='staircase')content=await renderStaircase(inst);
     else if(inst.module_id==='awning')content=await renderAwning(inst);
     else if(inst.module_id==='smart_lighting')content=await renderSmartLighting(inst);
     else if(inst.module_id==='irrigation')content=await renderIrrigation(inst);
@@ -818,6 +819,16 @@ async function refreshAll(){ clearTimeout(_rt); for(var i=0;i<pstate._instances.
 })();
 
 // ── Lighting Widget ──────────────────────────────────────────────────────────
+
+function lightingModeBtn(instId, currentMode, key, color, label){
+  var active = String(currentMode||'').toLowerCase()===String(key||'').toLowerCase();
+  var safeKey = String(key||'').replace(/'/g,"\'");
+  return '<button onclick="setLightingMode('+instId+',\''+safeKey+'\')" style="padding:7px 10px;border-radius:999px;border:1px solid '+(active?color:'var(--line)')+';background:'+(active?'rgba(255,255,255,.08)':'rgba(255,255,255,.03)')+';color:'+(active?color:'var(--muted2)')+';font-size:11px;font-weight:800;cursor:pointer">'+label+'</button>';
+}
+async function setLightingMode(id,mode){
+  try{await api('/automation/settings/'+id,{method:'PATCH',body:JSON.stringify({key:'mode',value:String(mode)})});}catch(e){toast('Cannot change lighting mode');}
+  setTimeout(function(){rerenderInstance(id);},220);
+}
 async function renderLighting(inst){
   var st={};
   try{st=await api('/automation/status/'+inst.id);}catch(e){}
@@ -847,13 +858,19 @@ async function renderLighting(inst){
   h+='<div title="'+reasonTitle+'" style="margin-top:3px;font-size:24px;font-weight:900;color:'+(isOn?'#f5c842':'var(--muted2)')+'">'+(hasDimmer?(dimVal!=null?dimVal:0)+'%':(isOn?'ON':'OFF'))+'</div>';
   h+='<div style="font-size:11px;color:var(--muted2);margin-top:2px">'+escHtml(sourceLabelMap[source]||sourceLabelMap[mode]||'Auto')+' • '+escHtml(lastReason.length>42?(lastReason.slice(0,42)+'…'):lastReason)+'</div>';
   h+='</div>';
-  h+='<div style="display:flex;gap:8px;align-items:center">';
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">';
   h+='<button onclick="manualLight('+inst.id+','+isOn+')" style="padding:9px 14px;border-radius:10px;border:1px solid '+(isOn?'rgba(245,200,66,.5)':'var(--line2)')+';background:'+(isOn?'rgba(245,200,66,.15)':'rgba(255,255,255,.05)')+';color:'+(isOn?'#f5c842':'var(--text)')+';font-size:12px;font-weight:800;cursor:pointer">'+(isOn?'Turn OFF':'Turn ON')+'</button>';
+  if(state.manual_active || source==='manual') h+='<button onclick="clearLightManual('+inst.id+')" style="padding:9px 12px;border-radius:10px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
   h+='</div>';
   h+='</div>';
 
   h+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
-  h+='<span style="background:rgba(255,255,255,.05);border:1px solid '+(modeColorMap[mode]||'var(--line)')+';border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;color:'+(modeColorMap[mode]||'var(--muted2)')+'">'+escHtml(mode.toUpperCase())+'</span>';
+  h+=lightingModeBtn(inst.id,mode,'auto','#22d97a','Auto');
+  h+=lightingModeBtn(inst.id,mode,'pir','#1d8cff','PIR');
+  h+=lightingModeBtn(inst.id,mode,'lux','#f5c842','Lux');
+  h+=lightingModeBtn(inst.id,mode,'combined','#22d97a','Combined');
+  h+=lightingModeBtn(inst.id,mode,'schedule','#a855f7','Schedule');
+  h+=lightingModeBtn(inst.id,mode,'manual','#6b7a90','Manual');
   h+='<span style="background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;color:'+(isOn?'#22d97a':'var(--muted2)')+'">'+(isOn?'LIGHT ON':'LIGHT OFF')+'</span>';
   if(state.manual_active) h+='<span style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.28);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;color:#f59e0b">MANUAL</span>';
   if(state.schedule_active) h+='<span style="background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.28);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;color:#a855f7">SCHEDULE</span>';
@@ -901,7 +918,51 @@ async function manualLight(id,isOn){
   try{await api('/automation/lighting/'+id+'/manual',{method:'POST',body:JSON.stringify({on:!isOn})});}catch(e){toast('Cannot control');}
   setTimeout(function(){rerenderInstance(id);},300);
 }
+
+async function clearLightManual(id){
+  try{await api('/automation/lighting/'+id+'/clear-manual',{method:'POST'});}catch(e){toast('Cannot clear manual override');}
+  setTimeout(function(){rerenderInstance(id);},200);
+}
 async function toggleLightPause(id,cur){ try{await api('/automation/override/'+id,{method:'POST',body:JSON.stringify({paused:!cur})});}catch(e){toast('Error: '+e.message);} rerenderInstance(id); }
+
+
+async function renderStaircase(inst){
+  var st={};
+  try{st=await api('/automation/status/'+inst.id);}catch(e){}
+  var v=st.values||{}, state=st.state||{}, isPaused=st.paused||false;
+  var isOn=!!(state.output_on || v.light_relay==='ON' || v.light_relay==='1');
+  var source=String(state.source||'timer').toLowerCase();
+  var lastReason=state.last_reason || (st.lastLog&&st.lastLog[0]&&st.lastLog[0].reason) || 'No recent action';
+  var timerRemaining=Number(state.timer_remaining_s||0);
+  var pir=v.pir_sensor;
+  var motion=pir==='ON'||pir==='1'||pir==='true'||pir===1||pir===true;
+  var sourceLabelMap={manual:'Manual',switch:'Switch',pir:'PIR',timer:'Timer'};
+  var h='<div style="display:flex;flex-direction:column;gap:10px">';
+  h+='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">';
+  h+='<div><div style="font-size:11px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">Staircase</div>';
+  h+='<div style="margin-top:3px;font-size:24px;font-weight:900;color:'+(isOn?'#f5c842':'var(--muted2)')+'">'+(isOn?'ON':'OFF')+'</div>';
+  h+='<div style="font-size:11px;color:var(--muted2);margin-top:2px">'+escHtml(sourceLabelMap[source]||'Timer')+' • '+escHtml(lastReason.length>42?(lastReason.slice(0,42)+'…'):lastReason)+'</div></div>';
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">';
+  h+='<button onclick="manualStaircase('+inst.id+','+isOn+')" style="padding:9px 14px;border-radius:10px;border:1px solid '+(isOn?'rgba(245,200,66,.5)':'var(--line2)')+';background:'+(isOn?'rgba(245,200,66,.15)':'rgba(255,255,255,.05)')+';color:'+(isOn?'#f5c842':'var(--text)')+';font-size:12px;font-weight:800;cursor:pointer">'+(isOn?'Turn OFF':'Turn ON')+'</button>';
+  if(state.manual_active || source==='manual') h+='<button onclick="clearStaircaseManual('+inst.id+')" style="padding:9px 12px;border-radius:10px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
+  h+='</div></div>';
+  h+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
+  h+='<span style="background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;color:'+(isOn?'#22d97a':'var(--muted2)')+'">'+(isOn?'LIGHT ON':'LIGHT OFF')+'</span>';
+  if(state.manual_active) h+='<span style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.28);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;color:#f59e0b">MANUAL</span>';
+  if(motion || state.motion_active) h+='<span style="background:rgba(34,217,122,.08);border:1px solid rgba(34,217,122,.28);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;color:#22d97a">MOTION</span>';
+  h+='</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px">';
+  function miniStat(label,val,hi){return '<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:10px;padding:8px 9px"><div style="font-size:10px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">'+label+'</div><div style="margin-top:3px;font-size:12px;font-weight:800;color:'+(hi?'#22d97a':'var(--text)')+'">'+val+'</div></div>';}
+  h+=miniStat('Source', escHtml(sourceLabelMap[source]||'Timer'), false);
+  h+=miniStat('PIR', motion ? 'Detected' : 'Idle', motion);
+  h+=miniStat('Timer', timerRemaining>0 ? (timerRemaining+'s') : '0s', timerRemaining>0);
+  h+='</div>';
+  if(canEngineerUI()) h+='<button onclick="toggleLightPause('+inst.id+','+isPaused+')" style="width:100%;margin-top:2px;padding:8px;border-radius:9px;border:1px solid '+(isPaused?'rgba(245,158,11,.4)':'var(--line2)')+';background:'+(isPaused?'rgba(245,158,11,.1)':'rgba(255,255,255,.03)')+';color:'+(isPaused?'#f59e0b':'var(--muted2)')+';font-size:12px;font-weight:800;cursor:pointer">'+(isPaused?'▶ Resume':'⏸ Pause Automation')+'</button>';
+  h+='</div>';
+  return h;
+}
+async function manualStaircase(id,isOn){ try{await api('/automation/staircase/'+id+'/manual',{method:'POST',body:JSON.stringify({on:!isOn})});}catch(e){toast('Cannot control');} setTimeout(function(){rerenderInstance(id);},220); }
+async function clearStaircaseManual(id){ try{await api('/automation/staircase/'+id+'/clear-manual',{method:'POST'});}catch(e){toast('Cannot clear manual override');} setTimeout(function(){rerenderInstance(id);},220); }
 
 // ── Awning / Blind Widget ────────────────────────────────────────────────────
 async function renderAwning(inst){

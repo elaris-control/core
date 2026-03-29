@@ -116,7 +116,7 @@ function renderSolarSummary(inst, settings, live) {
 
   const pills = [
     renderBadge(status, pumpRun ? 'var(--good)' : 'var(--muted)', pumpRun ? 'rgba(34,217,122,.35)' : 'var(--line)'),
-    renderBadge(`ΔT ${diff}`, '#22d97a', 'rgba(34,217,122,.28)'),
+    renderBadge(`DT ${diff}`, '#22d97a', 'rgba(34,217,122,.28)'),
     renderBadge(`COLLECTOR ${tempSolar}`, '#ff9a3a', 'rgba(255,154,58,.28)'),
     renderBadge(`BOILER ${tempBoiler}`, '#1d8cff', 'rgba(29,140,255,.28)'),
     heaterBadge,

@@ -1,5 +1,7 @@
 'use strict';
 // src/api/admin_routes.js — /api/admin/*
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 
 function clearRetainedTopics(mqttApi, topics) {
@@ -215,6 +217,33 @@ function initAdminRoutes({ db, users, requireAdmin, historyRollups, mqttApi }) {
         '1d': historyRollups?.getStats?.('1d') || { count: 0, oldest_ts: null, newest_ts: null },
       };
       res.json({ ok: true, changed, stats });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+
+  router.post('/logs/export', requireAdmin, (_req, res) => {
+    try {
+      const rows = db.prepare(`
+        SELECT instance_id, action, reason, ts
+        FROM automation_log
+        ORDER BY ts DESC
+      `).all();
+      const logsDir = path.join(process.cwd(), 'logs');
+      fs.mkdirSync(logsDir, { recursive: true });
+      const pad = (n) => String(n).padStart(2, '0');
+      const d = new Date();
+      const stamp = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+      const filename = `automation_logs_${stamp}.txt`;
+      const filepath = path.join(logsDir, filename);
+      const content = rows.map(r => {
+        const dt = new Date(Number(r.ts) || Date.now());
+        const ts = `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+        return `${ts} | instance=${Number(r.instance_id) || 0} | ${String(r.action || '').trim()} | ${String(r.reason || '').trim()}`;
+      }).join('\n') + (rows.length ? '\n' : '');
+      fs.writeFileSync(filepath, content, 'utf8');
+      res.json({ ok: true, count: rows.length, filename, filepath, folder: logsDir });
     } catch (e) {
       res.status(500).json({ ok: false, error: String(e?.message || e) });
     }

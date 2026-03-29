@@ -11,6 +11,7 @@ function tryRequire(path) {
 const { MODULE: SOLAR_MODULE            } = tryRequire('./solar')            || {};
 const { MODULE: THERMOSTAT_MODULE       } = tryRequire('./thermostat')       || {};
 const { MODULE: LIGHTING_MODULE         } = tryRequire('./lighting')         || {};
+const { MODULE: STAIRCASE_MODULE        } = tryRequire('./staircase')        || {};
 const { MODULE: AWNING_MODULE           } = tryRequire('./awning')           || {};
 const { MODULE: CUSTOM_MODULE           } = tryRequire('./custom')           || {};
 const { MODULE: SMART_LIGHTING_MODULE   } = tryRequire('./smart_lighting')   || {};
@@ -53,6 +54,7 @@ const MODULES = [
   SOLAR_MODULE              && normalizeModule(SOLAR_MODULE,              { user_view: false, user_control: false }),
   THERMOSTAT_MODULE         && normalizeModule(THERMOSTAT_MODULE,         { user_view: true,  user_control: true,  user_setpoints: ['setpoint', 'mode'] }),
   LIGHTING_MODULE           && normalizeModule(LIGHTING_MODULE,           { user_view: true,  user_control: true,  user_commands: ['toggle', 'set_level'] }),
+  STAIRCASE_MODULE          && normalizeModule(STAIRCASE_MODULE,          { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
   AWNING_MODULE             && normalizeModule(AWNING_MODULE,             { user_view: true,  user_control: true,  user_commands: ['open', 'close', 'stop'] }),
   CUSTOM_MODULE             && normalizeModule(CUSTOM_MODULE,             { user_view: false, user_control: false }),
   SMART_LIGHTING_MODULE     && normalizeModule(SMART_LIGHTING_MODULE,     { user_view: true,  user_control: true,  user_commands: ['activate_scenario'] }),

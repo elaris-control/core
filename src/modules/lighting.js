@@ -1,7 +1,7 @@
 // src/modules/lighting.js
 // Lighting module — MODULE definition + engine handler + API routes
 
-const { lightingHandler, LIGHTING_MODULE, setManual } = require('../automation/lighting');
+const { lightingHandler, LIGHTING_MODULE, setManual, clearManual } = require('../automation/lighting');
 
 const MODULE = LIGHTING_MODULE;
 
@@ -20,6 +20,19 @@ function routes(app, ctx) {
       setManual(id, !!on);
       engine.evaluate(access.inst);
       res.json({ ok: true, id, on });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+
+  // POST /api/automation/lighting/:id/clear-manual
+  app.post('/api/automation/lighting/:id/clear-manual', requireLogin, (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const access = ensureUserModuleAccess(req, res, id, ({ def, ui }) => def?.id === 'lighting' && !!ui.user_control);
+      if (!access) return;
+      clearManual(id);
+      engine.evaluate(access.inst);
+      res.json({ ok: true, id, cleared: true });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 

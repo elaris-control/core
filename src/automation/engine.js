@@ -510,17 +510,20 @@ class AutomationEngine {
 
     const isDryRun = result.dryRun === true;
     const customAction = (meta && typeof meta.action === 'string') ? String(meta.action).trim() : '';
+    const skipLog = !!(meta && meta.skipLog);
     const actionName = customAction
       ? (isDryRun ? `${customAction}_DRYRUN` : customAction)
       : (isDryRun ? `${inputKey}_DRYRUN_${result.value}` : `${inputKey}_${result.value}`);
     const actionReason = isDryRun ? `[TEST MODE] ${reason}` : reason;
 
-    this._logAction.run({
-      instance_id: instance.id,
-      action:      actionName,
-      reason:      actionReason,
-      ts:          Date.now(),
-    });
+    if (!skipLog) {
+      this._logAction.run({
+        instance_id: instance.id,
+        action:      actionName,
+        reason:      actionReason,
+        ts:          Date.now(),
+      });
+    }
 
     console.log(`[ENGINE] ${instance.name} (${instance.module_id})${isDryRun ? ' [TEST MODE]' : ''}: ${reason} → ${inputKey}=${result.value}`);
 
@@ -569,7 +572,10 @@ class AutomationEngine {
       const mappings = this._getMappings.all(inst.id);
       const relevant = mappings.some(m => {
         const io = m.io_id ? this._getIOById.get(m.io_id) : null;
-        return io?.device_id === deviceId && io?.key === key;
+        if (!io || io.device_id !== deviceId) return false;
+        const rawKey = String(io.key || '');
+        const groupedKey = io.group_name ? `${io.group_name}.${io.key}` : rawKey;
+        return key === rawKey || key === groupedKey;
       });
       if (relevant) this.evaluate(inst);
     }

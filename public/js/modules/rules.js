@@ -337,7 +337,7 @@ function renderAction(a, ri, ai) {
 <select class="cond-sel" style="flex:1" onchange="actionIOChange(${ri},${ai},this.value)">
   ${ioOptions(analogOutIO(), a.io_id, "— analog output (AO) —", {query:ruleIOQuery, zone:ruleZoneFilter})}
 </select>
-<span style="font-size:11px;color:var(--muted);white-space:nowrap">AUTO ΔT</span>
+<span style="font-size:11px;color:var(--muted);white-space:nowrap">AUTO DT</span>
 <span style="font-size:11px;color:var(--muted);margin-left:10px">min</span>
 <input class="cond-input" type="number" min="0" max="100" step="0.5" value="${minPct}" style="width:72px"
        oninput="ra(${ri},${ai},'min_pct',this.value)" placeholder="0">

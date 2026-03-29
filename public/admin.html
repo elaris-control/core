@@ -430,6 +430,19 @@ option { background:#0d1221; color:var(--text); }
   <!-- ── Runtime Debug ──────────────────────────────────────────────────── -->
   <div class="section" style="margin-top:36px">
     <div class="section-title">Runtime Debug</div>
+    <div class="runtime-card" style="margin-top:12px">
+      <div class="runtime-row">
+        <div>
+          <div class="runtime-title">Recent Events Export</div>
+          <div class="runtime-sub">Export the automation_log table to a dated text file inside the local <strong style="color:var(--text)">logs/</strong> folder. Format: <span class="td-mono">YYYY-MM-DD HH:mm:ss | instance=9 | action | reason</span></div>
+        </div>
+        <div class="runtime-actions">
+          <button class="btn btn-sm btn-primary" id="exportRecentLogsBtn" onclick="exportRecentLogs()">Export Recent Events</button>
+        </div>
+      </div>
+      <div class="helper-note" id="exportRecentLogsMeta" style="margin-top:12px">—</div>
+    </div>
+
     <div class="runtime-card">
       <div class="runtime-row">
         <div>
@@ -1456,6 +1469,22 @@ function confirmDeleteProfile(id, label) {
 }
 
 // ── Repair & Erase ────────────────────────────────────────────────────────
+
+async function exportRecentLogs() {
+  const btn = document.getElementById('exportRecentLogsBtn');
+  const meta = document.getElementById('exportRecentLogsMeta');
+  if (btn) { btn.disabled = true; btn.textContent = 'Exporting...'; }
+  try {
+    const d = await api('/api/admin/logs/export', { method: 'POST' });
+    if (meta) meta.textContent = `Saved ${d.count || 0} rows to ${d.folder}/${d.filename}`;
+    toast(`✓ Saved ${d.filename}`);
+  } catch (e) {
+    if (meta) meta.textContent = `Error: ${e.message}`;
+    toast('Error: ' + e.message, 'err');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Export Recent Events'; }
+}
+
 async function doRepairDb() {
   const btn = document.getElementById('repairBtn');
   btn.disabled = true;

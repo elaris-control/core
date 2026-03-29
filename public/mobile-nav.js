@@ -5,12 +5,11 @@
   function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
   const items = [
-    { href: '/',               icon: '🏠', label: 'Home' },
-    { href: '/modules.html',   icon: '⚙️', label: 'Modules' },
-    { href: '/scenes.html',    icon: '🎬', label: 'Scenes' },
-    { href: '/settings.html',  icon: '👤', label: 'Settings' },
-    { href: null,              icon: '📄', label: 'Pages',  action: 'pages' },
-    { href: null,              icon: '🌙', label: 'Theme',  action: 'theme' },
+    { href: '/',              icon: '🏠', label: 'Home' },
+    { href: '/modules.html',  icon: '⚙️', label: 'Modules' },
+    { href: '/scenes.html',   icon: '🎬', label: 'Scenes' },
+    { href: '/settings.html', icon: '👤', label: 'Settings' },
+    { href: null,             icon: '⋯',  label: 'More', action: 'more' },
   ];
 
   const path = location.pathname;
@@ -21,45 +20,94 @@
     return path === href || path === href.replace('.html', '');
   }
 
-  // --- Build nav bar ---
   const nav = document.createElement('div');
   nav.id = 'mobileNav';
   nav.innerHTML = '<nav>' + items.map(it => {
     if (it.action) {
-      return `<a href="#" data-mn-action="${it.action}" aria-label="${it.label}">
+      return `<button type="button" data-mn-action="${it.action}" aria-label="${it.label}">
         <span class="mn-icon">${it.icon}</span>
         <span>${it.label}</span>
-      </a>`;
+      </button>`;
     }
     return `<a href="${it.href}" class="${isActive(it.href) ? 'active' : ''}" aria-label="${it.label}">
       <span class="mn-icon">${it.icon}</span>
       <span>${it.label}</span>
     </a>`;
   }).join('') + '</nav>';
-
   document.body.appendChild(nav);
 
-  // --- Pages slide-up sheet ---
-  const sheet = document.createElement('div');
-  sheet.id = 'mnPageSheet';
-  sheet.innerHTML = `
+  const pageSheet = document.createElement('div');
+  pageSheet.id = 'mnPageSheet';
+  pageSheet.innerHTML = `
     <div id="mnPageSheetBg"></div>
     <div id="mnPageSheetPanel" role="dialog" aria-modal="true" aria-label="My Pages">
       <div class="mn-sheet-handle"></div>
       <div class="mn-sheet-title">📄 My Pages</div>
       <div id="mnPageSheetList"><div class="mn-sheet-loading">Loading…</div></div>
     </div>`;
-  document.body.appendChild(sheet);
+  document.body.appendChild(pageSheet);
 
-  function openSheet() {
-    sheet.classList.add('open');
+  const moreSheet = document.createElement('div');
+  moreSheet.id = 'mnMoreSheet';
+  moreSheet.innerHTML = `
+    <div id="mnMoreSheetBg"></div>
+    <div id="mnMoreSheetPanel" role="dialog" aria-modal="true" aria-label="More navigation">
+      <div class="mn-sheet-handle"></div>
+      <div class="mn-sheet-title">More</div>
+      <div id="mnMoreSheetList"></div>
+    </div>`;
+  document.body.appendChild(moreSheet);
+
+  function openPageSheet() {
+    closeMoreSheet();
+    pageSheet.classList.add('open');
     document.body.classList.add('mn-sheet-open');
     loadPages();
   }
-
-  function closeSheet() {
-    sheet.classList.remove('open');
+  function closePageSheet() {
+    pageSheet.classList.remove('open');
     document.body.classList.remove('mn-sheet-open');
+  }
+  function openMoreSheet() {
+    closePageSheet();
+    renderMoreSheet();
+    moreSheet.classList.add('open');
+    document.body.classList.add('mn-sheet-open');
+  }
+  function closeMoreSheet() {
+    moreSheet.classList.remove('open');
+    document.body.classList.remove('mn-sheet-open');
+  }
+
+  function closeAllSheets() {
+    closePageSheet();
+    closeMoreSheet();
+  }
+
+  function moreLink(href, icon, name) {
+    return `<a href="${href}" class="mn-sheet-item"><span class="mn-sheet-item-icon">${icon}</span><span class="mn-sheet-item-name">${name}</span><span class="mn-sheet-item-arrow">›</span></a>`;
+  }
+  function moreAction(action, icon, name) {
+    return `<a href="#" data-more-action="${action}" class="mn-sheet-item"><span class="mn-sheet-item-icon">${icon}</span><span class="mn-sheet-item-name">${name}</span><span class="mn-sheet-item-arrow">›</span></a>`;
+  }
+
+  function renderMoreSheet() {
+    const list = document.getElementById('mnMoreSheetList');
+    list.innerHTML = [
+      '<div class="mn-sheet-group">Pages & actions</div>',
+      moreAction('pages', '📄', 'My Pages'),
+      moreAction('theme', '🌙', 'Toggle Theme'),
+      '<div class="mn-sheet-group">Tools</div>',
+      moreLink('/history.html', '📈', 'History'),
+      moreLink('/logs.html', '🧾', 'Logs'),
+      moreLink('/entities.html', '🔌', 'Entities'),
+      moreLink('/installer.html', '🧰', 'Installer'),
+      moreLink('/esphome.html', '🟦', 'ESPHome'),
+      '<div class="mn-sheet-group">System</div>',
+      moreLink('/engineer.html', '🛠️', 'Engineer'),
+      moreLink('/admin.html', '🛡️', 'Admin'),
+      moreLink('/help.html', '❓', 'Help')
+    ].join('');
   }
 
   function sheetActions() {
@@ -101,23 +149,39 @@
     }
   }
 
-  // --- Event delegation ---
-  nav.addEventListener('click', e => {
-    const a = e.target.closest('[data-mn-action]');
+  const moreBtn = nav.querySelector('[data-mn-action="more"]');
+  if (moreBtn) {
+    moreBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openMoreSheet();
+    });
+  }
+
+  moreSheet.addEventListener('click', e => {
+    const a = e.target.closest('[data-more-action]');
     if (!a) return;
     e.preventDefault();
-    const action = a.dataset.mnAction;
-    if (action === 'theme' && window.toggleTheme) toggleTheme();
-    if (action === 'pages') openSheet();
+    const action = a.dataset.moreAction;
+    if (action === 'theme' && window.toggleTheme) {
+      closeAllSheets();
+      toggleTheme();
+      return;
+    }
+    if (action === 'pages') {
+      openPageSheet();
+      return;
+    }
   });
 
-  document.getElementById('mnPageSheetBg').addEventListener('click', closeSheet);
+  document.getElementById('mnPageSheetBg').addEventListener('click', closePageSheet);
+  document.getElementById('mnMoreSheetBg').addEventListener('click', closeMoreSheet);
 
-  // Swipe-down to close
   let startY = 0;
-  const panel = document.getElementById('mnPageSheetPanel');
-  panel.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
-  panel.addEventListener('touchend', e => {
-    if (e.changedTouches[0].clientY - startY > 60) closeSheet();
-  }, { passive: true });
+  [document.getElementById('mnPageSheetPanel'), document.getElementById('mnMoreSheetPanel')].forEach(panel => {
+    panel.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
+    panel.addEventListener('touchend', e => {
+      if (e.changedTouches[0].clientY - startY > 60) closeAllSheets();
+    }, { passive: true });
+  });
 })();

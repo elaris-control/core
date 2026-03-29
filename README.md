@@ -7,9 +7,9 @@
 <p align="center"><strong>Modular automation engine for home, building, and light industrial control.</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.5.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.6.2-blue" alt="Version">
   <img src="https://img.shields.io/badge/node-20+-green" alt="Node">
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
+  <img src="https://img.shields.io/badge/license-BSL--1.1-blue" alt="License">
   <img src="https://img.shields.io/badge/platform-Pi%20%7C%20Linux%20%7C%20Windows-red" alt="Platform">
   <img src="https://img.shields.io/badge/protocol-MQTT-purple" alt="MQTT">
 </p>
@@ -231,9 +231,19 @@ The admin panel (`/admin.html`) includes:
 
 ## License
 
-ELARIS Core is released under the **MIT License**.
+ELARIS is distributed under the **Business Source License 1.1 (BSL 1.1)** with an **Additional Use Grant** for non-commercial use.
 
-Pro modules (Solar, Pool & Spa, Irrigation, Hydronic, Load Shifter, Custom Logic Engine) are licensed separately under a commercial license.
+**Free use allowed** — personal, home, lab, testing, evaluation, and internal non-commercial development.
+
+**Commercial license required** — for paid installation, integrator/reseller use, managed services, white-label, SaaS, or bundling into commercial products.
+
+ELARIS is **source-available**, not OSI-style open source. The governing terms are:
+
+- [`LICENSE-BSL-1.1.md`](LICENSE-BSL-1.1.md)
+- [`ELARIS-ADDITIONAL-USE-GRANT.md`](ELARIS-ADDITIONAL-USE-GRANT.md)
+- [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md)
+
+For commercial licensing inquiries: **licensing@elariscontrol.online**
 
 ---
 

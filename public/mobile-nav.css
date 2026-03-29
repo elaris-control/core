@@ -16,7 +16,8 @@
   height: 100%;
   align-items: stretch;
 }
-#mobileNav a {
+#mobileNav a,
+#mobileNav button {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -31,9 +32,13 @@
   text-transform: uppercase;
   -webkit-tap-highlight-color: transparent;
 }
-#mobileNav a .mn-icon { font-size: 20px; line-height: 1; }
+#mobileNav a .mn-icon,
+#mobileNav button .mn-icon { font-size: 20px; line-height: 1; }
 #mobileNav a.active { color: #1d8cff; }
-#mobileNav a:active { color: #1d8cff; }
+#mobileNav a:active,
+#mobileNav button:active,
+#mobileNav button.active { color: #1d8cff; }
+#mobileNav button { appearance:none; -webkit-appearance:none; background:none; border:0; padding:0; margin:0; font-family:inherit; }
 
 /* Pages slide-up sheet */
 #mnPageSheet {
@@ -138,4 +143,39 @@
   #mobileNav { display: block; }
   body { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
   body.mn-sheet-open { overflow: hidden; }
+}
+
+
+/* More drop-up sheet */
+#mnMoreSheet {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+}
+#mnMoreSheet.open { display: block; }
+#mnMoreSheetBg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  animation: mnFadeIn .2s ease;
+}
+#mnMoreSheetPanel {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: #0d1221;
+  border-top: 1px solid rgba(255,255,255,.12);
+  border-radius: 16px 16px 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  max-height: 75vh;
+  overflow-y: auto;
+  animation: mnSlideUp .25s ease;
+}
+.mn-sheet-group {
+  padding: 10px 20px 6px;
+  color: #5a6a85;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .7px;
 }
