@@ -17,4 +17,4 @@ A commercial license may include rights such as:
 - support / update terms
 - premium module access
 
-Contact: licensing@elariscontrol.online
+Contact: info@elariscontrol.online

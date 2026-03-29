@@ -127,10 +127,10 @@ Engineer access is protected by a separate unlock code, keeping commissioning co
 
 ELARIS discovers ESP32 devices automatically over MQTT using a lightweight discovery protocol. Supported hardware:
 
-- **Kincony KC868-A4 / A8 / A16 / A32** — relay + digital input boards
-- **Generic ESP32** — any ESPHome-based device
-- **WT32-ETH01** — Ethernet-capable ESP32 module
-- **Peripheral sensors** — anemometer, rain, CO2, temperature, flow, and more (via ESPHome Peripheral Library)
+- **ESP32 relay boards** — 4 / 8 / 16 / 32 channel relay + digital input boards
+- **Generic ESP32 / ESP8266** — any ESPHome-based device
+- **Ethernet modules** — WT32-ETH01 and similar Ethernet-capable ESP32 boards
+- **Peripheral sensors** — anemometer, rain, CO₂, temperature, humidity, flow, PIR, soil, and more (via ESPHome Peripheral Library)
 
 ---
 
@@ -212,8 +212,17 @@ The admin panel (`/admin.html`) includes:
 | [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md) | Windows setup guide |
 | [MODULES.md](MODULES.md) | Module reference — IOs, setpoints, logic |
 | [DISCOVERY.md](DISCOVERY.md) | MQTT device discovery protocol |
+
+| Doc | Contents |
+|-----|----------|
 | [docs/AUTH_MODEL.md](docs/AUTH_MODEL.md) | Authentication and role architecture |
 | [docs/ROUTE_ACCESS_MATRIX.md](docs/ROUTE_ACCESS_MATRIX.md) | API endpoint permissions |
+| [docs/RUNTIME_STATE.md](docs/RUNTIME_STATE.md) | Runtime state and in-memory data |
+| [docs/ESPHOME_STATUS.md](docs/ESPHOME_STATUS.md) | ESPHome integration status |
+| [docs/ESPHOME_PROFILE_CATALOG.md](docs/ESPHOME_PROFILE_CATALOG.md) | ESPHome board profile catalog |
+| [docs/ESPHOME_SENSOR_COMPATIBILITY.md](docs/ESPHOME_SENSOR_COMPATIBILITY.md) | ESPHome sensor compatibility matrix |
+| [docs/BUGS_AND_FIXES.md](docs/BUGS_AND_FIXES.md) | Known bugs and applied fixes |
+| [docs/CLEANUP_NOTES.md](docs/CLEANUP_NOTES.md) | Code cleanup notes |
 
 ---
 
@@ -243,7 +252,7 @@ ELARIS is **source-available**, not OSI-style open source. The governing terms a
 - [`ELARIS-ADDITIONAL-USE-GRANT.md`](ELARIS-ADDITIONAL-USE-GRANT.md)
 - [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md)
 
-For commercial licensing inquiries: **licensing@elariscontrol.online**
+For commercial licensing inquiries: **info@elariscontrol.online**
 
 ---
 
