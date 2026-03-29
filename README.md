@@ -217,7 +217,6 @@ The admin panel (`/admin.html`) includes:
 |-----|----------|
 | [docs/AUTH_MODEL.md](docs/AUTH_MODEL.md) | Authentication and role architecture |
 | [docs/ROUTE_ACCESS_MATRIX.md](docs/ROUTE_ACCESS_MATRIX.md) | API endpoint permissions |
-| [docs/RUNTIME_STATE.md](docs/RUNTIME_STATE.md) | Runtime state and in-memory data |
 | [docs/ESPHOME_STATUS.md](docs/ESPHOME_STATUS.md) | ESPHome integration status |
 | [docs/ESPHOME_PROFILE_CATALOG.md](docs/ESPHOME_PROFILE_CATALOG.md) | ESPHome board profile catalog |
 | [docs/ESPHOME_SENSOR_COMPATIBILITY.md](docs/ESPHOME_SENSOR_COMPATIBILITY.md) | ESPHome sensor compatibility matrix |
