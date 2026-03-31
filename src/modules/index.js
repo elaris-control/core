@@ -10,6 +10,9 @@ function tryRequire(path) {
 
 const { MODULE: SOLAR_MODULE            } = tryRequire('./solar')            || {};
 const { MODULE: THERMOSTAT_MODULE       } = tryRequire('./thermostat')       || {};
+const { MODULE: BASIC_THERMOSTAT_MODULE } = tryRequire('./basic_thermostat') || {};
+const { MODULE: CALL_THERMOSTAT_MODULE  } = tryRequire('./call_thermostat')  || {};
+const { MODULE: ZONED_THERMOSTAT_MODULE } = tryRequire('./zoned_thermostat') || {};
 const { MODULE: LIGHTING_MODULE         } = tryRequire('./lighting')         || {};
 const { MODULE: STAIRCASE_MODULE        } = tryRequire('./staircase')        || {};
 const { MODULE: AWNING_MODULE           } = tryRequire('./awning')           || {};
@@ -28,7 +31,8 @@ const { MODULE: MOTION_LIGHT_MODULE     } = tryRequire('./motion_light')     || 
 const { MODULE: DAYLIGHT_LIGHT_MODULE   } = tryRequire('./daylight_light')   || {};
 const { MODULE: SCHEDULED_LIGHT_MODULE  } = tryRequire('./scheduled_light')  || {};
 const { MODULE: MOTION_DAYLIGHT_MODULE  } = tryRequire('./motion_daylight')  || {};
-const { MODULE: SCHEDULED_MOTION_MODULE } = tryRequire('./scheduled_motion') || {};
+const { MODULE: SCHEDULED_MOTION_MODULE      } = tryRequire('./scheduled_motion')      || {};
+const { MODULE: INTERLOCKED_SWITCHES_MODULE } = tryRequire('./interlocked_switches') || {};
 
 function withUi(def, ui) {
   return Object.assign({}, def, {
@@ -59,6 +63,9 @@ function normalizeModule(def, ui) {
 const MODULES = [
   SOLAR_MODULE              && normalizeModule(SOLAR_MODULE,              { user_view: false, user_control: false }),
   THERMOSTAT_MODULE         && normalizeModule(THERMOSTAT_MODULE,         { user_view: true,  user_control: true,  user_setpoints: ['setpoint', 'mode'] }),
+  BASIC_THERMOSTAT_MODULE   && normalizeModule(BASIC_THERMOSTAT_MODULE,   { user_view: true,  user_control: true,  user_setpoints: ['setpoint', 'mode'] }),
+  CALL_THERMOSTAT_MODULE    && normalizeModule(CALL_THERMOSTAT_MODULE,    { user_view: true,  user_control: true,  user_setpoints: ['mode'] }),
+  ZONED_THERMOSTAT_MODULE   && normalizeModule(ZONED_THERMOSTAT_MODULE,   { user_view: true,  user_control: true,  user_setpoints: ['setpoint', 'mode'] }),
   LIGHTING_MODULE           && normalizeModule(LIGHTING_MODULE,           { user_view: true,  user_control: true,  user_commands: ['toggle', 'set_level'] }),
   STAIRCASE_MODULE          && normalizeModule(STAIRCASE_MODULE,          { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
   AWNING_MODULE             && normalizeModule(AWNING_MODULE,             { user_view: true,  user_control: true,  user_commands: ['open', 'close', 'stop'] }),
@@ -72,12 +79,13 @@ const MODULES = [
   IRRIGATION_MODULE         && normalizeModule(IRRIGATION_MODULE,         { user_view: false, user_control: false }),
   HYDRONIC_MANAGER_MODULE   && normalizeModule(HYDRONIC_MANAGER_MODULE,   { user_view: false, user_control: false }),
   POOL_SPA_MODULE           && normalizeModule(POOL_SPA_MODULE,           { user_view: false, user_control: false }),
-  BASIC_LIGHT_MODULE        && normalizeModule(BASIC_LIGHT_MODULE,        { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
-  MOTION_LIGHT_MODULE       && normalizeModule(MOTION_LIGHT_MODULE,       { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
-  DAYLIGHT_LIGHT_MODULE     && normalizeModule(DAYLIGHT_LIGHT_MODULE,     { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
-  SCHEDULED_LIGHT_MODULE    && normalizeModule(SCHEDULED_LIGHT_MODULE,    { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
-  MOTION_DAYLIGHT_MODULE    && normalizeModule(MOTION_DAYLIGHT_MODULE,    { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
-  SCHEDULED_MOTION_MODULE   && normalizeModule(SCHEDULED_MOTION_MODULE,   { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  BASIC_LIGHT_MODULE          && normalizeModule(BASIC_LIGHT_MODULE,          { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  INTERLOCKED_SWITCHES_MODULE && normalizeModule(INTERLOCKED_SWITCHES_MODULE, { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  MOTION_LIGHT_MODULE         && normalizeModule(MOTION_LIGHT_MODULE,         { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  DAYLIGHT_LIGHT_MODULE       && normalizeModule(DAYLIGHT_LIGHT_MODULE,       { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  SCHEDULED_LIGHT_MODULE      && normalizeModule(SCHEDULED_LIGHT_MODULE,      { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  MOTION_DAYLIGHT_MODULE      && normalizeModule(MOTION_DAYLIGHT_MODULE,      { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  SCHEDULED_MOTION_MODULE     && normalizeModule(SCHEDULED_MOTION_MODULE,     { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
 ].filter(Boolean);
 
 function getModule(id)    { return MODULES.find(m => m.id === id) || null; }

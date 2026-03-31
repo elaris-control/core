@@ -25,7 +25,7 @@ function daylightLightHandler(ctx, send) {
   if (manual) {
     const reason = manual.on ? 'Manual ON' : 'Manual OFF';
     setRelays(send, ctx, manual.on, reason, 'Manual', 'Daylight_Light');
-    broadcastState(ctx, { manual_active: true, source: 'manual', last_reason: reason, dark: isDark, lux_value: lux });
+    broadcastState(ctx, { manual_active: true, source: 'manual', status: manual.on ? 'on' : 'off', output_on: !!manual.on, last_reason: reason, dark: isDark, lux_value: lux });
     return;
   }
 
@@ -41,7 +41,7 @@ function daylightLightHandler(ctx, send) {
     return;
   }
 
-  broadcastState(ctx, { source: 'idle', dark: isDark, lux_value: lux, last_reason: isDark ? `Dark: lux=${lux}` : `Bright: lux=${lux}` });
+  broadcastState(ctx, { source: 'idle', dark: isDark, lux_value: lux, status: isOn ? 'on' : 'off', output_on: isOn, last_reason: isDark ? `Dark: lux=${lux}` : `Bright: lux=${lux}` });
 }
 
 function setManual(instId, on) { manualState.set(instId, { on, ts: Date.now() }); }
@@ -49,7 +49,7 @@ function clearManual(instId) { manualState.delete(instId); }
 
 const DAYLIGHT_LIGHT_MODULE = {
   id: 'daylight_light',
-  name: 'Daylight Light',
+  name: 'Dusk Light',
   icon: '\u{1F4A1}',
   description: 'Switch + lux sensor. Light turns ON only when dark enough.',
   color: '#ffd700',

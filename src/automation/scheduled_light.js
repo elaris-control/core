@@ -25,7 +25,7 @@ function scheduledLightHandler(ctx, send, siteInfo) {
   if (manual) {
     const reason = manual.on ? 'Manual ON' : 'Manual OFF';
     setRelays(send, ctx, manual.on, reason, 'Manual', 'Scheduled_Light');
-    broadcastState(ctx, { manual_active: true, source: 'manual', last_reason: reason });
+    broadcastState(ctx, { manual_active: true, source: 'manual', status: manual.on ? 'on' : 'off', output_on: !!manual.on, last_reason: reason });
     return;
   }
 
@@ -35,7 +35,7 @@ function scheduledLightHandler(ctx, send, siteInfo) {
   const schedOff = parseTime(schedOffStr, sun);
 
   if (schedOn == null || schedOff == null) {
-    broadcastState(ctx, { source: 'idle', schedule_active: false, last_reason: 'No schedule configured' });
+    broadcastState(ctx, { source: 'idle', schedule_active: false, status: isOn ? 'on' : 'off', output_on: isOn, last_reason: 'No schedule configured' });
     return;
   }
 
@@ -48,7 +48,7 @@ function scheduledLightHandler(ctx, send, siteInfo) {
     setRelays(send, ctx, false, `Schedule OFF (${schedOffStr || schedOff})`, 'Schedule', 'Scheduled_Light');
   }
 
-  broadcastState(ctx, { source: 'schedule', schedule_active: inSched, last_reason: inSched ? 'In schedule window' : 'Outside schedule' });
+  broadcastState(ctx, { source: 'schedule', schedule_active: inSched, status: isOn ? 'on' : 'off', output_on: isOn, last_reason: inSched ? 'In schedule window' : 'Outside schedule' });
 }
 
 function setManual(instId, on) { manualState.set(instId, { on, ts: Date.now() }); }

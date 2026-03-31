@@ -24,7 +24,7 @@ function motionLightHandler(ctx, send) {
   if (manual) {
     const reason = manual.on ? 'Manual ON' : 'Manual OFF';
     setRelays(send, ctx, manual.on, reason, 'Manual', 'Motion_Light');
-    broadcastState(ctx, { manual_active: true, source: 'manual', last_reason: reason });
+    broadcastState(ctx, { manual_active: true, source: 'manual', status: manual.on ? 'on' : 'off', output_on: !!manual.on, last_reason: reason });
     return;
   }
 
@@ -41,8 +41,8 @@ function motionLightHandler(ctx, send) {
 
   // PIR rising edge -> ON
   if (pirOn && !prevPirOn && !isOn) {
-    setRelays(send, ctx, true, 'Motion detected', 'PIR', 'Motion_Light');
-    broadcastState(ctx, { source: 'pir', motion_active: true, last_reason: 'Motion detected', status: 'on', output_on: true });
+    setRelays(send, ctx, true, 'Motion', 'PIR', 'Motion_Light');
+    broadcastState(ctx, { source: 'pir', motion_active: true, last_reason: 'Motion', status: 'on', output_on: true });
     return;
   }
 
@@ -50,11 +50,11 @@ function motionLightHandler(ctx, send) {
   if (isOn && !pirOn && timeSince > pirTimeout) {
     lastMotionTime.delete(instId);
     setRelays(send, ctx, false, `No motion ${Math.round(timeSince / 1000)}s`, 'PIR', 'Motion_Light');
-    broadcastState(ctx, { source: 'pir', motion_active: false, last_reason: `No motion ${Math.round(timeSince / 1000)}s`, status: 'off', output_on: false });
+    broadcastState(ctx, { source: 'pir', motion_active: false, last_reason: 'Timeout', status: 'off', output_on: false });
     return;
   }
 
-  broadcastState(ctx, { source: 'idle', motion_active: !!pirOn, last_reason: pirOn ? 'Motion active' : 'No motion' });
+  broadcastState(ctx, { source: 'idle', motion_active: !!pirOn, status: isOn ? 'on' : 'off', output_on: isOn, last_reason: pirOn ? 'Motion active' : 'No motion' });
 }
 
 function setManual(instId, on) { manualState.set(instId, { on, ts: Date.now() }); }

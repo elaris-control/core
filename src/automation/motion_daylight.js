@@ -29,7 +29,7 @@ function motionDaylightHandler(ctx, send) {
   if (manual) {
     const reason = manual.on ? 'Manual ON' : 'Manual OFF';
     setRelays(send, ctx, manual.on, reason, 'Manual', 'Motion_Daylight');
-    broadcastState(ctx, { manual_active: true, source: 'manual', last_reason: reason, dark: isDark, lux_value: lux });
+    broadcastState(ctx, { manual_active: true, source: 'manual', status: manual.on ? 'on' : 'off', output_on: !!manual.on, last_reason: reason, dark: isDark, lux_value: lux });
     return;
   }
 
@@ -66,7 +66,7 @@ function motionDaylightHandler(ctx, send) {
     return;
   }
 
-  broadcastState(ctx, { source: 'idle', dark: isDark, motion_active: !!pirOn, lux_value: lux, last_reason: pirOn && isDark ? 'Motion + dark' : (!isDark ? 'Bright' : 'No motion') });
+  broadcastState(ctx, { source: 'idle', dark: isDark, motion_active: !!pirOn, lux_value: lux, status: isOn ? 'on' : 'off', output_on: isOn, last_reason: pirOn && isDark ? 'Motion + dark' : (!isDark ? 'Bright' : 'No motion') });
 }
 
 function setManual(instId, on) { manualState.set(instId, { on, ts: Date.now() }); }

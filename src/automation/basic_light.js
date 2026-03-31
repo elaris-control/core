@@ -2,7 +2,7 @@
 // Basic Light — simplest lighting module: switch (DI) controls relay(s).
 
 const {
-  setRelays, broadcastState, handleSwitch,
+  setRelays, broadcastState, handleSwitch, relayKeys,
 } = require('./helpers/light_common');
 
 const switchState = new Map();
@@ -10,6 +10,7 @@ const manualState = new Map();
 
 function basicLightHandler(ctx, send) {
   const instId = ctx.instance.id;
+  const isOn = relayKeys(ctx).some(k => ctx.isOn(k));
 
   // Wall switch — takes priority, can override dashboard manual
   const sw = handleSwitch(ctx, send, instId, { switchState, manualState, fallback: 'Basic_Light' });
@@ -20,12 +21,12 @@ function basicLightHandler(ctx, send) {
   if (manual) {
     const reason = manual.on ? 'Manual ON' : 'Manual OFF';
     setRelays(send, ctx, manual.on, reason, 'Manual', 'Basic_Light');
-    broadcastState(ctx, { manual_active: true, source: 'manual', last_reason: reason });
+    broadcastState(ctx, { manual_active: true, source: 'manual', status: manual.on ? 'on' : 'off', output_on: !!manual.on, last_reason: reason });
     return;
   }
 
   // Idle
-  broadcastState(ctx, { source: 'idle', last_reason: 'No change' });
+  broadcastState(ctx, { source: 'idle', status: isOn ? 'on' : 'off', output_on: isOn, last_reason: 'No change' });
 }
 
 function setManual(instId, on) { manualState.set(instId, { on, ts: Date.now() }); }

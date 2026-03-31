@@ -29,7 +29,7 @@ function scheduledMotionHandler(ctx, send, siteInfo) {
   if (manual) {
     const reason = manual.on ? 'Manual ON' : 'Manual OFF';
     setRelays(send, ctx, manual.on, reason, 'Manual', 'Scheduled_Motion');
-    broadcastState(ctx, { manual_active: true, source: 'manual', last_reason: reason });
+    broadcastState(ctx, { manual_active: true, source: 'manual', status: manual.on ? 'on' : 'off', output_on: !!manual.on, last_reason: reason });
     return;
   }
 
@@ -54,7 +54,7 @@ function scheduledMotionHandler(ctx, send, siteInfo) {
     if (isOn) {
       setRelays(send, ctx, false, 'Outside schedule', 'Schedule', 'Scheduled_Motion');
     }
-    broadcastState(ctx, { source: 'schedule', schedule_active: false, motion_active: !!pirOn, last_reason: 'Outside schedule' });
+    broadcastState(ctx, { source: 'schedule', schedule_active: false, motion_active: !!pirOn, status: 'off', output_on: false, last_reason: 'Outside schedule' });
     return;
   }
 
@@ -73,7 +73,7 @@ function scheduledMotionHandler(ctx, send, siteInfo) {
     return;
   }
 
-  broadcastState(ctx, { source: 'idle', schedule_active: true, motion_active: !!pirOn, last_reason: pirOn ? 'Motion active' : 'Waiting for motion' });
+  broadcastState(ctx, { source: 'idle', schedule_active: true, motion_active: !!pirOn, status: isOn ? 'on' : 'off', output_on: isOn, last_reason: pirOn ? 'Motion active' : 'Waiting for motion' });
 }
 
 function setManual(instId, on) { manualState.set(instId, { on, ts: Date.now() }); }

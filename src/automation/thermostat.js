@@ -541,7 +541,7 @@ function thermostatHandler(ctx, send) {
 
 const THERMOSTAT_MODULE = {
   id:          "thermostat",
-  name:        "Thermostat",
+  name:        "Advanced Thermostat",
   icon:        "🌡️",
   description: "Simple room thermostat with optional zones, zone outputs/pumps, and a shared central pump.",
   color:       "#00c8ff",
