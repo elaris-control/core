@@ -65,6 +65,7 @@ async function main() {
 
   const runtime = initRealtimeRuntime({
     server,
+    dbApi,
     db,
     access: authCtx.access,
     users,

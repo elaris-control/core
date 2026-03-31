@@ -4,7 +4,7 @@ const { initWS } = require('../ws');
 const { initMQTT } = require('../mqtt');
 const { AutomationEngine } = require('../automation/engine');
 
-function initRealtimeRuntime({ server, db, access, users, auth, scenesApi, notifyApi, mqttUrl }) {
+function initRealtimeRuntime({ server, dbApi, db, access, users, auth, scenesApi, notifyApi, mqttUrl }) {
   const wsApi = initWS(server, {
     db,
     access,
@@ -49,11 +49,11 @@ function initRealtimeRuntime({ server, db, access, users, auth, scenesApi, notif
   engine.scenesApi = scenesApi;
   engine.startTick(30000);
 
-  const mqttApi = initMQTT({ url: mqttUrl, dbApi: { db }, broadcast: wsApi.broadcast, solarAuto: engine });
+  const mqttApi = initMQTT({ url: mqttUrl, dbApi, broadcast: wsApi.broadcast, solarAuto: engine });
   engine.setMqttApi(mqttApi);
 
   setTimeout(() => engine.evaluateAll(), 2000);
-  setInterval(() => scenesApi.tickSchedules({ engine, mqttApi, notify: notifyApi.notify }), 30_000);
+  setInterval(() => scenesApi.tickSchedules({ engine, mqttApi, notify: notifyApi.notify }), 30000);
 
   return {
     wsApi,
