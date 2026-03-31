@@ -150,12 +150,40 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
         }
       })();
 
-      if (seedFromProfile && deviceRow?.board_profile_id && typeof dbApi.seedPendingFromBoardProfile === 'function') {
+      const deviceConfigSource = String(deviceRow?.config_source || '').trim().toLowerCase();
+      const allowProfileSeed = deviceConfigSource !== 'use_my_yaml_overlay';
+
+      if (seedFromProfile && allowProfileSeed && deviceRow?.board_profile_id && typeof dbApi.seedPendingFromBoardProfile === 'function') {
         const before = Number(dbApi.db.prepare(`SELECT COUNT(*) AS c FROM pending_io WHERE device_id=?`).get(canonicalDeviceId)?.c || 0);
         dbApi.seedPendingFromBoardProfile(canonicalDeviceId, deviceRow.board_profile_id, Date.now());
         if (typeof dbApi.normalizePendingRowsForDevice === 'function') dbApi.normalizePendingRowsForDevice(canonicalDeviceId);
         const after = Number(dbApi.db.prepare(`SELECT COUNT(*) AS c FROM pending_io WHERE device_id=?`).get(canonicalDeviceId)?.c || 0);
         profileSeeded = Math.max(0, after - before);
+      }
+
+      if (seedFromProfile && !allowProfileSeed && deviceRow?.yaml_path) {
+        const yamlPath = String(deviceRow.yaml_path || '').trim();
+        if (yamlPath && fs.existsSync(yamlPath)) {
+          try {
+            const parsed = parseEsphomeYaml(fs.readFileSync(yamlPath, 'utf8'));
+            const entities = Array.isArray(parsed?.entityDefaults) ? parsed.entityDefaults : [];
+            const before = Number(dbApi.db.prepare(`SELECT COUNT(*) AS c FROM pending_io WHERE device_id=?`).get(canonicalDeviceId)?.c || 0);
+            dbApi.db.transaction(() => {
+              for (const e of entities) {
+                const key = String(e?.key || '').trim();
+                if (!key) continue;
+                const group = (e.type === 'relay' || e.type === 'ao') ? 'state' : 'tele';
+                if (isBlocked.get(canonicalDeviceId, group, key)) continue;
+                if (isApproved.get(canonicalDeviceId, group, key)) continue;
+                const ts = Date.now();
+                upsert.run(canonicalDeviceId, key, group, ts, ts, null, siteId);
+              }
+            })();
+            if (typeof dbApi.normalizePendingRowsForDevice === 'function') dbApi.normalizePendingRowsForDevice(canonicalDeviceId);
+            const after = Number(dbApi.db.prepare(`SELECT COUNT(*) AS c FROM pending_io WHERE device_id=?`).get(canonicalDeviceId)?.c || 0);
+            profileSeeded = Math.max(0, after - before);
+          } catch {}
+        }
       }
 
       const note = scanned
@@ -186,42 +214,106 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
       const source_hint = String(req.body?.source_hint || '').trim();
       let board_profile_id = String(req.body?.board_profile_id || '').trim() || null;
       if (!name || !(type || entity_class)) return res.status(400).json({ ok: false, error: 'missing_fields' });
+
       let device_id = null;
       let pendingRow = null;
       try {
         pendingRow = dbApi.db.prepare('SELECT * FROM pending_io WHERE id=?').get(pending_id) || null;
         device_id = pendingRow?.device_id || null;
       } catch {}
-      if (!board_profile_id && device_id) {
+
+      let deviceRow = null;
+      let deviceConfigSource = '';
+      if (device_id) {
         try {
-          const dev = dbApi.db.prepare(`SELECT board_profile_id FROM esphome_devices WHERE name=? OR friendly_name=? OR hostname=? ORDER BY updated_at DESC, id DESC LIMIT 1`).get(device_id, device_id, device_id);
-          board_profile_id = String(dev?.board_profile_id || '').trim() || null;
+          deviceRow = dbApi.db.prepare(`
+            SELECT board_profile_id, config_source, yaml_path
+            FROM esphome_devices
+            WHERE name=? OR friendly_name=? OR hostname=?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+          `).get(device_id, device_id, device_id) || null;
+
+          if (!board_profile_id) {
+            board_profile_id = String(deviceRow?.board_profile_id || '').trim() || null;
+          }
+          deviceConfigSource = String(deviceRow?.config_source || '').trim().toLowerCase();
         } catch {}
       }
-      let source = source_hint || null;
+
+      let source = null;
       let port_id = null;
       let bus_id = null;
-      if (board_profile_id) {
-        const profile = getCatalogProfile(dbApi.db, board_profile_id);
-        if (profile) {
-          const preferClass = String(entity_class || '').trim().toUpperCase() || null;
-          let port = source_hint ? findBoardPort(profile, source_hint) : null;
-          let bus = (!port && source_hint) ? findBoardBus(profile, source_hint) : null;
-          let matched = null;
-          if (!port && !bus) {
-            matched = matchBoardPathFromText(profile, [source_hint, pendingRow?.key, `${pendingRow?.group_name || ''}.${pendingRow?.key || ''}`], { entityClass: preferClass });
-            if (matched?.kind === 'port') port = matched.port;
-            else if (matched?.kind === 'bus') bus = matched.bus;
+
+      const isYamlOverlay = deviceConfigSource === 'use_my_yaml_overlay';
+
+      if (isYamlOverlay) {
+        let yamlMeta = null;
+
+        try {
+          const yamlPath = String(deviceRow?.yaml_path || '').trim();
+          if (yamlPath && fs.existsSync(yamlPath)) {
+            const parsed = parseEsphomeYaml(fs.readFileSync(yamlPath, 'utf8'));
+            const wantedKey = String(pendingRow?.key || '').trim();
+            if (wantedKey) {
+              yamlMeta = (Array.isArray(parsed?.entityDefaults) ? parsed.entityDefaults : [])
+                .find(e => String(e?.key || '').trim() === wantedKey) || null;
+            }
           }
-          if (port) {
-            port_id = String(port.id || source_hint || matched?.source || '').trim() || null;
-            source = String(port.id || source_hint || matched?.source || '').trim() || null;
-          } else if (bus) {
-            bus_id = String(bus.id || source_hint || matched?.source || '').trim() || null;
-            source = String(bus.id || source_hint || matched?.source || '').trim() || null;
+        } catch {}
+
+        source = String(
+          yamlMeta?.source ||
+          yamlMeta?.port_id ||
+          yamlMeta?.bus_id ||
+          yamlMeta?.pin ||
+          ''
+        ).trim() || null;
+
+        port_id = String(
+          yamlMeta?.port_id ||
+          yamlMeta?.pin ||
+          ''
+        ).trim() || null;
+
+        bus_id = String(
+          yamlMeta?.bus_id ||
+          ''
+        ).trim() || null;
+
+        board_profile_id = null;
+      } else {
+        source = source_hint || null;
+
+        if (board_profile_id) {
+          const profile = getCatalogProfile(dbApi.db, board_profile_id);
+          if (profile) {
+            const preferClass = String(entity_class || '').trim().toUpperCase() || null;
+            let port = source_hint ? findBoardPort(profile, source_hint) : null;
+            let bus = (!port && source_hint) ? findBoardBus(profile, source_hint) : null;
+            let matched = null;
+
+            if (!port && !bus) {
+              matched = matchBoardPathFromText(
+                profile,
+                [source_hint, pendingRow?.key, `${pendingRow?.group_name || ''}.${pendingRow?.key || ''}`],
+                { entityClass: preferClass }
+              );
+              if (matched?.kind === 'port') port = matched.port;
+              else if (matched?.kind === 'bus') bus = matched.bus;
+            }
+
+            if (port) {
+              port_id = String(port.id || source_hint || matched?.source || '').trim() || null;
+              source = String(port.id || source_hint || matched?.source || '').trim() || null;
+            } else if (bus) {
+              bus_id = String(bus.id || source_hint || matched?.source || '').trim() || null;
+              source = String(bus.id || source_hint || matched?.source || '').trim() || null;
+            }
           }
         }
       }
+
       const klass = String(entity_class || '').trim().toUpperCase();
       let finalType = type;
       let hw_type = null;
@@ -231,11 +323,26 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
       else if (klass === 'DI') { finalType = 'sensor'; hw_type = 'di'; kind = 'digital_input'; }
       else if (klass === 'AI') { finalType = 'sensor'; hw_type = 'analog'; kind = 'analog_input'; }
       else if (klass === 'AO') { finalType = 'ao'; hw_type = 'ao'; kind = 'analog_output'; }
-      const out = dbApi.approvePending({ pending_id, name, type: finalType, zone_id, hw_type, kind, unit, source, port_id, bus_id, board_profile_id });
+
+      const out = dbApi.approvePending({
+        pending_id,
+        name,
+        type: finalType,
+        zone_id,
+        hw_type,
+        kind,
+        unit,
+        source,
+        port_id,
+        bus_id,
+        board_profile_id
+      });
+
       const sid = (site_id === undefined || site_id === null || site_id === '') ? null : Number(site_id);
       if (sid && Number.isFinite(sid) && device_id && dbApi.assignDeviceToSite) {
         dbApi.assignDeviceToSite(device_id, sid);
       }
+
       res.json({ ok: true, ...out });
     } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
@@ -290,7 +397,6 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
       res.json({ ok: true });
     } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
-
 
   router.post('/blocked-io/hide', requireEngineerAccess, (req, res) => {
     try {

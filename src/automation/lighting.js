@@ -370,7 +370,7 @@ function clearManual(instId) {
 // ── Module definition ──────────────────────────────────────────────────────────
 const LIGHTING_MODULE = {
   id:          'lighting',
-  name:        'Lighting Control',
+  name:        'Advanced Lighting',
   icon:        '💡',
   description: 'Switch (DI), PIR (DI), presence (AI), lux (AI), dimmer (AO), schedule with sunrise/sunset offsets.',
   color:       '#ffd700',
@@ -454,4 +454,4 @@ const LIGHTING_MODULE = {
   ],
 };
 
-module.exports = { lightingHandler, LIGHTING_MODULE, setManual, clearManual };
+module.exports = { lightingHandler, LIGHTING_MODULE, setManual, clearManual, parseTime, inRange, getSun };

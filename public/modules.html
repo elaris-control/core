@@ -288,6 +288,12 @@ option{background:#0d1221;color:var(--text)}
 <script src="/js/modules/mod_maintenance.js?v=1"></script>
 <script src="/js/modules/mod_smart_lighting.js?v=1"></script>
 <script src="/js/modules/mod_custom.js?v=1"></script>
+<script src="/js/modules/mod_basic_light.js?v=1"></script>
+<script src="/js/modules/mod_motion_light.js?v=1"></script>
+<script src="/js/modules/mod_daylight_light.js?v=1"></script>
+<script src="/js/modules/mod_scheduled_light.js?v=1"></script>
+<script src="/js/modules/mod_motion_daylight.js?v=1"></script>
+<script src="/js/modules/mod_scheduled_motion.js?v=1"></script>
 <script src="/js/modules/rules.js?v=1"></script>
 <script src="/js/modules/scenarios.js?v=1"></script>
 <script>
@@ -1067,7 +1073,7 @@ ${msg}
 
 Save anyway?`)) return;
 	}
-  }else if (selectedDef?.id === 'hydronic_manager') {
+  } else if (selectedDef?.id === 'hydronic_manager') {
     const analysis = analyzeHydronicMappings(mappings);
     const blockingWarnings = analysis.issues.filter(i => i.severity === 'bad' || i.severity === 'warn');
     if (blockingWarnings.length) {
@@ -1077,6 +1083,48 @@ Save anyway?`)) return;
 ${msg}
 
 Save anyway?`)) return;
+    }
+  } else if (selectedDef?.id === 'basic_light') {
+    const analysis = analyzeBasicLightMappings(mappings);
+    const blockingWarnings = analysis.issues.filter(i => i.severity === 'bad' || i.severity === 'warn');
+    if (blockingWarnings.length) {
+      const msg = blockingWarnings.map(i => `• ${String(i.message).replace(/<[^>]+>/g,'')}`).join('\n');
+      if (!confirm(`Basic Light commissioning check:\n\n${msg}\n\nSave anyway?`)) return;
+    }
+  } else if (selectedDef?.id === 'motion_light') {
+    const analysis = analyzeMotionLightMappings(mappings);
+    const blockingWarnings = analysis.issues.filter(i => i.severity === 'bad' || i.severity === 'warn');
+    if (blockingWarnings.length) {
+      const msg = blockingWarnings.map(i => `• ${String(i.message).replace(/<[^>]+>/g,'')}`).join('\n');
+      if (!confirm(`Motion Light commissioning check:\n\n${msg}\n\nSave anyway?`)) return;
+    }
+  } else if (selectedDef?.id === 'daylight_light') {
+    const analysis = analyzeDaylightLightMappings(mappings);
+    const blockingWarnings = analysis.issues.filter(i => i.severity === 'bad' || i.severity === 'warn');
+    if (blockingWarnings.length) {
+      const msg = blockingWarnings.map(i => `• ${String(i.message).replace(/<[^>]+>/g,'')}`).join('\n');
+      if (!confirm(`Daylight Light commissioning check:\n\n${msg}\n\nSave anyway?`)) return;
+    }
+  } else if (selectedDef?.id === 'scheduled_light') {
+    const analysis = analyzeScheduledLightMappings(mappings);
+    const blockingWarnings = analysis.issues.filter(i => i.severity === 'bad' || i.severity === 'warn');
+    if (blockingWarnings.length) {
+      const msg = blockingWarnings.map(i => `• ${String(i.message).replace(/<[^>]+>/g,'')}`).join('\n');
+      if (!confirm(`Scheduled Light commissioning check:\n\n${msg}\n\nSave anyway?`)) return;
+    }
+  } else if (selectedDef?.id === 'motion_daylight') {
+    const analysis = analyzeMotionDaylightMappings(mappings);
+    const blockingWarnings = analysis.issues.filter(i => i.severity === 'bad' || i.severity === 'warn');
+    if (blockingWarnings.length) {
+      const msg = blockingWarnings.map(i => `• ${String(i.message).replace(/<[^>]+>/g,'')}`).join('\n');
+      if (!confirm(`Motion + Daylight commissioning check:\n\n${msg}\n\nSave anyway?`)) return;
+    }
+  } else if (selectedDef?.id === 'scheduled_motion') {
+    const analysis = analyzeScheduledMotionMappings(mappings);
+    const blockingWarnings = analysis.issues.filter(i => i.severity === 'bad' || i.severity === 'warn');
+    if (blockingWarnings.length) {
+      const msg = blockingWarnings.map(i => `• ${String(i.message).replace(/<[^>]+>/g,'')}`).join('\n');
+      if (!confirm(`Scheduled + Motion commissioning check:\n\n${msg}\n\nSave anyway?`)) return;
     }
   }
   try {

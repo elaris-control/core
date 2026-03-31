@@ -267,7 +267,7 @@ function parseEsphomeYaml(yamlText) {
   for (const out of toArray(doc.output)) {
     if (!out) continue;
     const plat = String(out.platform || '').toLowerCase();
-    if (plat === 'ledc' || plat === 'sigma_delta' || plat === 'slow_pwm') {
+    if (plat === 'ledc' || plat === 'sigma_delta' || plat === 'slow_pwm' || plat === 'esp32_dac') {
       aoIdx++;
       const pin = resolvePin(out.pin);
       result.entityDefaults.push({

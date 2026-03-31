@@ -23,6 +23,12 @@ const { MODULE: MAINTENANCE_MODULE      } = tryRequire('./maintenance')      || 
 const { MODULE: IRRIGATION_MODULE       } = tryRequire('./irrigation')       || {};
 const { MODULE: HYDRONIC_MANAGER_MODULE } = tryRequire('./hydronic_manager') || {};
 const { MODULE: POOL_SPA_MODULE         } = tryRequire('./pool_spa')         || {};
+const { MODULE: BASIC_LIGHT_MODULE      } = tryRequire('./basic_light')      || {};
+const { MODULE: MOTION_LIGHT_MODULE     } = tryRequire('./motion_light')     || {};
+const { MODULE: DAYLIGHT_LIGHT_MODULE   } = tryRequire('./daylight_light')   || {};
+const { MODULE: SCHEDULED_LIGHT_MODULE  } = tryRequire('./scheduled_light')  || {};
+const { MODULE: MOTION_DAYLIGHT_MODULE  } = tryRequire('./motion_daylight')  || {};
+const { MODULE: SCHEDULED_MOTION_MODULE } = tryRequire('./scheduled_motion') || {};
 
 function withUi(def, ui) {
   return Object.assign({}, def, {
@@ -66,6 +72,12 @@ const MODULES = [
   IRRIGATION_MODULE         && normalizeModule(IRRIGATION_MODULE,         { user_view: false, user_control: false }),
   HYDRONIC_MANAGER_MODULE   && normalizeModule(HYDRONIC_MANAGER_MODULE,   { user_view: false, user_control: false }),
   POOL_SPA_MODULE           && normalizeModule(POOL_SPA_MODULE,           { user_view: false, user_control: false }),
+  BASIC_LIGHT_MODULE        && normalizeModule(BASIC_LIGHT_MODULE,        { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  MOTION_LIGHT_MODULE       && normalizeModule(MOTION_LIGHT_MODULE,       { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  DAYLIGHT_LIGHT_MODULE     && normalizeModule(DAYLIGHT_LIGHT_MODULE,     { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  SCHEDULED_LIGHT_MODULE    && normalizeModule(SCHEDULED_LIGHT_MODULE,    { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  MOTION_DAYLIGHT_MODULE    && normalizeModule(MOTION_DAYLIGHT_MODULE,    { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  SCHEDULED_MOTION_MODULE   && normalizeModule(SCHEDULED_MOTION_MODULE,   { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
 ].filter(Boolean);
 
 function getModule(id)    { return MODULES.find(m => m.id === id) || null; }

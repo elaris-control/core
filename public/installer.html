@@ -64,6 +64,11 @@
     th, td{ text-align:left; padding:10px 8px; border-top:1px solid var(--line); vertical-align:middle; }
     th{ color:var(--muted); font-size:12px; }
     .pill{ display:inline-block; padding:4px 10px; border-radius:999px; background:#f2f4f8; font-weight:900; font-size:12px; color:var(--muted); }
+    .pathNeutral{ background:rgba(148,163,184,.10); border:1px solid rgba(148,163,184,.18); color:#cbd5e1; }
+    .pathDo{ background:rgba(34,197,94,.16); border:1px solid rgba(34,197,94,.30); color:#86efac; }
+    .pathDi{ background:rgba(245,158,11,.16); border:1px solid rgba(245,158,11,.30); color:#fcd34d; }
+    .pathAo{ background:rgba(59,130,246,.18); border:1px solid rgba(59,130,246,.34); color:#bfdbfe; }
+    .pathAi{ background:rgba(168,85,247,.16); border:1px solid rgba(168,85,247,.30); color:#d8b4fe; }
     .ok{ color:var(--good); font-weight:900;}
     .err{ color:var(--bad); font-weight:900;}
     .stateUnlocked{ color:var(--good); font-weight:900; }
@@ -204,17 +209,9 @@
     </div>
 
     <div class="card" id="importBoardCard" style="display:none;">
-      <div style="font-weight:900; margin-bottom:4px;">Import IOs from board catalog</div>
-      <div class="muted" style="margin-bottom:10px;">Select a board and enter the device name — all its IOs will appear below as pending.</div>
-      <div class="row" style="gap:8px; flex-wrap:wrap;">
-        <select id="boardSel" style="min-width:260px;">
-          <option value="">Loading boards…</option>
-        </select>
-        <input id="importDeviceName" placeholder="Device name (e.g. relay_board_01)" style="min-width:220px;" />
-        <button class="btn btnAccent" id="importBoardBtn">Import IOs</button>
-        <span class="muted" id="importMsg"></span>
-      </div>
-      <div id="importBoardInfo" class="muted" style="margin-top:6px; font-size:12px;"></div>
+      <div style="font-weight:900; margin-bottom:4px;">Devices</div>
+      <div class="muted" style="margin-bottom:10px;">Click a device name to filter pending IO.</div>
+      <div id="deviceQuickFilters" class="row" style="gap:8px; flex-wrap:wrap;"></div>
     </div>
 
     <div class="card" id="pendingCard" style="display:none;">
@@ -409,9 +406,9 @@
     if (metaClass === 'DO' || metaClass === 'DI' || metaClass === 'AI' || metaClass === 'AO') return metaClass;
     const group = String(p.group_name || '').toLowerCase();
     const key = String(p.key || '').toLowerCase();
-    if (group === 'state' || key.startsWith('state.')) return 'DO';
     if (key.startsWith('ao_') || key.startsWith('pwm_') || key.startsWith('dimmer_')) return 'AO';
     if (key.startsWith('di_') || key.startsWith('input_') || ['pir','door','leak','motion','contact','reed'].some(x => key.includes(x))) return 'DI';
+    if (group === 'state' || key.startsWith('state.')) return 'DO';
     return 'AI';
   }
 
@@ -595,6 +592,75 @@
     }
   }
 
+  function deviceDisplayName(d){
+    return String(d?.friendly_name || d?.name || d?.hostname || '').trim();
+  }
+
+  function deviceMatchToken(d){
+    return normalizeToken(deviceDisplayName(d) || d?.name || d?.hostname || '');
+  }
+
+  function renderDeviceQuickFilters(allPending){
+    const wrap = $("deviceQuickFilters");
+    if (!wrap) return;
+
+    wrap.innerHTML = "";
+
+    const btnAll = document.createElement("button");
+    btnAll.className = "btn";
+    btnAll.type = "button";
+    btnAll.textContent = "All devices";
+    btnAll.onclick = () => {
+      pendingFilter = "";
+      if ($("pendingSearch")) $("pendingSearch").value = "";
+      loadPending().catch(e=>setMsg("Load error: "+e.message,true));
+    };
+    wrap.appendChild(btnAll);
+
+    const names = new Set();
+    const buttons = [];
+
+    installerDevicesCache.forEach(d => {
+      const label = deviceDisplayName(d);
+      if (!label) return;
+      const token = deviceMatchToken(d);
+      if (!token || names.has(token)) return;
+      names.add(token);
+
+      const btn = document.createElement("button");
+      btn.className = "btn";
+      btn.type = "button";
+      btn.textContent = label;
+      btn.onclick = () => {
+        pendingFilter = label;
+        if ($("pendingSearch")) $("pendingSearch").value = label;
+        loadPending().catch(e=>setMsg("Load error: "+e.message,true));
+      };
+      buttons.push(btn);
+    });
+
+    (allPending || []).forEach(p => {
+      const label = String(p?.device_id || '').trim();
+      const token = normalizeToken(label);
+      if (!label || !token || names.has(token)) return;
+      names.add(token);
+
+      const btn = document.createElement("button");
+      btn.className = "btn";
+      btn.type = "button";
+      btn.textContent = label;
+      btn.onclick = () => {
+        pendingFilter = label;
+        if ($("pendingSearch")) $("pendingSearch").value = label;
+        loadPending().catch(e=>setMsg("Load error: "+e.message,true));
+      };
+      buttons.push(btn);
+    });
+
+    buttons.sort((a, b) => a.textContent.localeCompare(b.textContent));
+    buttons.forEach(btn => wrap.appendChild(btn));
+  }
+
   function findInstallerDeviceForPending(p){
     const want = normalizeToken(p && p.device_id);
     if (!want) return null;
@@ -605,15 +671,21 @@
     const ctx = getInstallerContext();
     const ctxDevice = normalizeToken(ctx.deviceName);
     const rowDevice = normalizeToken(p && p.device_id);
+    const dev = findInstallerDeviceForPending(p);
+    const configSource = String(dev && dev.config_source || '').trim().toLowerCase();
+
+    if (configSource === 'use_my_yaml_overlay') {
+      return { profile: null, via: 'yaml_overlay', device: dev || null };
+    }
+
     if (ctx.boardId && ctxDevice && ctxDevice === rowDevice && installerProfileCache[ctx.boardId]) {
       return { profile: installerProfileCache[ctx.boardId], via: 'context' };
     }
-    const dev = findInstallerDeviceForPending(p);
     if (dev && dev.board_profile_id && installerProfileCache[dev.board_profile_id]) {
       return { profile: installerProfileCache[dev.board_profile_id], via: 'device', device: dev };
     }
     if (ctx.boardId && installerProfileCache[ctx.boardId]) return { profile: installerProfileCache[ctx.boardId], via: 'fallback' };
-    return { profile: null, via: null, device: null };
+    return { profile: null, via: null, device: dev || null };
   }
 
   function inferPendingProfileBinding(p, profile){
@@ -743,13 +815,35 @@
     return out;
   }
 
+  function pendingBoardPathClass(klass){
+    const k = String(klass || '').toUpperCase();
+    if (k === 'DO') return 'pathDo';
+    if (k === 'DI') return 'pathDi';
+    if (k === 'AO') return 'pathAo';
+    if (k === 'AI') return 'pathAi';
+    return 'pathNeutral';
+  }
+
   function renderBoardBinding(wrap, p, profile, klass, selectedValue, note){
-    if (!wrap) return null;
-    wrap.innerHTML = '';
-    if (!profile) {
+  if (!wrap) return null;
+  wrap.innerHTML = '';
+
+  if (!profile) {
+    const rawPath = String(
+      p?.port_id ||
+      p?.bus_id ||
+      p?.source ||
+      p?.pin ||
+      ''
+    ).trim();
+
+    if (rawPath) {
+      wrap.innerHTML = '<span class="pill ' + pendingBoardPathClass(klass) + '">' + escHTML(rawPath) + '</span>';
+    } else {
       wrap.innerHTML = '<span class="muted">—</span>';
-      return null;
     }
+    return null;
+  }
     const options = boardBindingsForClass(profile, klass);
     if (!options.length) {
       wrap.innerHTML = '<span class="muted">No compatible board ports for ' + escHTML(klass || 'this class') + '.</span>';
@@ -808,8 +902,8 @@
     const map = {
       do:   { bg:'rgba(34,197,94,.18)', border:'rgba(34,197,94,.34)', color:'#4ade80' },
       di:   { bg:'rgba(245,158,11,.18)', border:'rgba(245,158,11,.34)', color:'#fbbf24' },
-      ai:   { bg:'rgba(168,85,247,.18)', border:'rgba(168,85,247,.34)', color:'#d8b4fe' },
-      ao:   { bg:'rgba(249,115,22,.18)', border:'rgba(249,115,22,.34)', color:'#fdba74' },
+      ai:   { bg:'rgba(168,85,247,.18)', border:'rgba(168,85,247,.34)', color:'#d8b4fe' },      
+	  ao: { bg:'rgba(59,130,246,.18)', border:'rgba(59,130,246,.34)', color:'#BFDBFE' },
       ht:   { bg:'rgba(139,92,246,.18)', border:'rgba(139,92,246,.34)', color:'#c4b5fd' },
       warn: { bg:'rgba(245,158,11,.18)', border:'rgba(245,158,11,.34)', color:'#f59e0b' },
       info: { bg:'rgba(29,140,255,.16)', border:'rgba(140,197,255,.18)', color:'#8cc5ff' }
@@ -883,7 +977,9 @@
     setMsg("Loading pending IO...");
     const out = await api("/pending-io");
     const allPending = out.pending || [];
+    await ensureInstallerDevices();
     await preloadPendingBoardProfiles(allPending);
+    renderDeviceQuickFilters(allPending);
     const tbody = $("rows");
     tbody.innerHTML = "";
 
@@ -1060,74 +1156,7 @@
     }
   };
 
-  // ── Board catalog import ──────────────────────────────────────────────────
-  async function loadBoards(showAll = false) {
-    try {
-      const out = await api('/esphome/catalog');
-      const boards = out.boards || [];
-      const sel = $('boardSel');
-      const info = $('importBoardInfo');
-      const ctx = getInstallerContext();
-      let visibleBoards = boards;
-      if (!showAll && ctx.boardId) {
-        const preferred = boards.find(b => b.id === ctx.boardId);
-        if (preferred) visibleBoards = [preferred];
-      }
-      const opts = ['<option value="">— Select board —</option>'];
-      if (!showAll && ctx.boardId && visibleBoards.length === 1 && boards.length > 1) {
-        opts.push('<option value="__all__">Show all boards…</option>');
-      }
-      visibleBoards.forEach(b => opts.push(`<option value="${b.id}">${b.label}</option>`));
-      sel.innerHTML = opts.join('');
-      if (ctx.deviceName && !$('importDeviceName').value.trim()) $('importDeviceName').value = ctx.deviceName;
-      if (ctx.boardId && visibleBoards.some(b => b.id === ctx.boardId)) sel.value = ctx.boardId;
-      const updateInfo = () => {
-        if (sel.value === '__all__') { loadBoards(true); return; }
-        const all = boards;
-        const b = all.find(x => x.id === sel.value);
-        if (!b) {
-          info.textContent = ctx.boardId && !showAll && visibleBoards.length === 1
-            ? 'Showing the last board used in ESPHome. Choose “Show all boards…” to browse the full catalog.'
-            : '';
-          return;
-        }
-        const counts = (b.defaults || []).reduce((acc, e) => { acc[e.type] = (acc[e.type] || 0) + 1; return acc; }, {});
-        const countText = Object.entries(counts).map(([t, n]) => `${n}× ${t}`).join(' · ') || 'No IOs defined';
-        info.textContent = countText + (ctx.deviceName ? ` · device ${ctx.deviceName}` : '');
-      };
-      sel.onchange = updateInfo;
-      updateInfo();
-    } catch(e) {
-      $('boardSel').innerHTML = `<option value="">Error loading boards</option>`;
-    }
-  }
-
-  $('importBoardBtn').onclick = async () => {
-    const btn = $('importBoardBtn');
-    const msg = $('importMsg');
-    const boardId = $('boardSel').value;
-    const deviceName = $('importDeviceName').value.trim();
-    if (!boardId) { msg.textContent = 'Select a board first.'; return; }
-    if (!deviceName) { msg.textContent = 'Enter device name.'; return; }
-    let site_id = null;
-    try { site_id = Number(localStorage.getItem('elaris_site_id') || '') || null; } catch(e) {}
-    btn.disabled = true;
-    btn.textContent = 'Importing…';
-    msg.textContent = '';
-    try {
-      const r = await api(`/esphome/catalog/${encodeURIComponent(boardId)}/inject-pending`, {
-        method: 'POST',
-        body: JSON.stringify({ device_name: deviceName, site_id }),
-      });
-      msg.textContent = `Done: ${r.injected} IOs added, ${r.skipped} skipped.`;
-      await loadPending();
-    } catch(e) {
-      msg.textContent = 'Error: ' + e.message;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Import IOs';
-    }
-  };
+  // ── Device quick filters only (board catalog import removed) ─────────────────
 
   const searchInput = document.getElementById("pendingSearch");
   if (searchInput) {
@@ -1188,7 +1217,7 @@
   async function boot(){
     const ok = await checkMe();
     if(!ok) return;
-    await Promise.all([loadZones(), loadBoards()]);
+    await Promise.all([loadZones(), ensureInstallerDevices()]);
     await loadPending();
     await loadBlocked();
   }
