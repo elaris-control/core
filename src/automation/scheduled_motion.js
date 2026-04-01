@@ -15,8 +15,8 @@ function scheduledMotionHandler(ctx, send, siteInfo) {
   const instId = ctx.instance.id;
   const now = Date.now();
   const pirTimeout  = ctx.setting('pir_timeout', 300) * 1000;
-  const schedOnStr  = ctx.settingStr('schedule_on', '');
-  const schedOffStr = ctx.settingStr('schedule_off', '');
+  const schedOnStr  = ctx.settingStr('schedule_on', '18:00');
+  const schedOffStr = ctx.settingStr('schedule_off', '23:00');
   const isOn = relayKeys(ctx).some(k => ctx.isOn(k));
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
 
@@ -97,10 +97,10 @@ const SCHEDULED_MOTION_MODULE = {
   setpoints: [
     { group: 'Switch', key: 'switch_type', label: 'Switch type', type: 'select', options: ['toggle', 'follow'], default: 'toggle',
       help: 'toggle = push button. follow = rocker switch.' },
-    { group: 'Schedule', key: 'schedule_on', label: 'ON at', type: 'text', default: '',
-      help: 'Start of active window. Format: "HH:MM", "sunset-30", "sunrise+60".' },
-    { group: 'Schedule', key: 'schedule_off', label: 'OFF at', type: 'text', default: '',
-      help: 'End of active window.' },
+    { group: 'Schedule', key: 'schedule_on', label: 'ON at', type: 'text', default: '18:00',
+      help: 'Default 18:00. Format: "HH:MM", "sunset-30", "sunrise+60".' },
+    { group: 'Schedule', key: 'schedule_off', label: 'OFF at', type: 'text', default: '23:00',
+      help: 'Default 23:00. End of active window.' },
     { group: 'Motion', key: 'pir_timeout', label: 'OFF after no motion', type: 'number', unit: 'sec', step: 30, default: 300,
       help: 'Auto-OFF timer within schedule.' },
   ],
