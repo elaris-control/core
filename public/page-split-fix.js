@@ -1,10 +1,11 @@
 (function(){
   var LIGHTING_IDS = new Set([
-    'basic_light','motion_light','daylight_light','scheduled_light','motion_daylight','scheduled_motion'
+    'lighting','basic_light','motion_light','daylight_light','scheduled_light','motion_daylight','scheduled_motion'
   ]);
   var THERMO_IDS = new Set([
     'basic_thermostat','call_thermostat','zoned_thermostat'
   ]);
+  var CHIP_ROW = 'display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;padding-bottom:2px;scrollbar-width:none';
 
   function esc(v){
     return String(v==null?'':v)
@@ -26,11 +27,12 @@
   }
 
   function badge(txt, color, border){
-    return '<span class="pill" style="font-size:10px;color:'+(color||'var(--muted2)')+';border-color:'+(border||'var(--line)')+'">'+esc(txt)+'</span>';
+    return '<span class="pill" style="display:inline-flex;align-items:center;white-space:nowrap;font-size:10px;padding:4px 10px;color:'+(color||'var(--muted2)')+';border-color:'+(border||'var(--line)')+'">'+esc(txt)+'</span>';
   }
 
   function splitLightingMeta(moduleId){
     switch(String(moduleId||'')){
+      case 'lighting': return { label:'Lighting', chips:['Auto','PIR','Lux','Combined','Schedule','Manual'] };
       case 'basic_light': return { label:'Basic Light', chips:['Auto','Manual'] };
       case 'motion_light': return { label:'Motion Light', chips:['PIR','Manual'] };
       case 'daylight_light': return { label:'Daylight Light', chips:['Lux','Manual'] };
@@ -43,9 +45,7 @@
 
   function mappedRelayKeys(inst){
     var mappings = Array.isArray(inst && inst.mappings) ? inst.mappings : [];
-    return mappings
-      .map(function(m){ return m && m.input_key; })
-      .filter(function(k){ return /^light_relay(_\d+)?$/.test(String(k||'')); });
+    return mappings.map(function(m){ return m && m.input_key; }).filter(function(k){ return /^light_relay(_\d+)?$/.test(String(k||'')); });
   }
 
   function computeSplitLightingState(inst, st){
@@ -70,16 +70,10 @@
       else if(motion && dark) source='combined';
       else if(motion) source='pir';
       else if(dark) source='lux';
+      else if(String(inst.module_id)==='scheduled_motion') source='schedule';
       else source='idle';
     }
-    return {
-      v:v, state:state, sp:sp,
-      lux:lux, motion:motion, motionAI:motionAI,
-      dimVal:dimVal, hasDimmer:hasDimmer,
-      outputOn:!!outputOn, lastReason:lastReason,
-      manualActive:manualActive, scheduleActive:scheduleActive,
-      dark:dark, source:source
-    };
+    return { v:v,state:state,sp:sp,lux:lux,motion:motion,motionAI:motionAI,dimVal:dimVal,hasDimmer:hasDimmer,outputOn:!!outputOn,lastReason:lastReason,manualActive:manualActive,scheduleActive:scheduleActive,dark:dark,source:source };
   }
 
   async function splitLightManual(moduleId, id, on){
@@ -112,7 +106,7 @@
     if(x.manualActive) h+='<button onclick="splitLightClearManual(\''+inst.module_id+'\','+inst.id+')" style="padding:9px 12px;border-radius:10px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
     h+='</div></div>';
 
-    h+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    h+='<div style="'+CHIP_ROW+'">';
     meta.chips.forEach(function(txt){
       var key=String(txt).toLowerCase();
       var active =
@@ -125,7 +119,7 @@
       h+=badge(txt, active ? (key==='lux'?'#f5c842':key==='schedule'?'#a855f7':'#22d97a') : 'var(--muted2)', active ? (key==='lux'?'rgba(245,200,66,.35)':key==='schedule'?'rgba(168,85,247,.35)':'rgba(34,217,122,.35)') : 'var(--line)');
     });
     if(x.dark) h+=badge('Dark','#f5c842','rgba(245,200,66,.35)');
-    if(x.outputOn) h+=badge('Light ON','#22d97a','rgba(34,217,122,.35)'); else h+=badge('Light OFF','var(--muted2)','var(--line)');
+    h+=badge(x.outputOn?'Light ON':'Light OFF', x.outputOn?'#22d97a':'var(--muted2)', x.outputOn?'rgba(34,217,122,.35)':'var(--line)');
     h+='</div>';
 
     h+='<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px">';
@@ -177,7 +171,7 @@
     if(manualActive) h+='<button onclick="interlockedClearManual('+inst.id+')" style="padding:9px 12px;border-radius:10px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
     h+='</div></div>';
 
-    h+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    h+='<div style="'+CHIP_ROW+'">';
     h+=badge(controlType==='button'?'Button mode':'Switch mode', '#1d8cff', 'rgba(29,140,255,.28)');
     h+=badge('inputs '+inputs.length, 'var(--muted2)', 'var(--line)');
     h+=badge('outputs '+outputs.length, 'var(--muted2)', 'var(--line)');
@@ -205,7 +199,7 @@
 
   window.MODULE_ACCENT = window.MODULE_ACCENT || {};
   window.MODULE_ICON = window.MODULE_ICON || {};
-  ['basic_light','motion_light','daylight_light','scheduled_light','motion_daylight','scheduled_motion'].forEach(function(id){
+  ['lighting','basic_light','motion_light','daylight_light','scheduled_light','motion_daylight','scheduled_motion'].forEach(function(id){
     window.MODULE_ACCENT[id] = '#f5c842';
     window.MODULE_ICON[id] = '💡';
   });
@@ -223,54 +217,24 @@
     if (!inst || !inst.module_id) return origRenderInstance(inst);
 
     if (inst.module_id === 'interlocked_switches') {
-      var grid=document.getElementById('pageGrid');
-      if(!grid) return;
-      var cardId='inst-card-'+inst.id;
-      var card=document.getElementById(cardId);
-      var isNew=!card;
-      if(isNew){
-        card=document.createElement('div');
-        card.id=cardId;
-        card.className='inst-card';
-        card.style.setProperty('--inst-accent','#22d97a');
-        grid.appendChild(card);
-      }
-      card.classList.remove('wide-card');
-      card.classList.remove('thermo-card');
-      if(isNew){
-        card.innerHTML='<div class="inst-header"><div class="inst-name">🔀 '+escapeHTML(inst.name||('Instance #'+inst.id))+'</div><div class="inst-id">#'+inst.id+'</div></div><div id="inst-body-'+inst.id+'"><div style="color:var(--muted);font-size:12px">Loading...</div></div>';
-      }
+      var grid=document.getElementById('pageGrid'); if(!grid) return;
+      var cardId='inst-card-'+inst.id; var card=document.getElementById(cardId); var isNew=!card;
+      if(isNew){ card=document.createElement('div'); card.id=cardId; card.className='inst-card'; card.style.setProperty('--inst-accent','#22d97a'); grid.appendChild(card); }
+      card.classList.remove('wide-card'); card.classList.remove('thermo-card');
+      if(isNew){ card.innerHTML='<div class="inst-header"><div class="inst-name">🔀 '+escapeHTML(inst.name||('Instance #'+inst.id))+'</div><div class="inst-id">#'+inst.id+'</div></div><div id="inst-body-'+inst.id+'"><div style="color:var(--muted);font-size:12px">Loading...</div></div>'; }
       var body=document.getElementById('inst-body-'+inst.id);
-      if(body){
-        try{ body.innerHTML = await renderInterlockedSwitches(inst); }
-        catch(e){ body.innerHTML = '<div style="color:var(--bad);font-size:12px">Error: '+escapeHTML(e.message)+'</div>'; }
-      }
+      if(body){ try{ body.innerHTML = await renderInterlockedSwitches(inst); } catch(e){ body.innerHTML = '<div style="color:var(--bad);font-size:12px">Error: '+escapeHTML(e.message)+'</div>'; } }
       return;
     }
 
     if (LIGHTING_IDS.has(inst.module_id)) {
-      var grid2=document.getElementById('pageGrid');
-      if(!grid2) return;
-      var cardId2='inst-card-'+inst.id;
-      var card2=document.getElementById(cardId2);
-      var isNew2=!card2;
-      if(isNew2){
-        card2=document.createElement('div');
-        card2.id=cardId2;
-        card2.className='inst-card';
-        card2.style.setProperty('--inst-accent','#f5c842');
-        grid2.appendChild(card2);
-      }
-      card2.classList.remove('wide-card');
-      card2.classList.remove('thermo-card');
-      if(isNew2){
-        card2.innerHTML='<div class="inst-header"><div class="inst-name">💡 '+escapeHTML(inst.name||('Instance #'+inst.id))+'</div><div class="inst-id">#'+inst.id+'</div></div><div id="inst-body-'+inst.id+'"><div style="color:var(--muted);font-size:12px">Loading...</div></div>';
-      }
+      var grid2=document.getElementById('pageGrid'); if(!grid2) return;
+      var cardId2='inst-card-'+inst.id; var card2=document.getElementById(cardId2); var isNew2=!card2;
+      if(isNew2){ card2=document.createElement('div'); card2.id=cardId2; card2.className='inst-card'; card2.style.setProperty('--inst-accent','#f5c842'); grid2.appendChild(card2); }
+      card2.classList.remove('wide-card'); card2.classList.remove('thermo-card');
+      if(isNew2){ card2.innerHTML='<div class="inst-header"><div class="inst-name">💡 '+escapeHTML(inst.name||('Instance #'+inst.id))+'</div><div class="inst-id">#'+inst.id+'</div></div><div id="inst-body-'+inst.id+'"><div style="color:var(--muted);font-size:12px">Loading...</div></div>'; }
       var body2=document.getElementById('inst-body-'+inst.id);
-      if(body2){
-        try{ body2.innerHTML = await renderSplitLighting(inst); }
-        catch(e){ body2.innerHTML = '<div style="color:var(--bad);font-size:12px">Error: '+escapeHTML(e.message)+'</div>'; }
-      }
+      if(body2){ try{ body2.innerHTML = await renderSplitLighting(inst); } catch(e){ body2.innerHTML = '<div style="color:var(--bad);font-size:12px">Error: '+escapeHTML(e.message)+'</div>'; } }
       return;
     }
 
