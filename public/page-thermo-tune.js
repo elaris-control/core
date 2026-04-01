@@ -55,25 +55,25 @@
     }
     return cards;
   }
+  function modeBtn(inst, activeMode, mode, label, color, bg, border){
+    var active = activeMode===mode;
+    return '<button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+',{mode:\''+mode+'\'})" style="width:100%;padding:9px 12px;border-radius:16px;border:1px solid '+(active?border:'var(--line2)')+';background:'+(active?bg:'rgba(255,255,255,.05)')+';color:'+(active?color:'var(--text)')+';font-size:12px;font-weight:800;cursor:pointer">'+label+'</button>';
+  }
   async function renderThermoFamily(inst){
     var st={};
     try{ st=await api('/automation/status/'+inst.id); }catch(e){}
     var x=computeThermoState(st), meta=thermoMeta(inst.module_id), paused=!!st.paused;
     var h='';
     h+='<div style="display:flex;flex-direction:column;gap:10px">';
-    h+='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">';
     h+='<div><div style="font-size:11px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">'+esc(meta.label)+'</div>';
     h+='<div style="margin-top:4px;font-size:24px;font-weight:900;color:var(--text)">'+(x.temp!=null?esc(x.temp.toFixed(1)+'°'):'—')+'</div>';
     h+='<div style="font-size:11px;color:var(--muted2);margin-top:2px">'+esc(x.lastReason.length>52?(x.lastReason.slice(0,52)+'…'):x.lastReason)+'</div></div>';
-    h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">';
-    function modeBtn(mode,label,color,bg,border){
-      var active=x.mode===mode;
-      return '<button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+',{mode:\''+mode+'\'})" style="min-width:52px;padding:8px 10px;border-radius:15px;border:1px solid '+(active?border:'var(--line2)')+';background:'+(active?bg:'rgba(255,255,255,.05)')+';color:'+(active?color:'var(--text)')+';font-size:12px;font-weight:800;cursor:pointer">'+label+'</button>';
-    }
-    h+=modeBtn('heating','Heat','#f5c842','rgba(245,200,66,.14)','rgba(245,200,66,.45)');
-    h+=modeBtn('cooling','Cool','#1d8cff','rgba(29,140,255,.14)','rgba(29,140,255,.45)');
-    h+=modeBtn('off','Off','#f59e0b','rgba(245,158,11,.12)','rgba(245,158,11,.4)');
-    h+='</div></div>';
+
+    h+='<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">';
+    h+=modeBtn(inst, x.mode, 'heating', '🔥 Heat', '#f5c842', 'rgba(245,200,66,.14)', 'rgba(245,200,66,.45)');
+    h+=modeBtn(inst, x.mode, 'cooling', '❄ Cool', '#1d8cff', 'rgba(29,140,255,.14)', 'rgba(29,140,255,.45)');
+    h+=modeBtn(inst, x.mode, 'off', '⏻ Off', '#f59e0b', 'rgba(245,158,11,.12)', 'rgba(245,158,11,.4)');
+    h+='</div>';
 
     h+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start">';
     h+=badge(x.mode==='heating'?'Heating':x.mode==='cooling'?'Cooling':'Off', x.mode==='heating'?'#f5c842':x.mode==='cooling'?'#1d8cff':'#f59e0b', x.mode==='heating'?'rgba(245,200,66,.35)':x.mode==='cooling'?'rgba(29,140,255,.35)':'rgba(245,158,11,.35)');
