@@ -11,7 +11,7 @@
     var temp=[v.temp_room,v.zone_1_temp,v.temp,state.temp_room,state.zone_1_temp,state.temp].find(function(x){ return x!==undefined&&x!==null&&x!==''; });
     temp=temp!=null&&Number.isFinite(Number(temp))?Number(temp):null;
     var setpoint=[sp.setpoint,sp.zone_1_setpoint,state.setpoint].find(function(x){ return x!==undefined&&x!==null&&x!==''; });
-    setpoint=setpoint!=null&&Number.isFinite(Number(setpoint))?Number(setpoint):null;
+    setpoint=setpoint!=null&&Number.isFinite(Number(setpoint))?Number(setpoint):21;
     var manualActive=!!state.manual_active || /manual/i.test(lastReason);
     var demand=!!state.heating_on || !!state.cooling_on || !!state.call_active || state.output_on===true || /calling|heat|cool/i.test(lastReason);
     var callingZones=Number(state.calling_zones||sp._central_calling_zones||0)||0;
@@ -95,7 +95,7 @@
     }
     if(meta.hasSetpoint) h+='<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:12px;padding:10px"><div style="font-size:10px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">Setpoint</div><div style="margin-top:5px;font-size:14px;font-weight:900;color:#f5c842">'+(x.setpoint!=null?esc(x.setpoint.toFixed(1)+'°'):'—')+'</div></div>';
     h+='</div>';
-    if(meta.hasSetpoint && x.setpoint!=null){
+    if(meta.hasSetpoint){
       var dpMinus=meta.isZoned?'{setpoint_delta:-0.5}':'{setpoint:'+(Math.round((x.setpoint-0.5)*10)/10)+'}';
       var dpPlus =meta.isZoned?'{setpoint_delta:0.5}' :'{setpoint:'+(Math.round((x.setpoint+0.5)*10)/10)+'}';
       var spLabel=meta.isZoned?'Global − 0.5°':'− 0.5°';
