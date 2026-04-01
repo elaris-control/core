@@ -5,7 +5,8 @@
   var THERMO_IDS = new Set([
     'basic_thermostat','call_thermostat','zoned_thermostat'
   ]);
-  var CHIP_ROW = 'display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;padding-bottom:2px;scrollbar-width:none';
+  var LIGHT_CHIP_ROW = 'display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start;padding-bottom:2px';
+  var INTERLOCKED_CHIP_ROW = 'display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;padding-bottom:2px;scrollbar-width:none';
 
   function esc(v){
     return String(v==null?'':v)
@@ -106,7 +107,7 @@
     if(x.manualActive) h+='<button onclick="splitLightClearManual(\''+inst.module_id+'\','+inst.id+')" style="padding:9px 12px;border-radius:10px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
     h+='</div></div>';
 
-    h+='<div style="'+CHIP_ROW+'">';
+    h+='<div style="'+LIGHT_CHIP_ROW+'">';
     meta.chips.forEach(function(txt){
       var key=String(txt).toLowerCase();
       var active =
@@ -171,7 +172,7 @@
     if(manualActive) h+='<button onclick="interlockedClearManual('+inst.id+')" style="padding:9px 12px;border-radius:10px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
     h+='</div></div>';
 
-    h+='<div style="'+CHIP_ROW+'">';
+    h+='<div style="'+INTERLOCKED_CHIP_ROW+'">';
     h+=badge(controlType==='button'?'Button mode':'Switch mode', '#1d8cff', 'rgba(29,140,255,.28)');
     h+=badge('inputs '+inputs.length, 'var(--muted2)', 'var(--line)');
     h+=badge('outputs '+outputs.length, 'var(--muted2)', 'var(--line)');
