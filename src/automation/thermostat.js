@@ -274,6 +274,7 @@ function zonedThermostatHandler(ctx, send) {
       const zoneName = zoneDisplayName(ctx, zone);
       ctx.setSetting(`_zone_${zone}_state`, '0');
       setZoneStatus(ctx, zone, {
+        status: 'off',
         source: keys.call ? 'call' : (keys.temp ? 'temp' : 'none'),
         demand: '0',
         output_state: '0',
@@ -289,6 +290,8 @@ function zonedThermostatHandler(ctx, send) {
       reason: 'Thermostat mode OFF',
       configured_zones: String(configuredZones),
       calling_zones: '0',
+      di_calling: '0',
+      temp_calling: '0',
     });
     return;
   }
@@ -296,6 +299,8 @@ function zonedThermostatHandler(ctx, send) {
   let anyDemand = false;
   let configuredZones = 0;
   let callingZones = 0;
+  let diCalling = 0;
+  let tempCalling = 0;
 
   for (let zone = 1; zone <= MAX_ZONES; zone++) {
     if (!zoneConfigured(ctx, zone)) continue;
@@ -317,6 +322,7 @@ function zonedThermostatHandler(ctx, send) {
     if (!evald.configured) {
       ctx.setSetting(`_zone_${zone}_state`, '0');
       setZoneStatus(ctx, zone, {
+        status: 'off',
         source: evald.source,
         demand: '0',
         output_state: '0',
@@ -331,6 +337,8 @@ function zonedThermostatHandler(ctx, send) {
     if (evald.desiredActive) {
       anyDemand = true;
       callingZones++;
+      if (evald.source === 'call') diCalling++;
+      else if (evald.source === 'temp') tempCalling++;
     }
 
     if (keys.output) {
@@ -352,6 +360,7 @@ function zonedThermostatHandler(ctx, send) {
     const storedState = outputFinal || pumpFinal || evald.desiredActive;
     ctx.setSetting(`_zone_${zone}_state`, storedState ? '1' : '0');
     setZoneStatus(ctx, zone, {
+      status: storedState ? 'on' : 'off',
       source: evald.source,
       demand: evald.desiredActive ? '1' : '0',
       output_state: outputFinal ? '1' : '0',
@@ -384,6 +393,8 @@ function zonedThermostatHandler(ctx, send) {
       reason: centralReason,
       configured_zones: String(configuredZones),
       calling_zones: String(callingZones),
+      di_calling: String(diCalling),
+      temp_calling: String(tempCalling),
       post_run_until: String(centralPumpPostRun.get(instId) || 0),
     });
   } else {
@@ -392,6 +403,8 @@ function zonedThermostatHandler(ctx, send) {
       reason: anyDemand ? 'Demand present but no central pump mapped' : 'No central pump mapped',
       configured_zones: String(configuredZones),
       calling_zones: String(callingZones),
+      di_calling: String(diCalling),
+      temp_calling: String(tempCalling),
       post_run_until: '0',
     });
   }

@@ -31,6 +31,51 @@ function zoneDisplayName(ctx, n) {
   return String(ctx.settingStr(`zone_${n}_name`, '') || '').trim() || `Zone ${n}`;
 }
 
+// Returns the active scheduled setpoint for a zone, or null if no slot matches
+function getScheduledSetpoint(scheduleJson) {
+  if (!scheduleJson) return null;
+  try {
+    const slots = JSON.parse(scheduleJson);
+    if (!Array.isArray(slots) || !slots.length) return null;
+    const now    = new Date();
+    const day    = now.getDay();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const DAY_NAMES = ['sun','mon','tue','wed','thu','fri','sat'];
+    for (const slot of slots) {
+      const d = String(slot.days || 'all').toLowerCase();
+      const dayMatch =
+        d === 'all' ||
+        (d === 'weekday' && day >= 1 && day <= 5) ||
+        (d === 'weekend' && (day === 0 || day === 6)) ||
+        DAY_NAMES[day] === d;
+      if (!dayMatch) continue;
+      const [sh, sm] = String(slot.start || '00:00').split(':').map(Number);
+      const [eh, em] = String(slot.end   || '23:59').split(':').map(Number);
+      const startMin = sh * 60 + sm;
+      const endMin   = eh * 60 + em;
+      const inRange  = startMin <= endMin
+        ? (nowMin >= startMin && nowMin < endMin)
+        : (nowMin >= startMin || nowMin < endMin);
+      if (inRange && slot.setpoint !== undefined) return parseFloat(slot.setpoint);
+    }
+  } catch (e) {
+    console.warn('[ZONED_THERMOSTAT] Invalid schedule JSON:', e.message, '| raw:', String(scheduleJson).slice(0, 100));
+  }
+  return null;
+}
+
+// Returns { setpoint, hyst, fromSchedule } for a zone — per-zone override → schedule → global fallback
+function resolveZoneSetpoint(ctx, n, globalSp, globalHyst) {
+  const spRaw   = ctx.setting(`zone_${n}_setpoint`,   NaN);
+  const hystRaw = ctx.setting(`zone_${n}_hysteresis`,  NaN);
+  let setpoint  = isNaN(spRaw)   ? globalSp   : spRaw;
+  const hyst    = isNaN(hystRaw) ? globalHyst : hystRaw;
+  const sched   = getScheduledSetpoint(ctx.settingStr(`zone_${n}_schedule`, ''));
+  const fromSchedule = sched !== null;
+  if (fromSchedule) setpoint = sched;
+  return { setpoint, hyst, fromSchedule };
+}
+
 function evaluateZoneDemand({ ctx, keys, mode, setpoint, hyst }) {
   const isCooling = mode === 'cooling';
   const callRaw   = keys.call ? ctx.state(keys.call) : null;
@@ -60,13 +105,13 @@ function evaluateZoneDemand({ ctx, keys, mode, setpoint, hyst }) {
 }
 
 function zonedThermostatHandler(ctx, send) {
-  const instId  = ctx.instance.id;
-  const mode    = ctx.settingStr('mode', 'heating');
-  const defaults = DEFAULTS[mode] || DEFAULTS.heating;
-  const globalSp   = ctx.setting('setpoint',     defaults.setpoint);
-  const globalHyst = ctx.setting('hysteresis',   defaults.hysteresis);
-  const minRunMs   = ctx.setting('min_run_time',  defaults.min_run_time) * 1000;
-  const minOffMs   = ctx.setting('min_off_time',  defaults.min_off_time) * 1000;
+  const instId     = ctx.instance.id;
+  const mode       = ctx.settingStr('mode', 'heating');
+  const defaults   = DEFAULTS[mode] || DEFAULTS.heating;
+  const globalSp   = ctx.setting('setpoint',    defaults.setpoint);
+  const globalHyst = ctx.setting('hysteresis',  defaults.hysteresis);
+  const minRunMs   = ctx.setting('min_run_time', defaults.min_run_time) * 1000;
+  const minOffMs   = ctx.setting('min_off_time', defaults.min_off_time) * 1000;
 
   if (mode === 'off') {
     for (let n = 1; n <= MAX_ZONES; n++) {
@@ -75,7 +120,8 @@ function zonedThermostatHandler(ctx, send) {
       if (k.pump)   send(k.pump,   'OFF', 'Thermostat OFF', { action: `Zone_${n}_Pump_OFF` });
     }
     if (hasMapping(ctx, 'central_pump')) send('central_pump', 'OFF', 'Thermostat OFF', { action: 'Central_Pump_OFF' });
-    ctx.broadcastState({ status: 'off', output_on: false, source: 'mode', last_reason: 'Mode is OFF', mode });
+    ctx.broadcastState({ status: 'off', output_on: false, source: 'mode', last_reason: 'Mode is OFF', mode,
+      calling_zones: 0, configured_zones: 0, di_calling: 0, temp_calling: 0 });
     return;
   }
 
@@ -84,8 +130,10 @@ function zonedThermostatHandler(ctx, send) {
   if (manual) {
     const reason = manual.on ? 'Manual ON' : 'Manual OFF';
     let anyActive = false;
+    let configuredZones = 0;
     for (let n = 1; n <= MAX_ZONES; n++) {
       if (!zoneConfigured(ctx, n)) continue;
+      configuredZones++;
       const k = zoneKeys(ctx, n);
       const isOn = k.output ? ctx.isOn(k.output) : (k.pump ? ctx.isOn(k.pump) : false);
       const rKey = `${instId}:z${n}`;
@@ -101,23 +149,26 @@ function zonedThermostatHandler(ctx, send) {
       const centralOn = ctx.isOn('central_pump');
       if (anyActive !== centralOn) send('central_pump', anyActive ? 'ON' : 'OFF', reason, { action: `Central_Pump_${anyActive ? 'ON' : 'OFF'}` });
     }
-    ctx.broadcastState({ status: anyActive ? 'on' : 'off', output_on: anyActive, source: 'manual', last_reason: reason, mode });
+    ctx.broadcastState({ status: anyActive ? 'on' : 'off', output_on: anyActive, source: 'manual', last_reason: reason, mode,
+      calling_zones: anyActive ? configuredZones : 0, configured_zones: configuredZones, di_calling: 0, temp_calling: 0 });
     return;
   }
 
   // Zone evaluation
-  let anyActive = false;
-  const zoneStatus = [];
+  let anyActive        = false;
+  let configuredZones  = 0;
+  let callingZones     = 0;
+  let diCalling        = 0;
+  let tempCalling      = 0;
+  const zoneStatus     = [];
 
   for (let n = 1; n <= MAX_ZONES; n++) {
     if (!zoneConfigured(ctx, n)) continue;
+    configuredZones++;
     const k    = zoneKeys(ctx, n);
     const name = zoneDisplayName(ctx, n);
 
-    const spRaw   = ctx.setting(`zone_${n}_setpoint`,   NaN);
-    const hystRaw = ctx.setting(`zone_${n}_hysteresis`,  NaN);
-    const setpoint = isNaN(spRaw)   ? globalSp   : spRaw;
-    const hyst     = isNaN(hystRaw) ? globalHyst : hystRaw;
+    const { setpoint, hyst, fromSchedule } = resolveZoneSetpoint(ctx, n, globalSp, globalHyst);
 
     const demand = evaluateZoneDemand({ ctx, keys: k, mode, setpoint, hyst });
     const isOn   = k.output ? ctx.isOn(k.output) : (k.pump ? ctx.isOn(k.pump) : false);
@@ -130,13 +181,22 @@ function zonedThermostatHandler(ctx, send) {
       if (k.pump)   send(k.pump,   active ? 'ON' : 'OFF', demand.reason, { action: `Zone_${n}_Pump_${active ? 'ON' : 'OFF'}` });
     }
 
-    if (active) anyActive = true;
+    if (active) {
+      anyActive = true;
+      callingZones++;
+      if (demand.source === 'call') diCalling++;
+      else if (demand.source === 'temp') tempCalling++;
+    }
+
     zoneStatus.push({ n, name, active, reason: demand.reason });
 
     // Store per-zone state for dashboard
-    ctx.setSetting(`_zone_${n}_status`, active ? 'on' : 'off');
-    ctx.setSetting(`_zone_${n}_reason`, demand.reason);
-    ctx.setSetting(`_zone_${n}_name`,   name);
+    ctx.setSetting(`_zone_${n}_status`,       active ? 'on' : 'off');
+    ctx.setSetting(`_zone_${n}_reason`,       demand.reason);
+    ctx.setSetting(`_zone_${n}_name`,         name);
+    ctx.setSetting(`_zone_${n}_source`,       demand.source);
+    ctx.setSetting(`_zone_${n}_from_schedule`, fromSchedule ? '1' : '0');
+    ctx.setSetting(`_zone_${n}_setpoint`,     String(setpoint));
   }
 
   // Central pump follows any active zone
@@ -150,11 +210,19 @@ function zonedThermostatHandler(ctx, send) {
   }
 
   const activeZones = zoneStatus.filter(z => z.active).map(z => z.name).join(', ');
-  const reason = anyActive
-    ? `Active: ${activeZones}`
-    : 'No zone demand';
+  const reason = anyActive ? `Active: ${activeZones}` : 'No zone demand';
 
-  ctx.broadcastState({ status: anyActive ? 'on' : 'off', output_on: anyActive, source: 'zones', last_reason: reason, mode });
+  ctx.broadcastState({
+    status: anyActive ? 'on' : 'off',
+    output_on: anyActive,
+    source: 'zones',
+    last_reason: reason,
+    mode,
+    calling_zones:    callingZones,
+    configured_zones: configuredZones,
+    di_calling:       diCalling,
+    temp_calling:     tempCalling,
+  });
 }
 
 function setManual(instId, on) { manualState.set(instId, { on: !!on, ts: Date.now() }); }
@@ -184,6 +252,8 @@ for (let n = 1; n <= MAX_ZONES; n++) {
       help: `Override global setpoint for zone ${n}. Leave empty to use global.` },
     { group: 'Zones', key: `zone_${n}_hysteresis`, label: `Zone ${n} Hysteresis`,  type: 'number', unit: '°C', step: 0.1, default: null,
       help: `Override hysteresis for zone ${n}. Leave empty to use global.` },
+    { group: 'Zones', key: `zone_${n}_schedule`,   label: `Zone ${n} Schedule (JSON)`, type: 'text', default: '',
+      help: `Time-based setpoint schedule for zone ${n}. JSON array, e.g. [{"days":"weekday","start":"06:00","end":"22:00","setpoint":21},{"days":"all","start":"22:00","end":"06:00","setpoint":18}]` },
   );
 }
 
@@ -191,7 +261,7 @@ const ZONED_THERMOSTAT_MODULE = {
   id:          'zoned_thermostat',
   name:        'Zoned Thermostat',
   icon:        '🌡️',
-  description: 'Up to 6 zones, each with temp sensor or call contact, zone output, and optional zone pump. Shared central pump. Per-zone name and setpoint overrides.',
+  description: 'Up to 6 zones, each with temp sensor or call contact, zone output, and optional zone pump. Shared central pump. Per-zone name, setpoint overrides, and time schedules.',
   color:       '#00c8ff',
   category:    'climate',
   inputs: [
