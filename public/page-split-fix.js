@@ -41,6 +41,47 @@
     }
   }
 
+  function mappedRelayKeys(inst){
+    var mappings = Array.isArray(inst && inst.mappings) ? inst.mappings : [];
+    return mappings
+      .map(function(m){ return m && m.input_key; })
+      .filter(function(k){ return /^light_relay(_\d+)?$/.test(String(k||'')); });
+  }
+
+  function computeSplitLightingState(inst, st){
+    var v=st.values||{}, state=st.state||{}, sp=st.settings||{};
+    var lux=v.lux_sensor!=null?Number(v.lux_sensor).toFixed(0):null;
+    var pir=v.pir_sensor;
+    var motion=pir==='ON'||pir==='1'||pir==='true'||pir===1||pir===true || !!state.motion_active;
+    var motionAI=v.motion_ai!=null?Number(v.motion_ai).toFixed(0):null;
+    var dimVal=v.dimmer_output!=null?Math.round(Number(v.dimmer_output)):(state.dimmer_level!=null?Math.round(Number(state.dimmer_level)):null);
+    var hasDimmer=dimVal!==null || (inst.mappings||[]).some(function(m){ return m.input_key==='dimmer_output'; });
+    var relayKeys=mappedRelayKeys(inst);
+    var relayOn=relayKeys.some(function(k){ return isOn(v[k]); }) || isOn(v.light_relay);
+    var outputOn = (typeof state.output_on === 'boolean') ? state.output_on : (hasDimmer ? (Number(dimVal||0)>(Number(sp.dim_off_level||0)+5)) : relayOn);
+    var lastReason=String(state.last_reason || (st.lastLog&&st.lastLog[0]&&st.lastLog[0].reason) || 'No recent action');
+    var manualActive = !!state.manual_active || /manual/i.test(lastReason);
+    var scheduleActive = !!state.schedule_active || /schedule/i.test(lastReason);
+    var dark=(state.dark===true || (lux!==null && sp.lux_threshold && Number(lux)<Number(sp.lux_threshold)) || /dark/i.test(lastReason));
+    var source=String(state.source||'').toLowerCase();
+    if(!source || source==='idle'){
+      if(manualActive) source='manual';
+      else if(scheduleActive) source='schedule';
+      else if(motion && dark) source='combined';
+      else if(motion) source='pir';
+      else if(dark) source='lux';
+      else source='idle';
+    }
+    return {
+      v:v, state:state, sp:sp,
+      lux:lux, motion:motion, motionAI:motionAI,
+      dimVal:dimVal, hasDimmer:hasDimmer,
+      outputOn:!!outputOn, lastReason:lastReason,
+      manualActive:manualActive, scheduleActive:scheduleActive,
+      dark:dark, source:source
+    };
+  }
+
   async function splitLightManual(moduleId, id, on){
     try{ await api('/automation/'+moduleId+'/'+id+'/manual',{method:'POST',body:JSON.stringify({on:!!on})}); }
     catch(e){ toast('Cannot control '+moduleId); }
@@ -56,53 +97,42 @@
   async function renderSplitLighting(inst){
     var st={};
     try{ st=await api('/automation/status/'+inst.id); }catch(e){}
-    var v=st.values||{}, state=st.state||{}, sp=st.settings||{}, isPaused=!!st.paused;
     var meta=splitLightingMeta(inst.module_id);
-    var lux=v.lux_sensor!=null?Number(v.lux_sensor).toFixed(0):null;
-    var pir=v.pir_sensor;
-    var motion=pir==='ON'||pir==='1'||pir==='true'||pir===1||pir===true;
-    var motionAI=v.motion_ai!=null?Number(v.motion_ai).toFixed(0):null;
-    var dimVal=v.dimmer_output!=null?Math.round(Number(v.dimmer_output)):(state.dimmer_level!=null?Math.round(Number(state.dimmer_level)):null);
-    var hasDimmer=dimVal!==null || (inst.mappings||[]).some(function(m){ return m.input_key==='dimmer_output'; });
-    var relayVal=v.light_relay;
-    var relayOn=relayVal==='ON'||relayVal==='1'||relayVal===1||relayVal===true;
-    var isLit=hasDimmer ? (Number(dimVal||0)>(Number(sp.dim_off_level||0)+5)) : !!(state.output_on||relayOn);
-    var source=String(state.source||'auto').toLowerCase();
-    var lastReason=String(state.last_reason || (st.lastLog&&st.lastLog[0]&&st.lastLog[0].reason) || 'No recent action');
-    var dark=(state.dark===true || (lux!==null && sp.lux_threshold && Number(lux)<Number(sp.lux_threshold)));
+    var x=computeSplitLightingState(inst, st);
+    var isPaused=!!st.paused;
 
     var h='';
     h+='<div style="display:flex;flex-direction:column;gap:10px">';
     h+='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">';
     h+='<div><div style="font-size:11px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">'+esc(meta.label)+'</div>';
-    h+='<div style="margin-top:3px;font-size:24px;font-weight:900;color:'+(isLit?'#f5c842':'var(--muted2)')+'">'+(hasDimmer?(dimVal!=null?dimVal:0)+'%':(isLit?'ON':'OFF'))+'</div>';
-    h+='<div style="font-size:11px;color:var(--muted2);margin-top:2px">'+esc(lastReason.length>46?(lastReason.slice(0,46)+'…'):lastReason)+'</div></div>';
+    h+='<div style="margin-top:3px;font-size:24px;font-weight:900;color:'+(x.outputOn?'#f5c842':'var(--muted2)')+'">'+(x.hasDimmer?(x.dimVal!=null?x.dimVal:0)+'%':(x.outputOn?'ON':'OFF'))+'</div>';
+    h+='<div style="font-size:11px;color:var(--muted2);margin-top:2px">'+esc(x.lastReason.length>46?(x.lastReason.slice(0,46)+'…'):x.lastReason)+'</div></div>';
     h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">';
-    h+='<button onclick="splitLightManual(\''+inst.module_id+'\','+inst.id+','+(!isLit)+')" style="padding:9px 14px;border-radius:10px;border:1px solid '+(isLit?'rgba(245,200,66,.5)':'var(--line2)')+';background:'+(isLit?'rgba(245,200,66,.15)':'rgba(255,255,255,.05)')+';color:'+(isLit?'#f5c842':'var(--text)')+';font-size:12px;font-weight:800;cursor:pointer">'+(isLit?'Turn OFF':'Turn ON')+'</button>';
-    if(state.manual_active || source==='manual') h+='<button onclick="splitLightClearManual(\''+inst.module_id+'\','+inst.id+')" style="padding:9px 12px;border-radius:10px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
+    h+='<button onclick="splitLightManual(\''+inst.module_id+'\','+inst.id+','+(!x.outputOn)+')" style="padding:9px 14px;border-radius:10px;border:1px solid '+(x.outputOn?'rgba(245,200,66,.5)':'var(--line2)')+';background:'+(x.outputOn?'rgba(245,200,66,.15)':'rgba(255,255,255,.05)')+';color:'+(x.outputOn?'#f5c842':'var(--text)')+';font-size:12px;font-weight:800;cursor:pointer">'+(x.outputOn?'Turn OFF':'Turn ON')+'</button>';
+    if(x.manualActive) h+='<button onclick="splitLightClearManual(\''+inst.module_id+'\','+inst.id+')" style="padding:9px 12px;border-radius:10px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
     h+='</div></div>';
 
     h+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
     meta.chips.forEach(function(txt){
       var key=String(txt).toLowerCase();
       var active =
-        (key==='auto' && (source==='auto' || source==='manual' || source==='idle')) ||
-        (key==='manual' && (state.manual_active || source==='manual')) ||
-        (key==='pir' && (motion || source==='motion' || source==='pir')) ||
-        (key==='lux' && (source==='lux' || dark)) ||
-        (key==='combined' && (source==='combined')) ||
-        (key==='schedule' && (source==='schedule' || state.schedule_active));
+        (key==='auto' && (x.source==='auto' || x.source==='idle')) ||
+        (key==='manual' && x.manualActive) ||
+        (key==='pir' && (x.motion || x.source==='pir')) ||
+        (key==='lux' && (x.source==='lux' || x.dark)) ||
+        (key==='combined' && (x.source==='combined')) ||
+        (key==='schedule' && (x.source==='schedule' || x.scheduleActive));
       h+=badge(txt, active ? (key==='lux'?'#f5c842':key==='schedule'?'#a855f7':'#22d97a') : 'var(--muted2)', active ? (key==='lux'?'rgba(245,200,66,.35)':key==='schedule'?'rgba(168,85,247,.35)':'rgba(34,217,122,.35)') : 'var(--line)');
     });
-    if(dark) h+=badge('Dark','#f5c842','rgba(245,200,66,.35)');
-    if(isLit) h+=badge('Light ON','#22d97a','rgba(34,217,122,.35)'); else h+=badge('Light OFF','var(--muted2)','var(--line)');
+    if(x.dark) h+=badge('Dark','#f5c842','rgba(245,200,66,.35)');
+    if(x.outputOn) h+=badge('Light ON','#22d97a','rgba(34,217,122,.35)'); else h+=badge('Light OFF','var(--muted2)','var(--line)');
     h+='</div>';
 
     h+='<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px">';
-    h+='<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:10px;padding:8px 9px"><div style="font-size:10px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">Source</div><div style="margin-top:3px;font-size:12px;font-weight:800;color:var(--text)">'+esc(source.charAt(0).toUpperCase()+source.slice(1))+'</div></div>';
-    h+='<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:10px;padding:8px 9px"><div style="font-size:10px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">Motion</div><div style="margin-top:3px;font-size:12px;font-weight:800;color:'+(motion?'#22d97a':'var(--text)')+'">'+(motion?'Detected':'Idle')+'</div></div>';
-    var luxTxt = lux!==null ? (lux+' lux') : (motionAI!==null ? ('AI '+motionAI) : '—');
-    h+='<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:10px;padding:8px 9px"><div style="font-size:10px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">Lux / AI</div><div style="margin-top:3px;font-size:12px;font-weight:800;color:'+(dark?'#f5c842':'var(--text)')+'">'+esc(luxTxt)+'</div></div>';
+    h+='<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:10px;padding:8px 9px"><div style="font-size:10px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">Source</div><div style="margin-top:3px;font-size:12px;font-weight:800;color:var(--text)">'+esc(x.source.charAt(0).toUpperCase()+x.source.slice(1))+'</div></div>';
+    h+='<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:10px;padding:8px 9px"><div style="font-size:10px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">Motion</div><div style="margin-top:3px;font-size:12px;font-weight:800;color:'+(x.motion?'#22d97a':'var(--text)')+'">'+(x.motion?'Detected':'Idle')+'</div></div>';
+    var luxTxt = x.lux!==null ? (x.lux+' lux') : (x.motionAI!==null ? ('AI '+x.motionAI) : '—');
+    h+='<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:10px;padding:8px 9px"><div style="font-size:10px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">Lux / AI</div><div style="margin-top:3px;font-size:12px;font-weight:800;color:'+(x.dark?'#f5c842':'var(--text)')+'">'+esc(luxTxt)+'</div></div>';
     h+='</div>';
 
     if(canEngineerUI()) h+='<button onclick="toggleLightPause('+inst.id+','+isPaused+')" style="width:100%;margin-top:2px;padding:8px;border-radius:9px;border:1px solid '+(isPaused?'rgba(245,158,11,.4)':'var(--line2)')+';background:'+(isPaused?'rgba(245,158,11,.1)':'rgba(255,255,255,.03)')+';color:'+(isPaused?'#f59e0b':'var(--muted2)')+';font-size:12px;font-weight:800;cursor:pointer">'+(isPaused?'▶ Resume':'⏸ Pause Automation')+'</button>';
@@ -129,8 +159,8 @@
     var mappings=Array.isArray(inst.mappings)?inst.mappings:[];
     var controlType=String(settings.control_type || 'button');
     var reason=String(state.last_reason || 'Interlocked switch logic active');
-    var outputOn=!!state.output_on;
-    var manualActive=!!state.manual_active;
+    var outputOn=(typeof state.output_on==='boolean') ? state.output_on : ['light_relay','light_relay_2','light_relay_3','light_relay_4'].some(function(k){ return isOn(values[k]); });
+    var manualActive=!!state.manual_active || /manual/i.test(reason);
     var inputKeys=['switch_di','switch_di_2','switch_di_3','switch_di_4','switch_di_5','switch_di_6'];
     var outputKeys=['light_relay','light_relay_2','light_relay_3','light_relay_4'];
     var inputs=inputKeys.filter(function(k){ return mappings.some(function(m){ return m.input_key===k && m.io_id; }); }).map(function(k){ return { key:k, on:isOn(values[k]) }; });
