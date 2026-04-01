@@ -13,6 +13,14 @@ function routes(app, ctx) {
       if (!access) return;
       const body = req.body || {};
       const out  = {};
+      const hasTempSensor = (n) => (access.inst.mappings || []).some(m => m.input_key === `zone_${n}_temp` && m.io_id);
+      const applyGlobalToSensorZones = (value) => {
+        for (let n = 1; n <= 6; n++) {
+          if (!hasTempSensor(n)) continue;
+          engine.setSetting(id, `zone_${n}_setpoint`, String(value));
+          out[`zone_${n}_setpoint`] = value;
+        }
+      };
 
       if (body.mode !== undefined) {
         const mode = String(body.mode || '').toLowerCase();
@@ -23,10 +31,11 @@ function routes(app, ctx) {
       if (body.setpoint !== undefined) {
         const v = Math.max(5, Math.min(45, Number(body.setpoint)));
         if (!Number.isFinite(v)) return res.status(400).json({ ok: false, error: 'invalid_setpoint' });
-        engine.setSetting(id, 'setpoint', String(Math.round(v * 10) / 10));
-        out.setpoint = v;
+        const rounded = Math.round(v * 10) / 10;
+        engine.setSetting(id, 'setpoint', String(rounded));
+        out.setpoint = rounded;
+        applyGlobalToSensorZones(rounded);
       }
-      // all_zones_setpoint: apply same setpoint to global + all zones
       if (body.all_zones_setpoint !== undefined) {
         const v = Math.max(5, Math.min(45, Number(body.all_zones_setpoint)));
         if (!Number.isFinite(v)) return res.status(400).json({ ok: false, error: 'invalid_all_zones_setpoint' });
@@ -34,12 +43,8 @@ function routes(app, ctx) {
         engine.setSetting(id, 'setpoint', String(rounded));
         out.setpoint = rounded;
         out.all_zones_setpoint = rounded;
-        for (let n = 1; n <= 6; n++) {
-          engine.setSetting(id, `zone_${n}_setpoint`, String(rounded));
-          out[`zone_${n}_setpoint`] = rounded;
-        }
+        applyGlobalToSensorZones(rounded);
       }
-      // setpoint_delta: apply to global + all temp-sensor zones that have an override
       if (body.setpoint_delta !== undefined) {
         const delta = Number(body.setpoint_delta);
         if (!Number.isFinite(delta) || Math.abs(delta) > 5) return res.status(400).json({ ok: false, error: 'invalid_delta' });
@@ -47,24 +52,14 @@ function routes(app, ctx) {
         const newGlobal = Math.max(5, Math.min(45, Math.round((curGlobal + delta) * 10) / 10));
         engine.setSetting(id, 'setpoint', String(newGlobal));
         out.setpoint = newGlobal;
-        // Apply delta to per-zone overrides for temp-sensor zones only
-        for (let n = 1; n <= 6; n++) {
-          const hasTempSensor = (access.inst.mappings || []).some(m => m.input_key === `zone_${n}_temp` && m.io_id);
-          if (!hasTempSensor) continue;
-          const cur = engine.getSetting(id, `zone_${n}_setpoint`);
-          if (cur === null || cur === '' || cur === undefined) continue;
-          const curV = Number(cur);
-          if (!Number.isFinite(curV)) continue;
-          const newV = Math.max(5, Math.min(45, Math.round((curV + delta) * 10) / 10));
-          engine.setSetting(id, `zone_${n}_setpoint`, String(newV));
-          out[`zone_${n}_setpoint`] = newV;
-        }
+        applyGlobalToSensorZones(newGlobal);
       }
       for (let n = 1; n <= 6; n++) {
         const spKey      = `zone_${n}_setpoint`;
         const nameKey    = `zone_${n}_name`;
         const schedKey   = `zone_${n}_schedule`;
         if (body[spKey] !== undefined) {
+          if (!hasTempSensor(n)) return res.status(400).json({ ok: false, error: `zone_${n}_requires_sensor` });
           const raw = body[spKey];
           if (raw === null || raw === '') {
             engine.setSetting(id, spKey, '');
