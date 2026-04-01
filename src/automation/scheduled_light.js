@@ -11,8 +11,8 @@ const manualState = new Map();
 
 function scheduledLightHandler(ctx, send, siteInfo) {
   const instId = ctx.instance.id;
-  const schedOnStr  = ctx.settingStr('schedule_on', '');
-  const schedOffStr = ctx.settingStr('schedule_off', '');
+  const schedOnStr  = ctx.settingStr('schedule_on', '18:00');
+  const schedOffStr = ctx.settingStr('schedule_off', '23:00');
   const isOn = relayKeys(ctx).some(k => ctx.isOn(k));
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
 
@@ -35,7 +35,7 @@ function scheduledLightHandler(ctx, send, siteInfo) {
   const schedOff = parseTime(schedOffStr, sun);
 
   if (schedOn == null || schedOff == null) {
-    broadcastState(ctx, { source: 'idle', schedule_active: false, status: isOn ? 'on' : 'off', output_on: isOn, last_reason: 'No schedule configured' });
+    broadcastState(ctx, { source: 'idle', schedule_active: false, status: isOn ? 'on' : 'off', output_on: isOn, last_reason: 'Invalid schedule values' });
     return;
   }
 
@@ -71,10 +71,10 @@ const SCHEDULED_LIGHT_MODULE = {
   setpoints: [
     { group: 'Switch', key: 'switch_type', label: 'Switch type', type: 'select', options: ['toggle', 'follow'], default: 'toggle',
       help: 'toggle = push button. follow = rocker switch.' },
-    { group: 'Schedule', key: 'schedule_on', label: 'ON at', type: 'text', default: '',
-      help: 'Time to turn ON. Format: "HH:MM", "sunset-30", "sunrise+60".' },
-    { group: 'Schedule', key: 'schedule_off', label: 'OFF at', type: 'text', default: '',
-      help: 'Time to turn OFF. Same format.' },
+    { group: 'Schedule', key: 'schedule_on', label: 'ON at', type: 'text', default: '18:00',
+      help: 'Default 18:00. Format: "HH:MM", "sunset-30", "sunrise+60".' },
+    { group: 'Schedule', key: 'schedule_off', label: 'OFF at', type: 'text', default: '23:00',
+      help: 'Default 23:00. Same format.' },
   ],
 };
 
