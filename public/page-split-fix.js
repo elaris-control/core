@@ -31,14 +31,26 @@
 
   function splitLightingMeta(moduleId){
     switch(String(moduleId||'')){
-      case 'basic_light': return { label:'Basic Light', family:'basic', chips:['Auto','Manual'] };
-      case 'motion_light': return { label:'Motion Light', family:'motion', chips:['PIR','Manual'] };
-      case 'daylight_light': return { label:'Daylight Light', family:'daylight', chips:['Lux','Manual'] };
-      case 'scheduled_light': return { label:'Scheduled Light', family:'schedule', chips:['Schedule','Manual'] };
-      case 'motion_daylight': return { label:'Motion + Daylight', family:'combined', chips:['PIR','Lux','Combined','Manual'] };
-      case 'scheduled_motion': return { label:'Scheduled + Motion', family:'scheduled_motion', chips:['Schedule','PIR','Manual'] };
-      default: return { label:'Lighting', family:'basic', chips:['Auto','Manual'] };
+      case 'basic_light': return { label:'Basic Light', chips:['Auto','Manual'] };
+      case 'motion_light': return { label:'Motion Light', chips:['PIR','Manual'] };
+      case 'daylight_light': return { label:'Daylight Light', chips:['Lux','Manual'] };
+      case 'scheduled_light': return { label:'Scheduled Light', chips:['Schedule','Manual'] };
+      case 'motion_daylight': return { label:'Motion + Daylight', chips:['PIR','Lux','Combined','Manual'] };
+      case 'scheduled_motion': return { label:'Scheduled + Motion', chips:['Schedule','PIR','Manual'] };
+      default: return { label:'Lighting', chips:['Auto','Manual'] };
     }
+  }
+
+  async function splitLightManual(moduleId, id, on){
+    try{ await api('/automation/'+moduleId+'/'+id+'/manual',{method:'POST',body:JSON.stringify({on:!!on})}); }
+    catch(e){ toast('Cannot control '+moduleId); }
+    setTimeout(function(){ rerenderInstance(id); }, 220);
+  }
+
+  async function splitLightClearManual(moduleId, id){
+    try{ await api('/automation/'+moduleId+'/'+id+'/clear-manual',{method:'POST'}); }
+    catch(e){ toast('Cannot clear manual override'); }
+    setTimeout(function(){ rerenderInstance(id); }, 220);
   }
 
   async function renderSplitLighting(inst){
@@ -66,8 +78,8 @@
     h+='<div style="margin-top:3px;font-size:24px;font-weight:900;color:'+(isLit?'#f5c842':'var(--muted2)')+'">'+(hasDimmer?(dimVal!=null?dimVal:0)+'%':(isLit?'ON':'OFF'))+'</div>';
     h+='<div style="font-size:11px;color:var(--muted2);margin-top:2px">'+esc(lastReason.length>46?(lastReason.slice(0,46)+'…'):lastReason)+'</div></div>';
     h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">';
-    h+='<button onclick="manualLight('+inst.id+','+isLit+')" style="padding:9px 14px;border-radius:10px;border:1px solid '+(isLit?'rgba(245,200,66,.5)':'var(--line2)')+';background:'+(isLit?'rgba(245,200,66,.15)':'rgba(255,255,255,.05)')+';color:'+(isLit?'#f5c842':'var(--text)')+';font-size:12px;font-weight:800;cursor:pointer">'+(isLit?'Turn OFF':'Turn ON')+'</button>';
-    if(state.manual_active || source==='manual') h+='<button onclick="clearLightManual('+inst.id+')" style="padding:9px 12px;border-radius:10px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
+    h+='<button onclick="splitLightManual(\''+inst.module_id+'\','+inst.id+','+(!isLit)+')" style="padding:9px 14px;border-radius:10px;border:1px solid '+(isLit?'rgba(245,200,66,.5)':'var(--line2)')+';background:'+(isLit?'rgba(245,200,66,.15)':'rgba(255,255,255,.05)')+';color:'+(isLit?'#f5c842':'var(--text)')+';font-size:12px;font-weight:800;cursor:pointer">'+(isLit?'Turn OFF':'Turn ON')+'</button>';
+    if(state.manual_active || source==='manual') h+='<button onclick="splitLightClearManual(\''+inst.module_id+'\','+inst.id+')" style="padding:9px 12px;border-radius:10px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
     h+='</div></div>';
 
     h+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
@@ -239,4 +251,9 @@
     }
     return origRenderInstance(inst);
   };
+
+  window.splitLightManual = splitLightManual;
+  window.splitLightClearManual = splitLightClearManual;
+  window.interlockedManual = interlockedManual;
+  window.interlockedClearManual = interlockedClearManual;
 })();
