@@ -185,3 +185,102 @@
     }, { passive: true });
   });
 })();
+
+// Dashboard patch for split module IDs
+(function(){
+  if (typeof window === 'undefined') return;
+
+  const extraMeta = [
+    {id:'basic_light',          icon:'📦', label:'Basic Light',          color:'#f5c842'},
+    {id:'motion_light',         icon:'🚶', label:'Motion Light',         color:'#f5c842'},
+    {id:'daylight_light',       icon:'🌞', label:'Daylight Light',       color:'#f5c842'},
+    {id:'scheduled_light',      icon:'⏰', label:'Scheduled Light',      color:'#f5c842'},
+    {id:'motion_daylight',      icon:'🚶', label:'Motion + Daylight',    color:'#f5c842'},
+    {id:'scheduled_motion',     icon:'🕒', label:'Scheduled Motion',     color:'#f5c842'},
+    {id:'interlocked_switches', icon:'🔀', label:'Interlocked Switches', color:'#f59e0b'},
+    {id:'basic_thermostat',     icon:'🌡️', label:'Basic Thermostat',    color:'#1d8cff'},
+    {id:'call_thermostat',      icon:'📞', label:'Call Thermostat',      color:'#1d8cff'},
+    {id:'zoned_thermostat',     icon:'🧩', label:'Zoned Thermostat',     color:'#1d8cff'},
+  ];
+
+  try {
+    if (typeof MODULE_META !== 'undefined' && Array.isArray(MODULE_META)) {
+      extraMeta.forEach(meta => {
+        if (!MODULE_META.find(m => String(m.id) === String(meta.id))) MODULE_META.push(meta);
+      });
+    }
+    if (typeof MODULE_META_BY_ID !== 'undefined' && MODULE_META_BY_ID) {
+      extraMeta.forEach(meta => {
+        if (!MODULE_META_BY_ID[meta.id]) MODULE_META_BY_ID[meta.id] = meta;
+      });
+    }
+  } catch (_) {}
+
+  if (typeof summarizeInstanceLive === 'function') {
+    const originalSummarizeInstanceLive = summarizeInstanceLive;
+    summarizeInstanceLive = function(inst, live) {
+      const moduleId = String(inst && inst.module_id || '');
+      const vals = live && live.values || {};
+      const state = live && live.state || live && live.live || {};
+      const settings = live && live.settings || {};
+
+      const lightIds = new Set(['basic_light','motion_light','daylight_light','scheduled_light','motion_daylight','scheduled_motion','interlocked_switches']);
+      const thermostatIds = new Set(['basic_thermostat','call_thermostat','zoned_thermostat']);
+
+      if (lightIds.has(moduleId)) {
+        const on = !!(state.output_on || state.any_on || state.active || state.running);
+        const source = String(state.source || state.mode || '').replace(/_/g, ' ').trim();
+        return {
+          text: source ? `${(MODULE_META_BY_ID[moduleId]?.label || moduleId)} · ${source}` : `${(MODULE_META_BY_ID[moduleId]?.label || moduleId)} ready`,
+          tone: on ? 'good' : 'neutral',
+          metric: on ? 2 : 1,
+          metricLabel: 'Lighting',
+          badgeLabel: on ? 'Running' : 'Ready'
+        };
+      }
+
+      if (thermostatIds.has(moduleId)) {
+        const room = typeof extractLiveNumber === 'function' ? extractLiveNumber(vals, ['temp_room','zone_1_temp','temp']) : null;
+        const sp = typeof extractLiveNumber === 'function' ? extractLiveNumber(settings, ['setpoint','setpoint_c','target_temp']) : null;
+        if (room != null && sp != null) {
+          return {
+            text: `${(MODULE_META_BY_ID[moduleId]?.label || moduleId)} ${room.toFixed(1)}° / ${sp.toFixed(1)}°`,
+            tone: 'info',
+            metric: room,
+            metricLabel: 'Temperature',
+            badgeLabel: 'Climate'
+          };
+        }
+        if (room != null) {
+          return {
+            text: `${(MODULE_META_BY_ID[moduleId]?.label || moduleId)} ${room.toFixed(1)}°`,
+            tone: 'info',
+            metric: room,
+            metricLabel: 'Temperature',
+            badgeLabel: 'Climate'
+          };
+        }
+        return {
+          text: `${(MODULE_META_BY_ID[moduleId]?.label || moduleId)} active`,
+          tone: 'info',
+          metric: 1,
+          metricLabel: 'Climate',
+          badgeLabel: 'Active'
+        };
+      }
+
+      return originalSummarizeInstanceLive(inst, live);
+    };
+  }
+
+  function rerenderDashboardModuleCards() {
+    try { if (typeof loadSummaryCards === 'function') loadSummaryCards(); } catch (_) {}
+    try { if (typeof loadPinnedPagesWidget === 'function') loadPinnedPagesWidget(); } catch (_) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(rerenderDashboardModuleCards, 0); });
+  } else {
+    setTimeout(rerenderDashboardModuleCards, 0);
+  }
+})();
