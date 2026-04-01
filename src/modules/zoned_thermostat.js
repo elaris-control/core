@@ -26,6 +26,19 @@ function routes(app, ctx) {
         engine.setSetting(id, 'setpoint', String(Math.round(v * 10) / 10));
         out.setpoint = v;
       }
+      // all_zones_setpoint: apply same setpoint to global + all zones
+      if (body.all_zones_setpoint !== undefined) {
+        const v = Math.max(5, Math.min(45, Number(body.all_zones_setpoint)));
+        if (!Number.isFinite(v)) return res.status(400).json({ ok: false, error: 'invalid_all_zones_setpoint' });
+        const rounded = Math.round(v * 10) / 10;
+        engine.setSetting(id, 'setpoint', String(rounded));
+        out.setpoint = rounded;
+        out.all_zones_setpoint = rounded;
+        for (let n = 1; n <= 6; n++) {
+          engine.setSetting(id, `zone_${n}_setpoint`, String(rounded));
+          out[`zone_${n}_setpoint`] = rounded;
+        }
+      }
       // setpoint_delta: apply to global + all temp-sensor zones that have an override
       if (body.setpoint_delta !== undefined) {
         const delta = Number(body.setpoint_delta);
@@ -52,10 +65,16 @@ function routes(app, ctx) {
         const nameKey    = `zone_${n}_name`;
         const schedKey   = `zone_${n}_schedule`;
         if (body[spKey] !== undefined) {
-          const v = Math.max(5, Math.min(45, Number(body[spKey])));
-          if (!Number.isFinite(v)) return res.status(400).json({ ok: false, error: `invalid_${spKey}` });
-          engine.setSetting(id, spKey, String(Math.round(v * 10) / 10));
-          out[spKey] = v;
+          const raw = body[spKey];
+          if (raw === null || raw === '') {
+            engine.setSetting(id, spKey, '');
+            out[spKey] = null;
+          } else {
+            const v = Math.max(5, Math.min(45, Number(raw)));
+            if (!Number.isFinite(v)) return res.status(400).json({ ok: false, error: `invalid_${spKey}` });
+            engine.setSetting(id, spKey, String(Math.round(v * 10) / 10));
+            out[spKey] = v;
+          }
         }
         if (body[nameKey] !== undefined) {
           engine.setSetting(id, nameKey, String(body[nameKey] || '').trim());
