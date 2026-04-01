@@ -98,11 +98,12 @@
     if(meta.hasSetpoint && x.setpoint!=null){
       var dpMinus=meta.isZoned?'{setpoint_delta:-0.5}':'{setpoint:'+(Math.round((x.setpoint-0.5)*10)/10)+'}';
       var dpPlus =meta.isZoned?'{setpoint_delta:0.5}' :'{setpoint:'+(Math.round((x.setpoint+0.5)*10)/10)+'}';
-      var spLabel=meta.isZoned?'All zones − 0.5°':'− 0.5°';
-      var spLabelP=meta.isZoned?'All zones + 0.5°':'+ 0.5°';
+      var spLabel=meta.isZoned?'Global − 0.5°':'− 0.5°';
+      var spLabelP=meta.isZoned?'Global + 0.5°':'+ 0.5°';
       h+='<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">';
       h+='<button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+','+dpMinus+')" style="padding:8px 12px;border-radius:12px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:12px;font-weight:800;cursor:pointer">'+spLabel+'</button>';
       h+='<button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+','+dpPlus+')" style="padding:8px 12px;border-radius:12px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:12px;font-weight:800;cursor:pointer">'+spLabelP+'</button>';
+      if(meta.isZoned) h+='<button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+',{all_zones_setpoint:'+(Math.round(x.setpoint*10)/10)+'})" style="padding:8px 12px;border-radius:12px;border:1px solid rgba(245,200,66,.35);background:rgba(245,200,66,.10);color:#f5c842;font-size:12px;font-weight:800;cursor:pointer">Apply global to all zones</button>';
       if(x.manualActive) h+='<button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+',{clear_manual:true})" style="padding:8px 12px;border-radius:12px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
       h+='</div>';
     }
