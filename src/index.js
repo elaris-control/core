@@ -1,8 +1,23 @@
 'use strict';
 
-const http = require('http');
+const fs = require('fs');
 const path = require('path');
 
+const envPath = path.join(__dirname, '../.env');
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  for (const line of envContent.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const value = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+    if (!process.env[key]) process.env[key] = value;
+  }
+}
+
+const http = require('http');
 const { loadLicense, hasFeature, getLicense } = require('./license');
 const { createHttpApp, mountHtmlGuardAndStatic } = require('./bootstrap/app');
 const { initCoreServices, initIntegrationServices } = require('./bootstrap/services');
@@ -111,6 +126,26 @@ async function main() {
     console.log(`[ELARIS] MQTT: ${MQTT_URL}`);
     console.log(`[ELARIS] APP_URL: ${APP_URL}`);
   });
+
+  let shuttingDown = false;
+  function gracefulShutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[ELARIS] ${signal} received, shutting down...`);
+    server.close(() => {
+      runtime.shutdown();
+      db.close();
+      console.log('[ELARIS] Shutdown complete.');
+      process.exit(0);
+    });
+    setTimeout(() => {
+      console.error('[ELARIS] Forced shutdown after timeout.');
+      process.exit(1);
+    }, 10000);
+  }
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 }
 
 main().catch(e => {

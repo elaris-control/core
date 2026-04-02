@@ -58,6 +58,7 @@ db.exec(`
       device_id TEXT NOT NULL,
       key TEXT NOT NULL,
       group_name TEXT NOT NULL,
+      source TEXT,
       first_seen INTEGER NOT NULL,
       last_seen INTEGER NOT NULL,
       last_value TEXT,
@@ -161,6 +162,7 @@ db.exec(`
   try{
     const pCols = db.prepare(`PRAGMA table_info(pending_io);`).all().map(r=>r.name);
     if(!pCols.includes("site_id")) db.exec(`ALTER TABLE pending_io ADD COLUMN site_id INTEGER;`);
+    if(!pCols.includes("source")) db.exec(`ALTER TABLE pending_io ADD COLUMN source TEXT;`);
   }catch(_){}
 
 
@@ -515,9 +517,9 @@ db.exec(`
     LIMIT 1
   `);
   const upsertPendingIO = db.prepare(`
-    INSERT INTO pending_io (device_id, key, group_name, first_seen, last_seen, last_value)
-    VALUES (@device_id, @key, @group_name, @ts, @ts, @last_value)
-    ON CONFLICT(device_id, group_name, key) DO UPDATE SET last_seen=excluded.last_seen, last_value=excluded.last_value
+    INSERT INTO pending_io (device_id, key, group_name, source, first_seen, last_seen, last_value)
+    VALUES (@device_id, @key, @group_name, @source, @ts, @ts, @last_value)
+    ON CONFLICT(device_id, group_name, key) DO UPDATE SET last_seen=excluded.last_seen, last_value=excluded.last_value, source=COALESCE(excluded.source, pending_io.source)
   `);
   const upsertPendingIOWithSite = db.prepare(`
     INSERT INTO pending_io (device_id, key, group_name, first_seen, last_seen, last_value, site_id)
@@ -743,7 +745,7 @@ db.exec(`
   }
   if (isBlockedIO.get(deviceId, finalGroup, finalKey)) return { ok: false, reason: 'blocked' };
 
-  upsertPendingIO.run({ device_id: deviceId, key: finalKey, group_name: finalGroup, ts, last_value: value });
+  upsertPendingIO.run({ device_id: deviceId, key: finalKey, group_name: finalGroup, source: canonical.source || null, ts, last_value: value });
   normalizePendingRowsForDevice(deviceId);
   return { ok: true, reason: 'pending_upserted', canonical };
 }
@@ -769,7 +771,7 @@ db.exec(`
       if (isApprovedIO.get(deviceId, canonical.group_name, canonical.key)) continue;
       if (canonical.port_id && findApprovedIOByPath.get(deviceId, canonical.port_id, canonical.source || canonical.port_id, canonical.port_id)) continue;
       if (isBlockedIO.get(deviceId, canonical.group_name, canonical.key)) continue;
-      upsertPendingIO.run({ device_id: deviceId, key: canonical.key, group_name: canonical.group_name, ts, last_value: null });
+      upsertPendingIO.run({ device_id: deviceId, key: canonical.key, group_name: canonical.group_name, source: canonical.source || null, ts, last_value: null });
     }
 
     // Mark IOs that no longer appear in the device config as stale

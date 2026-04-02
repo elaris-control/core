@@ -147,7 +147,6 @@ function mountDeviceRoutes({ app, db, cfgDir, mqttApi, nativeSessions, requireEn
   app.get('/api/esphome/devices', requireEngineerAccess, (req, res) => {
     if (!db) return res.json({ devices: [] });
     try {
-      cleanupStaleEsphomeDuplicates(db);
       const rows = db.prepare(`
         SELECT d.id, d.site_id, d.name, d.friendly_name, d.board_profile_id, d.transport, d.network_mode,
                d.status, d.serial_port, d.mac_address, d.ip_address, d.hostname, d.mqtt_topic_root,

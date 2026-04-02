@@ -427,6 +427,18 @@ function zonedThermostatHandler(ctx, send) {
       ctx.setSetting('_humidity_relay', humDesired ? '1' : '0');
     }
   }
+
+  ctx.broadcastState({
+    status: anyDemand ? 'on' : 'off',
+    output_on: anyDemand,
+    source: 'zones',
+    last_reason: anyDemand ? 'Zone demand active' : 'No zone demand',
+    mode,
+    calling_zones: callingZones,
+    configured_zones: configuredZones,
+    di_calling: diCalling,
+    temp_calling: tempCalling,
+  });
 }
 
 function legacySingleZoneHandler(ctx, send) {
@@ -435,6 +447,7 @@ function legacySingleZoneHandler(ctx, send) {
   const defaults  = DEFAULTS[mode] || DEFAULTS.cooling;
   if (mode === 'off') {
     send('ac_relay', 'OFF', 'Thermostat OFF', { action: 'Thermostat_Legacy_Output_OFF' });
+    ctx.broadcastState({ status: 'off', output_on: false, source: 'mode', last_reason: 'Mode is OFF', mode });
     return;
   }
   const setpoint  = ctx.setting("setpoint",    defaults.setpoint);
@@ -443,7 +456,10 @@ function legacySingleZoneHandler(ctx, send) {
   const minOff    = ctx.setting("min_off_time", defaults.min_off_time) * 1000;
 
   const tempRoom    = ctx.value("temp_room");
-  if (tempRoom === null) return;
+  if (tempRoom === null) {
+    ctx.broadcastState({ status: 'off', output_on: false, source: 'sensor', last_reason: 'No sensor reading', mode });
+    return;
+  }
 
   const isOn   = ctx.isOn("ac_relay");
   const now    = Date.now();
@@ -474,6 +490,8 @@ function legacySingleZoneHandler(ctx, send) {
     windowLockout.delete(instId);
   }
 
+  if (windowLockout.has(instId)) return;
+
   const preEnable  = ctx.setting("pre_enable", 0);
   const preTarget  = ctx.settingStr("pre_target_time", "07:00");
   const tempOutdoor= ctx.value("temp_outdoor");
@@ -497,13 +515,15 @@ function legacySingleZoneHandler(ctx, send) {
       : (nowMin >= startMin || nowMin < targetMin);
 
     if (inPreWindow && !isOn) {
-      send("ac_relay", "ON", `Pre-${mode}: starting ${leadMins}min early (outdoor: ${tempOutdoor}°C, gap: ${tempGap.toFixed(1)}°C)`, { action: 'Thermostat_Legacy_Output_ON' });
-      lastOnTime.set(runtimeKey(instId, 'legacy'), now);
-      return;
+      const legacyKey = runtimeKey(instId, 'legacy');
+      if (!lastOffTime.has(legacyKey) || (now - lastOffTime.get(legacyKey) >= minOff)) {
+        send("ac_relay", "ON", `Pre-${mode}: starting ${leadMins}min early (outdoor: ${tempOutdoor}°C, gap: ${tempGap.toFixed(1)}°C)`, { action: 'Thermostat_Legacy_Output_ON' });
+        lastOnTime.set(legacyKey, now);
+        lastOffTime.delete(legacyKey);
+        return;
+      }
     }
   }
-
-  if (windowLockout.has(instId)) return;
 
   const legacyKey = runtimeKey(instId, 'legacy');
   if (isOn && lastOnTime.has(legacyKey)) {
@@ -544,6 +564,16 @@ function legacySingleZoneHandler(ctx, send) {
     }
     send("ac_relay", targetState, reason, { action: `Thermostat_Legacy_Output_${targetState}` });
   }
+
+  ctx.broadcastState({
+    status: isOn ? 'on' : 'off',
+    output_on: isOn,
+    source: 'temp',
+    last_reason: reason || 'Within hysteresis band',
+    mode,
+    temp: tempRoom != null ? Number(tempRoom).toFixed(1) : null,
+    setpoint,
+  });
 }
 
 function thermostatHandler(ctx, send) {

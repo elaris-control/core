@@ -1,6 +1,6 @@
 // src/auth.js
 const crypto = require("crypto");
-const { createAuthRateLimiter } = require("./security");
+const { createAuthRateLimiter, parseCookies } = require("./security");
 
 function b64url(buf) {
   return Buffer.from(buf).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
@@ -9,20 +9,6 @@ function unb64url(str) {
   str = str.replace(/-/g, "+").replace(/_/g, "/");
   while (str.length % 4) str += "=";
   return Buffer.from(str, "base64");
-}
-
-function parseCookies(header) {
-  const out = {};
-  if (!header) return out;
-  const parts = header.split(";");
-  for (const p of parts) {
-    const idx = p.indexOf("=");
-    if (idx === -1) continue;
-    const k = p.slice(0, idx).trim();
-    const v = p.slice(idx + 1).trim();
-    out[k] = decodeURIComponent(v);
-  }
-  return out;
 }
 
 function signToken(payloadObj, secret) {

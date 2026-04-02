@@ -530,7 +530,6 @@ function renderThermostatWizard(currentMappings={}, rowRenderer) {
   return html;
 }
 
-
 // ── Instance cards ────────────────────────────────────────────────────────
 function renderInstances() {
   const grid  = document.getElementById("instGrid");
@@ -919,8 +918,7 @@ function renderWizardInputs(currentMappings={}) {
     document.getElementById("wizardInputs").innerHTML = (modSummaryBox ? '<div id="'+modSummaryBox+'"></div>' : '') + html;
     if (modSummaryBox) ModuleRegistry[selectedDef?.id].updateCommissioningSummary(currentMappings);
   } else {
-    if (selectedDef?.id === 'thermostat') {
-      if (!editingId) thermostatVisibleZones = thermostatSuggestedVisibleZones(currentMappings);
+    if (selectedDef?.id === 'thermostat' || selectedDef?.id === 'zoned_thermostat') {
       renderThermostatWizardIntoDom(currentMappings, makeRow);
     } else if (ModuleRegistry[selectedDef?.id]?.renderWizardInputs) {
       ModuleRegistry[selectedDef?.id].renderWizardInputs(currentMappings, makeRow);

@@ -52,13 +52,21 @@ function initRealtimeRuntime({ server, dbApi, db, access, users, auth, scenesApi
   const mqttApi = initMQTT({ url: mqttUrl, dbApi, broadcast: wsApi.broadcast, solarAuto: engine });
   engine.setMqttApi(mqttApi);
 
+  const scheduleInterval = setInterval(() => scenesApi.tickSchedules({ engine, mqttApi, notify: notifyApi.notify }), 30000);
   setTimeout(() => engine.evaluateAll(), 2000);
-  setInterval(() => scenesApi.tickSchedules({ engine, mqttApi, notify: notifyApi.notify }), 30000);
+
+  function shutdown() {
+    engine.stopTick();
+    clearInterval(scheduleInterval);
+    try { mqttApi.client.end(); } catch (_) {}
+    try { wsApi.wss.close(); } catch (_) {}
+  }
 
   return {
     wsApi,
     engine,
     mqttApi,
+    shutdown,
   };
 }
 

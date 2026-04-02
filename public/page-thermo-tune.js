@@ -11,7 +11,7 @@
     var temp=[v.temp_room,v.zone_1_temp,v.temp,state.temp_room,state.zone_1_temp,state.temp].find(function(x){ return x!==undefined&&x!==null&&x!==''; });
     temp=temp!=null&&Number.isFinite(Number(temp))?Number(temp):null;
     var setpoint=[sp.setpoint,sp.zone_1_setpoint,state.setpoint].find(function(x){ return x!==undefined&&x!==null&&x!==''; });
-    setpoint=setpoint!=null&&Number.isFinite(Number(setpoint))?Number(setpoint):null;
+    setpoint=setpoint!=null&&Number.isFinite(Number(setpoint))?Number(setpoint):21;
     var manualActive=!!state.manual_active || /manual/i.test(lastReason);
     var demand=!!state.heating_on || !!state.cooling_on || !!state.call_active || state.output_on===true || /calling|heat|cool/i.test(lastReason);
     var callingZones=Number(state.calling_zones||sp._central_calling_zones||0)||0;
@@ -33,27 +33,28 @@
       zt=zt!=null&&Number.isFinite(Number(zt))?Number(zt):null;
       var zsp=x.sp['_zone_'+n+'_setpoint']||x.sp['zone_'+n+'_setpoint'];
       zsp=(zsp!=null&&zsp!==''&&Number.isFinite(Number(zsp)))?Number(zsp):null;
-      if(!status) continue;
       if(!name) name='Zone '+n;
       var isOnZone=status==='on';
+      var isMapped=!!status;
+      var hasTempSensor=source==='temp'||!!zt;
       var srcBadge='';
       if(source==='call') srcBadge=badge('DI','#1d8cff','rgba(29,140,255,.3)');
       else if(source==='temp') srcBadge=badge('Temp','#22d97a','rgba(34,217,122,.3)');
       if(fromSched) srcBadge+=badge('Schedule','#a855f7','rgba(168,85,247,.3)');
       var instId=inst.id;
-      cards+='<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:12px;padding:10px">';
+      var effectiveSp=zsp!=null?zsp:(x.setpoint!=null?x.setpoint:21);
+      var isGlobalSp=zsp==null;
+      cards+='<div style="border:1px solid var(--line);background:rgba(255,255,255,'+(isMapped?'.03':'.015)+');border-radius:12px;padding:10px'+(isMapped?'':'opacity:.5')+'">';
       cards+='<div style="display:flex;justify-content:space-between;gap:6px;align-items:center">';
       cards+='<div style="display:flex;align-items:center;gap:5px;min-width:0">';
-      cards+='<div style="font-size:11px;font-weight:900;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="zt-name-'+instId+'-'+n+'">'+esc(name)+'</div>';
-      cards+='<button onclick="zoneThermoRename(\''+moduleId+'\','+instId+','+n+')" style="background:none;border:none;color:var(--muted2);cursor:pointer;padding:0 2px;font-size:10px;line-height:1" title="Rename">✏️</button>';
+      cards+='<div style="font-size:11px;font-weight:900;color:'+(isMapped?'var(--text)':'var(--muted2)')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="zt-name-'+instId+'-'+n+'">'+esc(name)+'</div>';
+      if(isMapped) cards+='<button onclick="zoneThermoRename(\''+moduleId+'\','+instId+','+n+')" style="background:none;border:none;color:var(--muted2);cursor:pointer;padding:0 2px;font-size:10px;line-height:1" title="Rename">✏️</button>';
       cards+='</div>';
       cards+='<div style="font-size:10px;font-weight:800;color:'+(isOnZone?'#22d97a':'var(--muted2)')+';white-space:nowrap">'+(status?status.toUpperCase():('Z'+n))+'</div>';
       cards+='</div>';
-      var effectiveSp=zsp!=null?zsp:(x.setpoint!=null?x.setpoint:21);
-      var isGlobalSp=zsp==null;
       cards+='<div style="margin-top:6px;display:flex;justify-content:space-between;gap:8px">';
-      cards+='<div><div style="font-size:10px;color:var(--muted2);text-transform:uppercase">Room</div><div style="font-size:14px;font-weight:900;color:var(--text)">'+(zt!=null?esc(zt.toFixed(1)+'°'):'—')+'</div></div>';
-      if(source!=='call'){
+      cards+='<div><div style="font-size:10px;color:var(--muted2);text-transform:uppercase">Room</div><div style="font-size:14px;font-weight:900;color:'+(zt!=null?'var(--text)':'var(--muted2)')+'">'+(zt!=null?esc(zt.toFixed(1)+'°'):'—')+'</div></div>';
+      if(hasTempSensor && isMapped){
         var spM=Math.round((effectiveSp-0.5)*10)/10, spP=Math.round((effectiveSp+0.5)*10)/10;
         var spKey='zone_'+n+'_setpoint';
         cards+='<div style="text-align:right">';
@@ -63,6 +64,10 @@
         cards+='<span style="font-size:14px;font-weight:900;color:#f5c842;min-width:34px;text-align:center">'+esc(effectiveSp.toFixed(1)+'°')+'</span>';
         cards+='<button onclick="var p={};p[\''+spKey+'\']='+spP+';thermoControl(\''+moduleId+'\','+instId+',p)" style="padding:2px 7px;border-radius:8px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:11px;font-weight:800;cursor:pointer">+</button>';
         cards+='</div></div>';
+      } else if(source==='call'){
+        cards+='<div style="text-align:right"><div style="font-size:10px;color:var(--muted2);text-transform:uppercase">Source</div><div style="font-size:12px;font-weight:900;color:#1d8cff">DI Call</div></div>';
+      } else {
+        cards+='<div style="text-align:right"><div style="font-size:10px;color:var(--muted2)">Not mapped</div></div>';
       }
       cards+='</div>';
       if(srcBadge||reason){ cards+='<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">'+srcBadge; if(reason) cards+='<span style="font-size:10px;color:var(--muted2)">'+esc(reason.length>32?(reason.slice(0,32)+'…'):reason)+'</span>'; cards+='</div>'; }
@@ -93,17 +98,11 @@
     } else {
       h+='<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:12px;padding:10px"><div style="font-size:10px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">Room</div><div style="margin-top:5px;font-size:14px;font-weight:900;color:var(--text)">'+(x.temp!=null?esc(x.temp.toFixed(1)+'°'):'—')+'</div></div>';
     }
-    if(meta.hasSetpoint) h+='<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:12px;padding:10px"><div style="font-size:10px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">Setpoint</div><div style="margin-top:5px;font-size:14px;font-weight:900;color:#f5c842">'+(x.setpoint!=null?esc(x.setpoint.toFixed(1)+'°'):'—')+'</div></div>';
+    if(meta.hasSetpoint) h+='<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:12px;padding:10px"><div style="font-size:10px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">Setpoint</div><div style="display:flex;align-items:center;gap:6px;margin-top:5px"><button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+','+(meta.isZoned?'{setpoint_delta:-0.5}':'{setpoint:'+(Math.round((x.setpoint-0.5)*10)/10)+'}')+'" style="padding:2px 10px;border-radius:8px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:14px;font-weight:800;cursor:pointer">−</button><span style="font-size:16px;font-weight:900;color:#f5c842;min-width:38px;text-align:center">'+esc(x.setpoint.toFixed(1)+'°')+'</span><button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+','+(meta.isZoned?'{setpoint_delta:0.5}':'{setpoint:'+(Math.round((x.setpoint+0.5)*10)/10)+'}')+'" style="padding:2px 10px;border-radius:8px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:14px;font-weight:800;cursor:pointer">+</button></div></div>';
     h+='</div>';
-    if(meta.hasSetpoint && x.setpoint!=null){
-      var dpMinus=meta.isZoned?'{setpoint_delta:-0.5}':'{setpoint:'+(Math.round((x.setpoint-0.5)*10)/10)+'}';
-      var dpPlus =meta.isZoned?'{setpoint_delta:0.5}' :'{setpoint:'+(Math.round((x.setpoint+0.5)*10)/10)+'}';
-      var spLabel=meta.isZoned?'All zones − 0.5°':'− 0.5°';
-      var spLabelP=meta.isZoned?'All zones + 0.5°':'+ 0.5°';
+    if(x.manualActive){
       h+='<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">';
-      h+='<button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+','+dpMinus+')" style="padding:8px 12px;border-radius:12px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:12px;font-weight:800;cursor:pointer">'+spLabel+'</button>';
-      h+='<button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+','+dpPlus+')" style="padding:8px 12px;border-radius:12px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:12px;font-weight:800;cursor:pointer">'+spLabelP+'</button>';
-      if(x.manualActive) h+='<button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+',{clear_manual:true})" style="padding:8px 12px;border-radius:12px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
+      h+='<button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+',{clear_manual:true})" style="padding:8px 12px;border-radius:12px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
       h+='</div>';
     }
     if(meta.isZoned){ var zc=zoneCards(inst,x); if(zc) h+='<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">'+zc+'</div>'; }
@@ -134,4 +133,19 @@
   var prevRender=window.renderInstance; if(typeof prevRender!=='function') return;
   window.renderInstance=async function(inst){ if(!inst||!THERMO_FAMILY_IDS.has(String(inst.module_id||''))) return prevRender(inst); var grid=document.getElementById('pageGrid'); if(!grid) return; var cardId='inst-card-'+inst.id, card=document.getElementById(cardId), isNew=!card; if(isNew){ card=document.createElement('div'); card.id=cardId; card.className='inst-card'; card.style.setProperty('--inst-accent','#1d8cff'); grid.appendChild(card); } card.classList.remove('wide-card'); card.classList.remove('thermo-card'); if(isNew){ card.innerHTML='<div class="inst-header"><div class="inst-name">🌡️ '+escapeHTML(inst.name||('Instance #'+inst.id))+'</div><div class="inst-id">#'+inst.id+'</div></div><div id="inst-body-'+inst.id+'"><div style="color:var(--muted);font-size:12px">Loading...</div></div>'; } var body=document.getElementById('inst-body-'+inst.id); if(body){ try{ body.innerHTML=await renderThermoFamily(inst); } catch(e){ body.innerHTML='<div style="color:var(--bad);font-size:12px">Error: '+escapeHTML(e.message)+'</div>'; } } };
   window.thermoControl=thermoControl;
+  var grid=document.getElementById('pageGrid');
+  if(grid){
+    var thermoCards=grid.querySelectorAll('.inst-card');
+    for(var i=0;i<thermoCards.length;i++){
+      var card=thermoCards[i];
+      var body=card.querySelector('[id^="inst-body-"]');
+      if(body && /coming soon/i.test(body.innerHTML)){
+        try{
+          var instId=Number(card.id.replace('inst-card-',''));
+          var inst=(window.pstate&&window.pstate._instances)?window.pstate._instances.find(function(x){return x.id===instId;}):null;
+          if(inst && THERMO_FAMILY_IDS.has(String(inst.module_id||''))) window.renderInstance(inst);
+        }catch(e){}
+      }
+    }
+  }
 })();

@@ -1,5 +1,13 @@
 // src/mqtt.js
 const mqtt = require("mqtt");
+const {
+  ELARIS_PREFIX,
+  ELARIS_SUBSCRIPTIONS,
+  ESPHOME_STANDARD_SUBSCRIPTIONS,
+  ESPHOME_COMPONENT_TYPES,
+  isIdentitySensorKey,
+  elarisCommandTopic,
+} = require("./mqtt_topics");
 
 function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto = null }) {
   const client = mqtt.connect(url);
@@ -48,23 +56,13 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
   }
 
   client.on("connect", () => {
-    // ELARIS custom topics
-    client.subscribe("elaris/+/config");
-    client.subscribe("elaris/+/tele/+");
-    client.subscribe("elaris/+/state/+");
-    client.subscribe("elaris/+/cmnd/+");
-
-    // Standard ESPHome MQTT topics for already-registered devices
-    client.subscribe("+/status");
-    client.subscribe("+/switch/+/state");
-    client.subscribe("+/binary_sensor/+/state");
-    client.subscribe("+/sensor/+/state");
-    client.subscribe("+/text_sensor/+/state");
+    ELARIS_SUBSCRIPTIONS.forEach(t => client.subscribe(t));
+    ESPHOME_STANDARD_SUBSCRIPTIONS.forEach(t => client.subscribe(t));
 
     console.log("[MQTT] connected & subscribed");
     mqttDebug('subscriptions_ready', {
-      custom: ['elaris/+/config','elaris/+/tele/+','elaris/+/state/+','elaris/+/cmnd/+'],
-      standard: ['+/status','+/switch/+/state','+/binary_sensor/+/state','+/sensor/+/state','+/text_sensor/+/state']
+      custom: ELARIS_SUBSCRIPTIONS,
+      standard: ESPHOME_STANDARD_SUBSCRIPTIONS,
     });
     emit("mqtt_status", { status: "connected" });
   });
@@ -82,16 +80,16 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
 
     const parts = topic.split("/");
     const looksInteresting = (
-      parts[0] === 'elaris' ||
+      parts[0] === ELARIS_PREFIX ||
       (parts.length === 2 && parts[1] === 'status') ||
-      (parts.length === 4 && ['switch','binary_sensor','sensor','text_sensor'].includes(parts[1]) && parts[3] === 'state')
+      (parts.length === 4 && ESPHOME_COMPONENT_TYPES.includes(parts[1]) && parts[3] === 'state')
     );
     if (looksInteresting) {
       mqttDebug('rx', { topic, retained, payload: String(trimmedPayload || payload || '').slice(0, 180) });
     }
 
     // ELARIS custom topics: elaris/<device>/<group>/<key>
-    if (parts[0] === 'elaris') {
+    if (parts[0] === ELARIS_PREFIX) {
       const deviceId = parts[1] || "unknown";
       const group = parts[2] || "unknown";
       const key = parts[3] || "unknown";
@@ -165,11 +163,7 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
     mqttDebug('standard_topic_registry_hit', { deviceId, topic, retained, registry_id: known?.id || null, board_profile_id: known?.board_profile_id || null, mqtt_topic_root: known?.mqtt_topic_root || null });
 
     const diagKey = (parts.length === 4 && parts[3] === 'state') ? String(parts[2] || '').trim().toLowerCase() : '';
-    const isIdentityDiag = !!diagKey && (
-      /mac/.test(diagKey) || diagKey.endsWith('mac_address') ||
-      diagKey === 'ip_address' || diagKey.endsWith('_ip') || diagKey.endsWith('_ip_address') ||
-      diagKey === 'version' || diagKey === 'esphome_version' || diagKey === 'firmware_version'
-    );
+    const isIdentityDiag = isIdentitySensorKey(diagKey);
 
     // If device uses custom MQTT (managed via Elaris), skip native sensor topics entirely —
     // state comes through elaris/<device>/tele/<key> instead.
@@ -208,35 +202,43 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
       if (diagKey) {
         if ((/mac/.test(diagKey) || diagKey.endsWith('mac_address')) && typeof dbApi.updateEspHomeIdentity === 'function') {
           dbApi.updateEspHomeIdentity(deviceId, { mac_address: trimmedPayload, ts });
-          let purgeInfo = { ok: true, purged: [] };
-          try {
-            if (typeof dbApi.purgeEsphomeSameMacDuplicates === 'function') {
-              purgeInfo = dbApi.purgeEsphomeSameMacDuplicates(deviceId, trimmedPayload) || purgeInfo;
-            }
-          } catch (_) {}
-          if (Array.isArray(purgeInfo?.purged)) {
-            for (const item of purgeInfo.purged) {
-              const oldId = String(item?.device_id || '').trim();
-              const oldRoot = String(item?.mqtt_topic_root || '').trim();
-              const roots = Array.from(new Set([oldRoot, oldId ? `elaris/${oldId}` : ''].filter(Boolean)));
-              for (const root of roots) {
-                try { client.publish(root + '/config', '', { qos: 0, retain: true }); } catch (_) {}
-                try { client.publish(root + '/status', '', { qos: 0, retain: true }); } catch (_) {}
-              }
-              const leaf = oldId || (oldRoot.startsWith('elaris/') ? oldRoot.slice('elaris/'.length) : '');
-              if (leaf) {
-                const knownTopics = [
-                  'ht_1','ht_2','ht_3','sht3x_temp','sht3x_hum','bh1750_lux',
-                  'di_1','di_2','di_3','di_4','di_5','di_6','di_7','di_8','di_9','di_10','di_11','di_12','di_13','di_14','di_15','di_16',
-                  'relay_1','relay_2','relay_3','relay_4','relay_5','relay_6','relay_7','relay_8','relay_9','relay_10','relay_11','relay_12','relay_13','relay_14','relay_15','relay_16'
-                ];
-                for (const k of knownTopics) {
-                  const grp = k.startsWith('relay_') ? 'state' : 'tele';
-                  try { client.publish(`elaris/${leaf}/${grp}/${k}`, '', { qos: 0, retain: true }); } catch (_) {}
-                }
-              }
-            }
-          }
+           let purgeInfo = { ok: true, purged: [] };
+           try {
+             if (typeof dbApi.purgeEsphomeSameMacDuplicates === 'function') {
+               purgeInfo = dbApi.purgeEsphomeSameMacDuplicates(deviceId, trimmedPayload) || purgeInfo;
+             }
+           } catch (e) {
+             console.error('[MQTT] purgeEsphomeSameMacDuplicates error:', e.message);
+           }
+           if (Array.isArray(purgeInfo?.purged)) {
+             for (const item of purgeInfo.purged) {
+               const oldId = String(item?.device_id || '').trim();
+               const oldRoot = String(item?.mqtt_topic_root || '').trim();
+               const roots = Array.from(new Set([oldRoot, oldId ? `elaris/${oldId}` : ''].filter(Boolean)));
+               for (const root of roots) {
+                 try { client.publish(root + '/config', '', { qos: 0, retain: true }); } catch (e) {
+                   console.error('[MQTT] publish cleanup error (config):', e.message);
+                 }
+                 try { client.publish(root + '/status', '', { qos: 0, retain: true }); } catch (e) {
+                   console.error('[MQTT] publish cleanup error (status):', e.message);
+                 }
+               }
+               const leaf = oldId || (oldRoot.startsWith('elaris/') ? oldRoot.slice('elaris/'.length) : '');
+               if (leaf) {
+                 const knownTopics = [
+                   'ht_1','ht_2','ht_3','sht3x_temp','sht3x_hum','bh1750_lux',
+                   'di_1','di_2','di_3','di_4','di_5','di_6','di_7','di_8','di_9','di_10','di_11','di_12','di_13','di_14','di_15','di_16',
+                   'relay_1','relay_2','relay_3','relay_4','relay_5','relay_6','relay_7','relay_8','relay_9','relay_10','relay_11','relay_12','relay_13','relay_14','relay_15','relay_16'
+                 ];
+                 for (const k of knownTopics) {
+                   const grp = k.startsWith('relay_') ? 'state' : 'tele';
+                   try { client.publish(`elaris/${leaf}/${grp}/${k}`, '', { qos: 0, retain: true }); } catch (e) {
+                     console.error('[MQTT] publish cleanup error:', e.message);
+                   }
+                 }
+               }
+             }
+           }
           mqttDebug('identity_update', { deviceId, field: 'mac_address', value: trimmedPayload, purged_same_mac: purgeInfo?.purged?.map(x => x.device_id) || [] });
           dbApi.insertEvent.run({ device_id: deviceId, topic, payload, ts });
           emit("mqtt", { topic, deviceId, group: 'meta', key: 'mac_address', payload });
@@ -299,7 +301,7 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
 
   function sendCommand(deviceId, key, value) {
     const payload = typeof value === "string" ? value : JSON.stringify(value);
-    const topicCmnd = `elaris/${deviceId}/cmnd/${key}`;
+    const topicCmnd = elarisCommandTopic(deviceId, key);
     client.publish(topicCmnd, payload, { qos: 0, retain: false });
 
     emit("command_sent", { deviceId, key, value: payload, topic: topicCmnd });

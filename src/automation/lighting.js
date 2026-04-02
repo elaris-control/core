@@ -68,6 +68,21 @@ function inRange(now, on, off) {
   return on<off ? now>=on&&now<off : now>=on||now<off;
 }
 
+function localMinutes(siteInfo) {
+  try {
+    if (siteInfo?.timezone) {
+      const fmt = new Intl.DateTimeFormat('en-GB', {
+        timeZone: siteInfo.timezone,
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      });
+      const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
+      return Number(parts.hour) * 60 + Number(parts.minute);
+    }
+  } catch {}
+  const d = new Date();
+  return d.getHours() * 60 + d.getMinutes();
+}
+
 function slugifyActionPart(input, fallback = 'Lighting') {
   const raw = String(input || '').trim();
   if (!raw) return fallback;
@@ -140,7 +155,7 @@ function broadcastLightingState(ctx, extra) {
 function lightingHandler(ctx, send, siteInfo) {
   const instId = ctx.instance.id;
   const now    = Date.now();
-  const nowMin = new Date().getHours()*60 + new Date().getMinutes();
+  const nowMin = localMinutes(siteInfo);
 
   const mode            = ctx.settingStr('mode',            'auto');
   const prevMode        = lastModeSeen.get(instId);
@@ -183,37 +198,43 @@ function lightingHandler(ctx, send, siteInfo) {
     if (swOn && !prevOn) { // rising edge
       const lockUntil = switchFastLock.get(instId) || 0;
       if (switchRetriggerBlockMs > 0 && now < lockUntil) {
-        return;
-      }
-      const lastTap = switchTapTime.get(instId) || 0;
-      const dt = now - lastTap;
-      switchTapTime.set(instId, now);
-      if (dt > 50 && dt < 500) { // double-tap detected
-        const doubleTapLevel = ctx.setting('double_tap_level', 100);
-        if (hasDimmer) {
-          send('dimmer_output', doubleTapLevel, 'Double-tap: full brightness', { action: lightingActionName(ctx, 'Switch', true) });
-        } else {
-          setOut(send, ctx, hasDimmer, true, dimOnLevel, dimOffLevel, 'Double-tap: ON', 'Switch');
+        // skip switch logic only, continue to PIR/schedule/lux
+      } else {
+        const lastTap = switchTapTime.get(instId) || 0;
+        const dt = now - lastTap;
+        switchTapTime.set(instId, now);
+        if (dt > 50 && dt < 500) { // double-tap detected
+          const doubleTapLevel = ctx.setting('double_tap_level', 100);
+          if (hasDimmer) {
+            send('dimmer_output', doubleTapLevel, 'Double-tap: full brightness', { action: lightingActionName(ctx, 'Switch', true) });
+          } else {
+            setOut(send, ctx, hasDimmer, true, dimOnLevel, dimOffLevel, 'Double-tap: ON', 'Switch');
+          }
+          manualState.set(instId, { on: true, ts: now });
+          if (switchRetriggerBlockMs > 0) switchFastLock.set(instId, now + switchRetriggerBlockMs);
+          broadcastLightingState(ctx, { manual_active: true, source: 'manual', schedule_active: false, motion_active: false, dark: null, last_reason: 'Double-tap: ON', status: 'on', output_on: true });
+          return;
         }
-        manualState.set(instId, { on: true, ts: now });
+        const targetOn = switchToggle ? !isOn : swOn;
+        const reason = targetOn ? 'Manual ON' : 'Manual OFF';
+        manualState.set(instId, { on: targetOn, ts: now });
         if (switchRetriggerBlockMs > 0) switchFastLock.set(instId, now + switchRetriggerBlockMs);
-        broadcastLightingState(ctx, { manual_active: true, source: 'manual', schedule_active: false, motion_active: false, dark: null, last_reason: 'Double-tap: ON', status: 'on', output_on: true });
+        setOut(send, ctx, hasDimmer, targetOn, dimOnLevel, dimOffLevel, reason, 'Switch');
+        broadcastLightingState(ctx, { manual_active: true, source: 'manual', schedule_active: false, motion_active: false, dark: null, last_reason: reason, status: targetOn ? 'on' : 'off', output_on: !!targetOn });
         return;
       }
-      const targetOn = switchToggle ? !isOn : swOn;
-      const reason = targetOn ? 'Manual ON' : 'Manual OFF';
-      manualState.set(instId, { on: targetOn, ts: now });
-      if (switchRetriggerBlockMs > 0) switchFastLock.set(instId, now + switchRetriggerBlockMs);
-      setOut(send, ctx, hasDimmer, targetOn, dimOnLevel, dimOffLevel, reason, 'Switch');
-      broadcastLightingState(ctx, { manual_active: true, source: 'manual', schedule_active: false, motion_active: false, dark: null, last_reason: reason, status: targetOn ? 'on' : 'off', output_on: !!targetOn });
-      return;
     } else if (!switchToggle && sw !== prevSw) {
-      const reason = swOn ? 'Manual ON' : 'Manual OFF';
-      manualState.set(instId, { on: swOn, ts: now });
-      if (switchRetriggerBlockMs > 0) switchFastLock.set(instId, now + switchRetriggerBlockMs);
-      setOut(send, ctx, hasDimmer, swOn, dimOnLevel, dimOffLevel, reason, 'Switch');
-      broadcastLightingState(ctx, { manual_active: true, source: 'manual', schedule_active: false, motion_active: false, dark: null, last_reason: reason, status: swOn ? 'on' : 'off', output_on: !!swOn });
-      return;
+      const lockUntil = switchFastLock.get(instId) || 0;
+      if (switchRetriggerBlockMs > 0 && now < lockUntil) {
+        // skip switch logic only, continue to PIR/schedule/lux
+      } else {
+        const reason = swOn ? 'Manual ON' : 'Manual OFF';
+        manualState.set(instId, { on: swOn, ts: now });
+        if (switchRetriggerBlockMs > 0) switchFastLock.set(instId, now + switchRetriggerBlockMs);
+        setOut(send, ctx, hasDimmer, swOn, dimOnLevel, dimOffLevel, reason, 'Switch');
+        broadcastLightingState(ctx, { manual_active: true, source: 'manual', schedule_active: false, motion_active: false, dark: null, last_reason: reason, status: swOn ? 'on' : 'off', output_on: !!swOn });
+        return;
+      }
     }
   }
 
@@ -344,9 +365,11 @@ function lightingHandler(ctx, send, siteInfo) {
     // Schedule only
     if (inSched && !isOn) setOut(send, ctx, hasDimmer, true,  dimOnLevel, dimOffLevel, `Auto: schedule`, 'Schedule');
     broadcastLightingState(ctx, { source: 'auto_schedule', schedule_active: inSched, motion_active: !!motion, dark: !!isDark, last_reason: inSched ? 'Auto: schedule window' : 'Auto idle' });
+    return;
   }
 
   // Lux-based dimming: maintain target lux by adjusting dimmer level
+  // (applies after all mode logic, only for dimmer outputs)
   if (hasDimmer && hasLux && luxDimTarget > 0 && lux != null) {
     const curLevel = ctx.value('dimmer_output') ?? dimOnLevel;
     const error = lux - luxDimTarget;

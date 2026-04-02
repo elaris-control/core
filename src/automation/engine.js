@@ -63,6 +63,14 @@ class AutomationEngine {
       WHERE mm.instance_id = ?
     `);
     this._getIOById = db.prepare(`SELECT * FROM io WHERE id = ?`);
+    this._getMappingsWithIO = db.prepare(`
+      SELECT mm.*, io.key as io_key, io.name as io_name,
+             io.type as io_type, io.group_name, io.device_id, io.unit,
+             io.id as io_id, io.key as io_raw_key
+      FROM module_mappings mm
+      LEFT JOIN io ON io.id = mm.io_id
+      WHERE mm.instance_id = ?
+    `);
     this._getLatestState = db.prepare(`
       SELECT value FROM device_state
       WHERE device_id = ? AND key = ?
@@ -570,13 +578,18 @@ class AutomationEngine {
     const instances = this._getInstances.all();
     for (const inst of instances) {
       const mappings = this._getMappings.all(inst.id);
-      const relevant = mappings.some(m => {
-        const io = m.io_id ? this._getIOById.get(m.io_id) : null;
-        if (!io || io.device_id !== deviceId) return false;
+      let relevant = false;
+      for (const m of mappings) {
+        if (!m.io_id) continue;
+        const io = this._getIOById.get(m.io_id);
+        if (!io || io.device_id !== deviceId) continue;
         const rawKey = String(io.key || '');
         const groupedKey = io.group_name ? `${io.group_name}.${io.key}` : rawKey;
-        return key === rawKey || key === groupedKey;
-      });
+        if (key === rawKey || key === groupedKey) {
+          relevant = true;
+          break;
+        }
+      }
       if (relevant) this.evaluate(inst);
     }
   }

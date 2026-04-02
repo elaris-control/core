@@ -864,6 +864,10 @@ function addPeripheralToYaml(yamlText, deviceSafeName, entity, opts = {}) {
   const deviceName = opts.deviceName || deviceSafeName;
   const boardLabel = opts.boardLabel || 'ELARIS Board';
   const boardProfileId = opts.boardProfileId || null;
+  const scale = entity.scale || '';
+  const scaleFactor = entity.scale_factor || 1;
+  const updateInterval = entity.update_interval || '10s';
+  const pinMode = entity.pin_mode || 'INPUT';
   let result = yamlText;
 
   if (type === 'ds18b20') {
@@ -1009,6 +1013,7 @@ function addPeripheralToYaml(yamlText, deviceSafeName, entity, opts = {}) {
     result = _insertSensorItem(result, sensorItem);
 
   } else if (type === 'pulse_counter') {
+    let unit, filterLines;
     if (scale === 'yfs201') {
       unit = 'L/min';
       filterLines = ['    filters:', '      - lambda: return x / 450.0;  # YF-S201: 450 pulses/min = 1 L/min'];
@@ -1156,7 +1161,7 @@ function applyYamlOverrides(yamlText, overrides = {}) {
   }
 
   out = lines.join('\n');
-}
+  }
 	
   const hasWifiBlock = /^wifi:\s*$/m.test(out) || /^wifi:\s*\n/m.test(out);
   if (hasWifiBlock && (wifiSsid || wifiPass !== undefined)) {

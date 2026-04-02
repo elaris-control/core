@@ -40,8 +40,33 @@ function inRange(nowMin, startMin, endMin) {
     : (nowMin >= startMin && nowMin < endMin);
 }
 
-function todayKey() {
+function todayKey(siteInfo) {
+  try {
+    if (siteInfo?.timezone) {
+      const fmt = new Intl.DateTimeFormat('en-GB', {
+        timeZone: siteInfo.timezone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+      });
+      const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
+      return `${parts.year}-${parts.month}-${parts.day}`;
+    }
+  } catch {}
   return new Date().toISOString().slice(0, 10);
+}
+
+function localMinutes(siteInfo) {
+  try {
+    if (siteInfo?.timezone) {
+      const fmt = new Intl.DateTimeFormat('en-GB', {
+        timeZone: siteInfo.timezone,
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      });
+      const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
+      return Number(parts.hour) * 60 + Number(parts.minute);
+    }
+  } catch {}
+  const d = new Date();
+  return d.getHours() * 60 + d.getMinutes();
 }
 
 function loadRuntime(ctx) {
@@ -240,8 +265,7 @@ function waterManagerHandler(ctx, send) {
     if (!leakDetected && nightFlowEnable && flow > flowLeakThresh) {
       const startMin = parseClock(nightStart, 23 * 60);
       const endMin   = parseClock(nightEnd,    6 * 60);
-      const d        = new Date();
-      const nowMin   = d.getHours() * 60 + d.getMinutes();
+      const nowMin   = localMinutes(siteInfo);
       if (inRange(nowMin, startMin, endMin)) {
         leakDetected = true;
         leakSource   = 'night_flow';
@@ -251,7 +275,7 @@ function waterManagerHandler(ctx, send) {
 
     // ── Water meter integration ─────────────────────────────────────
     if (meterEnable) {
-      const today = todayKey();
+      const today = todayKey(siteInfo);
 
       // Day rollover: archive yesterday to weekly history
       if (st.dailyKey && st.dailyKey !== today) {

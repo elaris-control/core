@@ -1,8 +1,11 @@
 {
   "name": "elaris-core",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "main": "src/index.js",
   "type": "commonjs",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "NODE_ENV=development node src/index.js",

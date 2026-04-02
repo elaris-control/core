@@ -146,8 +146,18 @@ function initWS(server, { db, access, getRole } = {}) {
           if (!shellEnabled) return deny("Shell console is disabled. Set ENABLE_SHELL_CONSOLE=1 to enable.");
           if (!isAdmin)      return deny("Permission denied — admin access required.");
 
-          const cmd = String(msg.command || "").trim();
-          if (!cmd) return;
+          const rawCmd = String(msg.command || "").trim();
+          if (!rawCmd) return;
+
+          // Reject shell metacharacters and dangerous patterns
+          const dangerousChars = /[;&|`$(){}<>!\\]/;
+          const dangerousPatterns = /^(cd|rm|curl|wget|chmod|chown|sudo|mkfs|dd|fdisk|parted|mount|umount|kill|killall|shutdown|reboot|halt|poweroff|init|systemctl|iptables|nc|ncat|netcat|socat|python|python3|perl|ruby|php|node|bash|sh|zsh|fish|exec|eval|source|export|alias|unalias)\b/i;
+          if (dangerousChars.test(rawCmd)) return deny("Command contains disallowed characters. Use simple commands only.");
+          if (dangerousPatterns.test(rawCmd)) return deny("Command is not allowed.");
+
+          // Only allow alphanumeric, spaces, dots, dashes, underscores, slashes, quotes
+          const safePattern = /^[a-zA-Z0-9\s.\-_\/'"=]+$/;
+          if (!safePattern.test(rawCmd)) return deny("Command contains disallowed characters.");
 
           const cmdId = msg.cmdId || String(Date.now());
           const send = (stream, text) => {
@@ -155,10 +165,9 @@ function initWS(server, { db, access, getRole } = {}) {
               ws.send(JSON.stringify({ type: "exec_result", stream, text, cmdId }));
           };
 
-          // Audit log — captured by stdout broadcast so it lands in the server log viewer
-          console.log(`[SHELL] admin exec: ${JSON.stringify(cmd)}`);
+          console.log(`[SHELL] admin exec: ${JSON.stringify(rawCmd)}`);
 
-          const proc = spawn("bash", ["-c", cmd], { cwd: process.env.HOME || "/", env: process.env });
+          const proc = spawn("bash", ["-c", rawCmd], { cwd: process.env.HOME || "/", env: process.env, shell: false });
           const TIMEOUT_MS = 30_000;
           const killer = setTimeout(() => { proc.kill(); send("err", "[killed: 30s timeout]"); }, TIMEOUT_MS);
 

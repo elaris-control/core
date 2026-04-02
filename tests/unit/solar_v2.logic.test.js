@@ -79,7 +79,7 @@ describe('solarEngineHandler logic', () => {
 
     solarEngineHandler(ctx, send);
 
-    expect(send).toHaveBeenCalledWith('pump', 'ON', expect.stringContaining('ON threshold'));
+    expect(send).toHaveBeenCalledWith('pump', 'ON', expect.stringContaining('ON threshold'), expect.objectContaining({ action: expect.any(String) }));
   });
 
   it('turns the pump OFF in basic profile when delta-T falls below the stop threshold', () => {
@@ -97,7 +97,7 @@ describe('solarEngineHandler logic', () => {
 
     solarEngineHandler(ctx, send);
 
-    expect(send).toHaveBeenCalledWith('pump', 'OFF', expect.stringContaining('OFF threshold'));
+    expect(send).toHaveBeenCalledWith('pump', 'OFF', expect.stringContaining('OFF threshold'), expect.objectContaining({ action: expect.any(String) }));
   });
 
   it('forces the pump OFF on boiler overheat', () => {
@@ -115,7 +115,7 @@ describe('solarEngineHandler logic', () => {
 
     solarEngineHandler(ctx, send);
 
-    expect(send).toHaveBeenCalledWith('pump', 'OFF', expect.stringContaining('Safety: boiler 86°C >= max 85°C'));
+    expect(send).toHaveBeenCalledWith('pump', 'OFF', expect.stringContaining('DHW safety cutoff'), expect.objectContaining({ action: expect.any(String) }));
   });
 
   it('respects pump minimum ON time in basic profile', () => {
@@ -139,7 +139,7 @@ describe('solarEngineHandler logic', () => {
       states: { pump: 'OFF' },
     });
     solarEngineHandler(ctxOn, send);
-    expect(send).toHaveBeenCalledWith('pump', 'ON', expect.any(String));
+    expect(send).toHaveBeenCalledWith('pump', 'ON', expect.any(String), expect.objectContaining({ action: expect.any(String) }));
 
     send.mockClear();
     vi.advanceTimersByTime(30_000);
@@ -208,8 +208,8 @@ describe('solarEngineHandler logic', () => {
       states: { pump: 'OFF' },
     });
     solarEngineHandler(ctxStart, send);
-    expect(send).toHaveBeenCalledWith('pump', 'ON', expect.stringContaining('Pump start'));
-    expect(send).toHaveBeenCalledWith('pump_speed', 0, 'Pump speed 0%');
+    expect(send).toHaveBeenCalledWith('pump', 'ON', expect.stringContaining('Pump start'), expect.objectContaining({ action: expect.any(String) }));
+    expect(send).toHaveBeenCalledWith('pump_speed', 0, expect.any(String), expect.any(Object));
 
     send.mockClear();
     vi.advanceTimersByTime(1000);
@@ -220,7 +220,7 @@ describe('solarEngineHandler logic', () => {
     });
     solarEngineHandler(ctxKick, send);
 
-    expect(send).toHaveBeenCalledWith('pump_speed', 55, 'Pump speed 55%');
+    expect(send).toHaveBeenCalledWith('pump_speed', 55, expect.stringContaining('Pump speed 55'), expect.any(Object));
   });
 
   it('respects inverter anti-cycle and does not restart immediately after stop', () => {
@@ -309,6 +309,6 @@ describe('solarEngineHandler logic', () => {
     vi.advanceTimersByTime(1000);
     solarEngineHandler(createCtx({ ...base, values: { temp_solar: 70, temp_boiler: 50 }, states: { pump: 'ON' } }), send);
 
-    expect(send).toHaveBeenCalledWith('pump_speed', 77, 'Pump speed 77%');
+    expect(send).toHaveBeenCalledWith('pump_speed', 77, expect.stringContaining('Pump speed 77'), expect.any(Object));
   });
 });

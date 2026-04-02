@@ -11,12 +11,13 @@ function thermostatZoneDefs(zoneNo) {
 
 function thermostatZoneState(zoneNo, currentMappings={}) {
   const defs = thermostatZoneDefs(zoneNo);
-  const mapped = defs.filter(inp => !!(currentMappings[inp.key] || (!editingId && suggestions[inp.key])));
+  const mapped = defs.filter(inp => !!currentMappings[inp.key]);
   const active = zoneNo === 1 || mapped.length > 0;
   return { defs, active, mappedCount: mapped.length };
 }
 
 function thermostatSuggestedVisibleZones(currentMappings={}) {
+  if (!editingId) return 1;
   let highest = 1;
   for (let i = 1; i <= 6; i++) {
     const defs = thermostatZoneDefs(i);
@@ -28,12 +29,8 @@ function thermostatSuggestedVisibleZones(currentMappings={}) {
 function setThermostatVisibleZones(nextCount) {
   thermostatVisibleZones = Math.max(1, Math.min(6, Number(nextCount) || 1));
   const wizard = document.getElementById("wizard");
-  if (wizard && wizard.classList.contains("show") && selectedDef?.id === 'thermostat') {
-    const currentMappings = {};
-    (selectedDef?.inputs || []).forEach((input) => {
-      const sel = document.getElementById("map_" + input.key);
-      if (sel?.value) currentMappings[input.key] = Number(sel.value);
-    });
+  if (wizard && wizard.classList.contains("show") && (selectedDef?.id === 'thermostat' || selectedDef?.id === 'zoned_thermostat')) {
+    const currentMappings = captureDomMappings();
     renderWizardInputs(currentMappings);
   }
 }
@@ -166,6 +163,16 @@ function updateThermostatCommissioningSummary(currentMappings=null) {
 }
 
 registerModule('thermostat', {
+  hasAuto: true,
+  updateCommissioningSummary(m) { updateThermostatCommissioningSummary(m); },
+  renderSummary(inst, settings, live) { return ''; },
+  renderWizardInputs(currentMappings, makeRow) {
+    window.thermostatVisibleZones = thermostatSuggestedVisibleZones(currentMappings);
+    renderThermostatWizardIntoDom(currentMappings, makeRow);
+  },
+});
+
+registerModule('zoned_thermostat', {
   hasAuto: true,
   updateCommissioningSummary(m) { updateThermostatCommissioningSummary(m); },
   renderSummary(inst, settings, live) { return ''; },

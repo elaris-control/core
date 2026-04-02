@@ -47,7 +47,7 @@ function routes(app, ctx) {
           out[nKey] = name;
         }
       }
-      // Delta setpoint: apply to global + all temp-sensor zones that have an override
+      // Delta setpoint: apply to global + all mapped temp-sensor zones
       if (body.setpoint_delta !== undefined) {
         const delta = Number(body.setpoint_delta);
         if (!Number.isFinite(delta) || Math.abs(delta) > 5) return res.status(400).json({ ok: false, error: 'invalid_delta' });
@@ -55,13 +55,12 @@ function routes(app, ctx) {
         const newGlobal = Math.max(5, Math.min(45, Math.round((curGlobal + delta) * 10) / 10));
         engine.setSetting(id, 'setpoint', String(newGlobal));
         out.setpoint = newGlobal;
+        const allMappings = (access.inst.mappings || []);
         for (let z = 1; z <= 6; z++) {
-          const hasTempSensor = (access.inst.mappings || []).some(m => m.input_key === `zone_${z}_temp` && m.io_id);
+          const hasTempSensor = allMappings.some(m => m.input_key === `zone_${z}_temp` && m.io_id);
           if (!hasTempSensor) continue;
           const cur = engine.getSetting(id, `zone_${z}_setpoint`);
-          if (cur === null || cur === '' || cur === undefined) continue;
-          const curV = Number(cur);
-          if (!Number.isFinite(curV)) continue;
+          const curV = (cur !== null && cur !== '' && cur !== undefined && Number.isFinite(Number(cur))) ? Number(cur) : curGlobal;
           const newV = Math.max(5, Math.min(45, Math.round((curV + delta) * 10) / 10));
           engine.setSetting(id, `zone_${z}_setpoint`, String(newV));
           out[`zone_${z}_setpoint`] = newV;

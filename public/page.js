@@ -787,6 +787,7 @@ async function renderInstance(inst){
     else if(inst.module_id==='load_shifter')content=await renderLoadShifter(inst);
     else if(inst.module_id==='presence_simulator')content=await renderPresenceSimulator(inst);
     else if(inst.module_id==='energy')content=await renderEnergy(inst);
+    else if(inst.module_id==='basic_thermostat'||inst.module_id==='call_thermostat'||inst.module_id==='zoned_thermostat')content=await renderThermostat(inst);
     else content='<div style="color:var(--muted);font-size:12px">'+escapeHTML(inst.module_id)+' \u2014 coming soon</div>';
   }catch(e){content='<div style="color:var(--bad);font-size:12px">Error: '+escapeHTML(e.message)+'</div>';}
   var body=document.getElementById('inst-body-'+inst.id); if(body)body.innerHTML=content;

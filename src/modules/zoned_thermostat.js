@@ -26,7 +26,7 @@ function routes(app, ctx) {
         engine.setSetting(id, 'setpoint', String(Math.round(v * 10) / 10));
         out.setpoint = v;
       }
-      // setpoint_delta: apply to global + all temp-sensor zones that have an override
+      // setpoint_delta: apply to global + all mapped temp-sensor zones
       if (body.setpoint_delta !== undefined) {
         const delta = Number(body.setpoint_delta);
         if (!Number.isFinite(delta) || Math.abs(delta) > 5) return res.status(400).json({ ok: false, error: 'invalid_delta' });
@@ -34,14 +34,12 @@ function routes(app, ctx) {
         const newGlobal = Math.max(5, Math.min(45, Math.round((curGlobal + delta) * 10) / 10));
         engine.setSetting(id, 'setpoint', String(newGlobal));
         out.setpoint = newGlobal;
-        // Apply delta to per-zone overrides for temp-sensor zones only
+        const allMappings = (access.inst.mappings || []);
         for (let n = 1; n <= 6; n++) {
-          const hasTempSensor = (access.inst.mappings || []).some(m => m.input_key === `zone_${n}_temp` && m.io_id);
+          const hasTempSensor = allMappings.some(m => m.input_key === `zone_${n}_temp` && m.io_id);
           if (!hasTempSensor) continue;
           const cur = engine.getSetting(id, `zone_${n}_setpoint`);
-          if (cur === null || cur === '' || cur === undefined) continue;
-          const curV = Number(cur);
-          if (!Number.isFinite(curV)) continue;
+          const curV = (cur !== null && cur !== '' && cur !== undefined && Number.isFinite(Number(cur))) ? Number(cur) : curGlobal;
           const newV = Math.max(5, Math.min(45, Math.round((curV + delta) * 10) / 10));
           engine.setSetting(id, `zone_${n}_setpoint`, String(newV));
           out[`zone_${n}_setpoint`] = newV;
@@ -58,12 +56,21 @@ function routes(app, ctx) {
           out[spKey] = v;
         }
         if (body[nameKey] !== undefined) {
-          engine.setSetting(id, nameKey, String(body[nameKey] || '').trim());
-          out[nameKey] = String(body[nameKey] || '').trim();
+          engine.setSetting(id, nameKey, String(body[nameKey] || '').trim().slice(0, 32));
+          out[nameKey] = String(body[nameKey] || '').trim().slice(0, 32);
         }
         if (body[schedKey] !== undefined) {
           engine.setSetting(id, schedKey, String(body[schedKey] || '').trim());
           out[schedKey] = String(body[schedKey] || '').trim();
+        }
+      }
+      // Global override: set all zones at once
+      if (body.all_zones_setpoint !== undefined) {
+        const v = Math.max(5, Math.min(45, Number(body.all_zones_setpoint)));
+        if (Number.isFinite(v)) {
+          for (let n = 1; n <= 6; n++) engine.setSetting(id, `zone_${n}_setpoint`, String(Math.round(v * 10) / 10));
+          engine.setSetting(id, 'setpoint', String(Math.round(v * 10) / 10));
+          out.all_zones_setpoint = v;
         }
       }
       if (body.manual !== undefined) {

@@ -72,7 +72,7 @@ describe('thermostatHandler logic', () => {
 
     thermostatHandler(ctx, send);
 
-    expect(send).toHaveBeenCalledWith('ac_relay', 'ON', expect.stringContaining('heating ON'));
+    expect(send).toHaveBeenCalledWith('ac_relay', 'ON', expect.stringContaining('heating ON'), expect.objectContaining({ action: expect.any(String) }));
   });
 
   it('turns legacy heating output OFF when room temperature is above threshold', () => {
@@ -89,7 +89,7 @@ describe('thermostatHandler logic', () => {
 
     thermostatHandler(ctx, send);
 
-    expect(send).toHaveBeenCalledWith('ac_relay', 'OFF', expect.stringContaining('heating OFF'));
+    expect(send).toHaveBeenCalledWith('ac_relay', 'OFF', expect.stringContaining('heating OFF'), expect.objectContaining({ action: expect.any(String) }));
   });
 
   it('respects hysteresis and does not toggle inside the heating band', () => {

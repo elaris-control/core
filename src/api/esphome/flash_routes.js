@@ -4,6 +4,7 @@
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const yaml = require('js-yaml');
 const { safeName } = require('../../esphome/schema');
 const { applyYamlOverrides } = require('../../esphome/generator');
 const { parseEsphomeYaml } = require('../../esphome/yaml_importer');
@@ -27,9 +28,9 @@ function removeTopLevelBlock(text, key) {
   return out ? out + '\n' : '';
 }
 
-function buildManagedConfigJson({ deviceName, boardProfileId, boardLabel, entities }) {
+function buildManagedConfigJson({ deviceName, boardProfileId, boardLabel, entitiesMap }) {
   const hostname = safeName(deviceName || 'device');
-  const list = (Array.isArray(entities) ? entities : [])
+  const list = (Array.isArray(entitiesMap) ? entitiesMap : [])
     .filter((e) => e && e.key)
     .map((e) => ({
       key: String(e.key),
@@ -49,40 +50,415 @@ function buildManagedConfigJson({ deviceName, boardProfileId, boardLabel, entiti
   });
 }
 
-function injectManagedOverlay(yamlText, { deviceName, mqttHost, configJson }) {
+function injectManagedOverlay(yamlText, { deviceName, mqttHost, configJson, canonicalEntities }) {
   let out = String(yamlText || '');
   const deviceSafe = safeName(deviceName || 'device');
-  if (!yamlHasTopLevelBlock(out, 'mqtt')) {
-    out = out.trimEnd() + '\n\n' + [
-      'mqtt:',
+
+  // Canonical key map: build from passed entitiesMap or extract from YAML
+  const keyMap = {};
+  if (Array.isArray(canonicalEntities)) {
+    for (const e of canonicalEntities) {
+      if (e.key) keyMap[e.name || e.key] = e.key;
+    }
+  }
+
+  // ── 1. Parse YAML to extract ALL entitiesMap ───────────────────────────────
+  let doc;
+  try { doc = yaml.load(out); } catch { return out; }
+  if (!doc || typeof doc !== 'object') return out;
+
+  // Generic entity extraction — scans ALL top-level arrays for entitiesMap with id/name
+  const entitiesMap = {
+    switches: [],       // turn_on/turn_off
+    binarySensors: [],  // on_state
+    sensors: [],        // on_value
+    textSensors: [],    // on_value
+    outputs: [],        // set_level
+    lights: [],         // turn_on/turn_off/toggle
+    fans: [],           // turn_on/turn_off/speed
+    climates: [],       // set temperature/mode
+    buttons: [],        // press
+    numbers: [],        // set value
+    covers: [],         // open/close/stop
+    selects: [],        // set option
+  };
+
+  // Helper: extract entitiesMap from a top-level section
+  function extractEntities(section, type, idField = 'id', nameField = 'name') {
+    const items = toArray(doc[section] || []);
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      // Skip internal/template-only entitiesMap
+      if (item.internal === true) continue;
+      // Skip status/platform-specific entitiesMap that don't need wiring
+      if (item.platform === 'status' || item.platform === 'wifi_signal' ||
+          item.platform === 'uptime' || item.platform === 'template' && item.lambda) continue;
+      const id = item[idField] ? String(item[idField]) : (item[nameField] ? safeName(item[nameField]) : null);
+      if (!id) continue;
+      entitiesMap[type].push({ id, name: item[nameField] || id, raw: item, platform: item.platform });
+    }
+  }
+
+  extractEntities('switch', 'switches');
+  extractEntities('binary_sensor', 'binarySensors');
+  extractEntities('sensor', 'sensors');
+  extractEntities('text_sensor', 'textSensors');
+  extractEntities('output', 'outputs');
+  extractEntities('light', 'lights');
+  extractEntities('fan', 'fans');
+  extractEntities('climate', 'climates');
+  extractEntities('button', 'buttons');
+  extractEntities('number', 'numbers');
+  extractEntities('cover', 'covers');
+  extractEntities('select', 'selects');
+
+  // Helper: get MQTT topic key (canonical key if available, otherwise YAML id)
+  function getMqttKey(entity) {
+    return keyMap[entity.name] || entity.id;
+  }
+
+  // ── 2. Inject state publishing into each entity block ───────────────────
+  const stateWiring = {
+    switches: {
+      hook: 'on_turn_on',
+      wiring: (entity) => {
+        const mqttKey = getMqttKey(entity);
+        return [
+          `    on_turn_on:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/state/${mqttKey}"`,
+          `          payload: "ON"`,
+          `          retain: true`,
+          `    on_turn_off:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/state/${mqttKey}"`,
+          `          payload: "OFF"`,
+          `          retain: true`,
+        ].join('\n');
+      },
+    },
+    binarySensors: {
+      hook: 'on_state',
+      wiring: (entity) => {
+        const mqttKey = getMqttKey(entity);
+        return [
+          `    on_state:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/tele/${mqttKey}"`,
+          `          payload: !lambda |-`,
+          `            return x ? "ON" : "OFF";`,
+        ].join('\n');
+      },
+    },
+    sensors: {
+      hook: 'on_value',
+      wiring: (entity) => {
+        const mqttKey = getMqttKey(entity);
+        return [
+          `    on_value:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/tele/${mqttKey}"`,
+          `          payload: !lambda |-`,
+          `            return str_sprintf("%.1f", x);`,
+        ].join('\n');
+      },
+    },
+    textSensors: {
+      hook: 'on_value',
+      wiring: (entity) => {
+        const mqttKey = getMqttKey(entity);
+        return [
+          `    on_value:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/tele/${mqttKey}"`,
+          `          payload: !lambda "return x;"`,
+        ].join('\n');
+      },
+    },
+    lights: {
+      hook: 'on_turn_on',
+      wiring: (entity) => {
+        const mqttKey = getMqttKey(entity);
+        return [
+          `    on_turn_on:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/state/${mqttKey}"`,
+          `          payload: "ON"`,
+          `          retain: true`,
+          `    on_turn_off:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/state/${mqttKey}"`,
+          `          payload: "OFF"`,
+          `          retain: true`,
+        ].join('\n');
+      },
+    },
+    fans: {
+      hook: 'on_turn_on',
+      wiring: (entity) => {
+        const mqttKey = getMqttKey(entity);
+        return [
+          `    on_turn_on:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/state/${mqttKey}"`,
+          `          payload: "ON"`,
+          `          retain: true`,
+          `    on_turn_off:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/state/${mqttKey}"`,
+          `          payload: "OFF"`,
+          `          retain: true`,
+        ].join('\n');
+      },
+    },
+    climates: {
+      hook: 'on_state',
+      wiring: (entity) => {
+        const mqttKey = getMqttKey(entity);
+        return [
+          `    on_state:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/tele/${mqttKey}"`,
+          `          payload: !lambda "return x;"`,
+        ].join('\n');
+      },
+    },
+    buttons: {
+      hook: null,
+      wiring: null,
+    },
+    numbers: {
+      hook: 'on_value',
+      wiring: (entity) => {
+        const mqttKey = getMqttKey(entity);
+        return [
+          `    on_value:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/state/${mqttKey}"`,
+          `          payload: !lambda "return str_sprintf(\"%.1f\", x);"`,
+        ].join('\n');
+      },
+    },
+    covers: {
+      hook: 'on_open',
+      wiring: (entity) => {
+        const mqttKey = getMqttKey(entity);
+        return [
+          `    on_open:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/state/${mqttKey}"`,
+          `          payload: "OPEN"`,
+          `          retain: true`,
+          `    on_closed:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/state/${mqttKey}"`,
+          `          payload: "CLOSED"`,
+          `          retain: true`,
+        ].join('\n');
+      },
+    },
+    selects: {
+      hook: 'on_value',
+      wiring: (entity) => {
+        const mqttKey = getMqttKey(entity);
+        return [
+          `    on_value:`,
+          `      - mqtt.publish:`,
+          `          topic: "elaris/${deviceSafe}/state/${mqttKey}"`,
+          `          payload: !lambda "return x;"`,
+        ].join('\n');
+      },
+    },
+  };
+
+  for (const [type, config] of Object.entries(stateWiring)) {
+    if (!config.hook || !entitiesMap[type]?.length) continue;
+    for (const entity of entitiesMap[type]) {
+      if (entity.raw[config.hook]) continue;
+      const wiring = config.wiring(entity);
+      const sectionName = type === 'switches' ? 'switch' :
+                          type === 'binarySensors' ? 'binary_sensor' :
+                          type === 'textSensors' ? 'text_sensor' : type;
+      out = injectEntityWiring(out, entity, sectionName, wiring);
+    }
+  }
+
+  // ── 3. Build on_message command handlers ────────────────────────────────
+  const onMessageHandlers = [];
+
+  for (const sw of entitiesMap.switches) {
+    const mqttKey = getMqttKey(sw);
+    onMessageHandlers.push([
+      `    - topic: "elaris/${deviceSafe}/cmnd/${mqttKey}"`,
+      `      then:`,
+      `        - lambda: |-`,
+      `            if (x == "ON") id(${sw.id}).turn_on();`,
+      `            else id(${sw.id}).turn_off();`,
+    ].join('\n'));
+  }
+
+  for (const o of entitiesMap.outputs) {
+    const mqttKey = getMqttKey(o);
+    onMessageHandlers.push([
+      `    - topic: "elaris/${deviceSafe}/cmnd/${mqttKey}"`,
+      `      then:`,
+      `        - output.set_level:`,
+      `            id: ${o.id}`,
+      `            level: !lambda "return atof(x.c_str()) / 100.0;"`,
+    ].join('\n'));
+  }
+
+  for (const l of entitiesMap.lights) {
+    const mqttKey = getMqttKey(l);
+    onMessageHandlers.push([
+      `    - topic: "elaris/${deviceSafe}/cmnd/${mqttKey}"`,
+      `      then:`,
+      `        - lambda: |-`,
+      `            if (x == "ON") id(${l.id}).turn_on();`,
+      `            else if (x == "OFF") id(${l.id}).turn_off();`,
+      `            else if (x == "TOGGLE") id(${l.id}).toggle();`,
+    ].join('\n'));
+  }
+
+  for (const f of entitiesMap.fans) {
+    const mqttKey = getMqttKey(f);
+    onMessageHandlers.push([
+      `    - topic: "elaris/${deviceSafe}/cmnd/${mqttKey}"`,
+      `      then:`,
+      `        - lambda: |-`,
+      `            if (x == "ON") id(${f.id}).turn_on();`,
+      `            else id(${f.id}).turn_off();`,
+    ].join('\n'));
+  }
+
+  for (const b of entitiesMap.buttons) {
+    const mqttKey = getMqttKey(b);
+    onMessageHandlers.push([
+      `    - topic: "elaris/${deviceSafe}/cmnd/${mqttKey}"`,
+      `      then:`,
+      `        - button.press: ${b.id}`,
+    ].join('\n'));
+  }
+
+  for (const n of entitiesMap.numbers) {
+    const mqttKey = getMqttKey(n);
+    onMessageHandlers.push([
+      `    - topic: "elaris/${deviceSafe}/cmnd/${mqttKey}"`,
+      `      then:`,
+      `        - number.set:`,
+      `            id: ${n.id}`,
+      `            value: !lambda "return atof(x.c_str());"`,
+    ].join('\n'));
+  }
+
+  for (const c of entitiesMap.covers) {
+    const mqttKey = getMqttKey(c);
+    onMessageHandlers.push([
+      `    - topic: "elaris/${deviceSafe}/cmnd/${mqttKey}"`,
+      `      then:`,
+      `        - lambda: |-`,
+      `            if (x == "OPEN") id(${c.id}).open();`,
+      `            else if (x == "CLOSE") id(${c.id}).close();`,
+      `            else if (x == "STOP") id(${c.id}).stop();`,
+    ].join('\n'));
+  }
+
+  for (const s of entitiesMap.selects) {
+    const mqttKey = getMqttKey(s);
+    onMessageHandlers.push([
+      `    - topic: "elaris/${deviceSafe}/cmnd/${mqttKey}"`,
+      `      then:`,
+      `        - select.set:`,
+      `            id: ${s.id}`,
+      `            option: !lambda "return x;"`,
+    ].join('\n'));
+  }
+
+  // ── 4. Build/merge mqtt: block ──────────────────────────────────────────
+  const hasMqtt = yamlHasTopLevelBlock(out, 'mqtt');
+  if (!hasMqtt) {
+    let mqttSection = [
+      `mqtt:`,
       `  broker: ${mqttHost}`,
       `  topic_prefix: ${deviceSafe}`,
-      ''
     ].join('\n');
-  }
-  const configPayload = String(configJson || '{}').replace(/'/g, "''");
-  const configTopic = `topic: "elaris/${deviceSafe}/config"`;
-  if (!out.includes(configTopic)) {
-    out = out.replace(/^esphome:\s*$/m, [
-      'esphome:',
-      '  on_boot:',
-      '    priority: -100',
-      '    then:',
-      '      - delay: 2s',
-      '      - mqtt.publish:',
-      `          ${configTopic}`,
-      `          payload: '${configPayload}'`,
-      '          retain: true',
-    ].join('\n'));
+    if (onMessageHandlers.length > 0) {
+      mqttSection += '\n  on_message:\n' + onMessageHandlers.join('\n\n');
+    }
+    out = out.trimEnd() + '\n\n' + mqttSection + '\n';
   } else {
-    const escapedTopic = configTopic.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    out = out.replace(
-      new RegExp(`(${escapedTopic}\\s*\\n\\s*payload:\\s*'[^\\n]*')(?!\\n\\s*retain:\\s*true)`, 'm'),
-      `$1\\n          retain: true`
-    );
+    // Ensure topic_prefix
+    if (!/\btopic_prefix\s*:/.test(out)) {
+      out = out.replace(/^mqtt:\s*$/m, `mqtt:\n  topic_prefix: ${deviceSafe}`);
+    }
+    // Append on_message if not already present
+    if (onMessageHandlers.length > 0 && !out.includes(`elaris/${deviceSafe}/cmnd/`)) {
+      const onMsgSection = `\n  on_message:\n${onMessageHandlers.join('\n\n')}`;
+      out = out.replace(/^mqtt:\s*$/m, `mqtt:${onMsgSection}`);
+    }
   }
+
+  // ── 5. Config payload on boot ───────────────────────────────────────────
+  if (configJson) {
+    const configPayload = String(configJson).replace(/'/g, "''");
+    const configTopic = `topic: "elaris/${deviceSafe}/config"`;
+    if (!out.includes(configTopic)) {
+      out = out.replace(/^esphome:\s*$/m, [
+        'esphome:',
+        '  on_boot:',
+        '    priority: -100',
+        '    then:',
+        '      - delay: 2s',
+        '      - mqtt.publish:',
+        `          ${configTopic}`,
+        `          payload: '${configPayload}'`,
+        '          retain: true',
+      ].join('\n'));
+    }
+  }
+
   return out;
 }
+
+function injectEntityWiring(yamlText, entity, sectionName, wiring) {
+  // Try to find by id: first
+  const idLineRx = new RegExp(`^(\\s+)id:\\s*${escapeRegex(entity.id)}\\s*$`, 'm');
+  const idMatch = yamlText.match(idLineRx);
+  if (idMatch) {
+    const indent = idMatch[1].length;
+    const idPos = idMatch.index + idMatch[0].length;
+    const rest = yamlText.slice(idPos);
+    const endRx = new RegExp(`\\n(?=\\s{0,${indent}}-\\s+platform:|\\S)`, 'm');
+    const endMatch = rest.match(endRx);
+    const insertPos = idPos + (endMatch ? endMatch.index : rest.length);
+    return yamlText.slice(0, insertPos) + '\n' + wiring + yamlText.slice(insertPos);
+  }
+
+  // Fallback: find by name: (when entity has no id: in YAML)
+  const nameRx = new RegExp(`^(\\s+)name:\\s*["']${escapeRegex(entity.name)}["']\\s*$`, 'm');
+  const nameMatch = yamlText.match(nameRx);
+  if (nameMatch) {
+    const indent = nameMatch[1].length;
+    const namePos = nameMatch.index + nameMatch[0].length;
+    const rest = yamlText.slice(namePos);
+    const endRx = new RegExp(`\\n(?=\\s{0,${indent}}-\\s+platform:|\\S)`, 'm');
+    const endMatch = rest.match(endRx);
+    const insertPos = namePos + (endMatch ? endMatch.index : rest.length);
+    return yamlText.slice(0, insertPos) + '\n' + wiring + yamlText.slice(insertPos);
+  }
+
+  return yamlText;
+}
+
+function toArray(val) {
+  if (!val) return [];
+  return Array.isArray(val) ? val : [val];
+}
+
+function escapeRegex(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function pickCatalogProfileForYaml(db, parsed, explicitProfileId) {
   const explicit = String(explicitProfileId || '').trim();
   if (explicit) {
@@ -124,8 +500,8 @@ function resetManagedDiscoveryRows(db, deviceName) {
   return { cleared_blocked: clearedBlocked, cleared_pending: clearedPending };
 }
 
-function seedPendingFromManagedEntities(dbApi, deviceId, boardProfileId, entities) {
-  if (!dbApi || !deviceId || !Array.isArray(entities) || !entities.length) return;
+function seedPendingFromManagedEntities(dbApi, deviceId, boardProfileId, entitiesMap) {
+  if (!dbApi || !deviceId || !Array.isArray(entitiesMap) || !entitiesMap.length) return;
   if (typeof dbApi.noteDeviceConfig !== 'function') return;
 
   dbApi.noteDeviceConfig({
@@ -134,7 +510,7 @@ function seedPendingFromManagedEntities(dbApi, deviceId, boardProfileId, entitie
     retained: false,
     config: {
       board_profile_id: boardProfileId || null,
-      entities: entities.map((e) => ({
+      entities: entitiesMap.map((e) => ({
         key: e.key,
         group: e.group || (String(e.type || '').toLowerCase() === 'relay' ? 'state' : 'tele'),
         type: e.type,
@@ -260,7 +636,7 @@ function mountFlashRoutes({ app, db, dbApi, wsApi, dataDir, cfgDir, venvDir, req
           dbApi,
           payload.device_name,
           profile?.id || payload.board_profile_id || null,
-          Array.isArray(payload.entities) ? payload.entities : []
+          Array.isArray(payload.entitiesMap) ? payload.entitiesMap : []
         );
       }
       if (clientId && wsApi.sendToClient) wsApi.sendToClient(clientId, { type: 'esphome_done', ok, code });
@@ -306,13 +682,17 @@ function mountFlashRoutes({ app, db, dbApi, wsApi, dataDir, cfgDir, venvDir, req
     const oldDeviceId = oldNameMatch ? String(oldNameMatch[1]).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-') : null;
     // Use device_id for YAML name/MQTT substitution; device_name becomes friendly_name only.
     let finalYaml = applyYamlOverrides(yamlText, { device_name: device_id, friendly_name: device_name, wifi_ssid, wifi_pass, mqtt_host });
-    // Strip remaining !secret tags — HA-specific secrets (api key, ota password, etc.)
-    // not needed by ELARIS. Replace *key* secrets with a valid random base64 value,
-    // everything else with an empty string so ESPHome doesn't abort on missing secrets.yaml.
-    const crypto = require('crypto');
-    finalYaml = finalYaml.replace(/!secret\s+(\S+)/g, (_, name) =>
-      /key|encr/i.test(name) ? '"' + crypto.randomBytes(32).toString('base64') + '"' : '""'
-    );
+    // Detect !secret tags — they require a secrets.yaml file that ESPHome
+    // won't have in our build context. Reject early with a helpful message
+    // instead of silently corrupting the YAML with random values.
+    const secretMatches = finalYaml.match(/!secret\s+(\S+)/g);
+    if (secretMatches && secretMatches.length > 0) {
+      return res.status(400).json({
+        ok: false,
+        error: 'yaml_contains_secrets',
+        details: `The following !secret references were found: ${secretMatches.join(', ')}. Replace them with literal values before flashing — ESPHome needs a secrets.yaml file that is not available in this environment.`,
+      });
+    }
     let parsed;
     try { parsed = parseEsphomeYaml(finalYaml); }
     catch (e) { return res.status(400).json({ ok: false, error: 'invalid_yaml_after_overrides: ' + String(e?.message || e) }); }
@@ -342,15 +722,19 @@ function mountFlashRoutes({ app, db, dbApi, wsApi, dataDir, cfgDir, venvDir, req
       group: e.group || (String(e.type || '').toLowerCase() === 'relay' ? 'state' : 'tele'),
       type: e.type,
       name: e.name || e.key,
+      source: e.source || null,
+      port_id: e.port_id || null,
+      bus_id: e.bus_id || null,
+      pin: e.pin || null,
     })) : [];
     if (mqtt_host) {
       const configJson = buildManagedConfigJson({
         deviceName: device_id,
         boardProfileId: resolvedProfile.id,
         boardLabel: resolvedProfile.label || device_name,
-        entities: managedEntities,
+        entitiesMap: managedEntities,
       });
-      finalYaml = injectManagedOverlay(finalYaml, { deviceName: device_id, mqttHost: mqtt_host, configJson });
+      finalYaml = injectManagedOverlay(finalYaml, { deviceName: device_id, mqttHost: mqtt_host, configJson, canonicalEntities: managedEntities });
     }
     const payload = {
       site_id,
@@ -363,7 +747,7 @@ function mountFlashRoutes({ app, db, dbApi, wsApi, dataDir, cfgDir, venvDir, req
       client_id,
       use_ethernet: hasEthernet && !hasWifi,
       existing_device_id: explicitExistingId,
-      entities: managedEntities,
+      entitiesMap: managedEntities,
       integration_key: 'esphome',
       ownership_mode: 'managed_internal',
       config_source: 'use_my_yaml_overlay',

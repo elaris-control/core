@@ -258,7 +258,7 @@ function renderWizardInputs(currentMappings={}) {
     document.getElementById("wizardInputs").innerHTML = (modSummaryBox ? '<div id="'+modSummaryBox+'"></div>' : '') + html;
     if (modSummaryBox) ModuleRegistry[selectedDef?.id].updateCommissioningSummary(buildEffectiveMappings(currentMappings));
   } else {
-    if (selectedDef?.id === 'thermostat') {
+    if (selectedDef?.id === 'thermostat' || selectedDef?.id === 'zoned_thermostat') {
       thermostatVisibleZones = thermostatSuggestedVisibleZones(currentMappings);
       renderThermostatWizardIntoDom(currentMappings, makeRow);
     } else if (ModuleRegistry[selectedDef?.id]?.renderWizardInputs) {

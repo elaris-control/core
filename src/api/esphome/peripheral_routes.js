@@ -5,7 +5,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { getCatalogProfile } = require('../../esphome/profile_registry');
-const { deriveBoardPorts, resolvePeripheralSelection } = require('../../esphome/board_port_registry');
+const { deriveBoardPorts, resolvePeripheralSelection, findBoardPort, findBoardBus } = require('../../esphome/board_port_registry');
 const { safeName, sha256, parseGpio, toGpioLabel } = require('../../esphome/schema');
 const { addPeripheralToYaml } = require('../../esphome/generator');
 const { parseManagedPeripherals, removeManagedPeripheralFromYaml, updateManagedPeripheralInYaml } = require('../../esphome/peripheral_editor');
@@ -184,6 +184,7 @@ function runPeripheralFlash({ action, req, res, db, wsApi, dataDir, cfgDir, stat
     sendPeripheralDone(wsApi, clientId, { ok, code, awaiting_report: !!ok, entity_key: resultKey, action });
     appendLog(ok ? 'info' : 'error', ok ? successText : `✗ Flash failed (exit ${code})`);
     if (ok && waitText) appendLog('info', waitText);
+    if (ok && onSuccess) onSuccess();
   });
   proc.on('error', err => {
     state.activeFlash = null;
