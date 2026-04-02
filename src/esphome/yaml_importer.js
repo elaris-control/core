@@ -128,12 +128,12 @@ function parseEsphomeYaml(yamlText) {
     relayIdx++;
     const entity = {
       key: `relay_${relayIdx}`,
+      yaml_id: String(sw.id || '').trim() || null,
       name: sw.name || `Relay ${relayIdx}`,
       type: 'relay',
       source: `OUT${relayIdx}`,
       inverted: sw.inverted === true,
     };
-    // PCF8574 can be at sw.pcf8574 OR nested under sw.pin.pcf8574
     const swPcf = sw.pcf8574 || sw.pin?.pcf8574;
     const swNum = sw.number ?? sw.pin?.number;
     if (swPcf) {
@@ -156,6 +156,7 @@ function parseEsphomeYaml(yamlText) {
     diIdx++;
     const entity = {
       key: `di_${diIdx}`,
+      yaml_id: String(bs.id || '').trim() || null,
       name: bs.name || `DI ${diIdx}`,
       type: 'di',
       source: `IN${diIdx}`,
@@ -198,6 +199,7 @@ function parseEsphomeYaml(yamlText) {
       const pin = resolvePin(s.pin);
       result.entityDefaults.push({
         key: `ai_${aiIdx}`,
+        yaml_id: String(s.id || '').trim() || null,
         name: s.name || `Analog Input ${aiIdx}`,
         type: 'analog',
         source: pin.label || `AI${aiIdx}`,
@@ -272,6 +274,7 @@ function parseEsphomeYaml(yamlText) {
       const pin = resolvePin(out.pin);
       result.entityDefaults.push({
         key: `ao_${aoIdx}`,
+        yaml_id: String(out.id || '').trim() || null,
         name: out.id ? out.id.replace(/_/g, ' ') : `Analog Output ${aoIdx}`,
         type: 'ao',
         source: pin.label || `AO${aoIdx}`,

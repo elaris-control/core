@@ -54,11 +54,14 @@ function injectManagedOverlay(yamlText, { deviceName, mqttHost, configJson, cano
   let out = String(yamlText || '');
   const deviceSafe = safeName(deviceName || 'device');
 
-  // Canonical key map: build from passed entitiesMap or extract from YAML
+  // Canonical key map: build from passed canonicalEntities (yaml_id → key)
   const keyMap = {};
   if (Array.isArray(canonicalEntities)) {
     for (const e of canonicalEntities) {
-      if (e.key) keyMap[e.name || e.key] = e.key;
+      if (e.key) {
+        const yamlId = e.yaml_id || e.name || e.key;
+        keyMap[yamlId] = e.key;
+      }
     }
   }
 
@@ -114,7 +117,7 @@ function injectManagedOverlay(yamlText, { deviceName, mqttHost, configJson, cano
 
   // Helper: get MQTT topic key (canonical key if available, otherwise YAML id)
   function getMqttKey(entity) {
-    return keyMap[entity.name] || entity.id;
+    return keyMap[entity.id] || keyMap[entity.name] || entity.id;
   }
 
   // ── 2. Inject state publishing into each entity block ───────────────────
@@ -515,6 +518,7 @@ function seedPendingFromManagedEntities(dbApi, deviceId, boardProfileId, entitie
         group: e.group || (String(e.type || '').toLowerCase() === 'relay' ? 'state' : 'tele'),
         type: e.type,
         name: e.name || e.key,
+        yaml_id: e.yaml_id || null,
         source: e.source || e.port_id || e.bus_id || null,
         port_id: e.port_id || null,
         bus_id: e.bus_id || null,
@@ -719,6 +723,7 @@ function mountFlashRoutes({ app, db, dbApi, wsApi, dataDir, cfgDir, venvDir, req
     };
     const managedEntities = Array.isArray(parsed.entityDefaults) ? parsed.entityDefaults.map((e) => ({
       key: e.key,
+      yaml_id: e.yaml_id || null,
       group: e.group || (String(e.type || '').toLowerCase() === 'relay' ? 'state' : 'tele'),
       type: e.type,
       name: e.name || e.key,
