@@ -14,7 +14,7 @@ function scheduledLightHandler(ctx, send, siteInfo) {
   const schedOnStr  = ctx.settingStr('schedule_on', '18:00');
   const schedOffStr = ctx.settingStr('schedule_off', '23:00');
   const isOn = relayKeys(ctx).some(k => ctx.isOn(k));
-  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const nowMin = localMinutes(siteInfo);
 
   // Wall switch — takes priority, can override dashboard manual
   const sw = handleSwitch(ctx, send, instId, { switchState, manualState, fallback: 'Scheduled_Light' });

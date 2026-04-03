@@ -82,8 +82,31 @@ function getState(instId) {
   return instanceState.get(instId);
 }
 
-function fmtDate(ts)  { return new Date(ts).toISOString().slice(0, 10); } // YYYY-MM-DD
-function fmtMonth(ts) { return new Date(ts).toISOString().slice(0, 7);  } // YYYY-MM
+function fmtDate(ts, tz) {
+  const d = new Date(ts);
+  if (tz) {
+    return d.toLocaleDateString('en-CA', { timeZone: tz });
+  }
+  return d.toISOString().slice(0, 10);
+}
+
+function fmtMonth(ts, tz) {
+  const d = new Date(ts);
+  if (tz) {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit' }).formatToParts(d);
+    const year = parts.find(p => p.type === 'year').value;
+    const month = parts.find(p => p.type === 'month').value;
+    return `${year}-${month}`;
+  }
+  return d.toISOString().slice(0, 7);
+}
+
+function getLocalHour(ts, tz) {
+  if (tz) {
+    return parseInt(new Date(ts).toLocaleString('en-US', { timeZone: tz, hour: 'numeric', hour12: false }));
+  }
+  return new Date(ts).getHours();
+}
 
 function loadHistory(ctx) {
   try {
@@ -98,9 +121,10 @@ function saveHistory(ctx, history) {
   try { ctx.setSetting('_history_json', JSON.stringify(history)); } catch (_) {}
 }
 
-function energyHandler(ctx, send) {
+function energyHandler(ctx, send, siteInfo) {
   const instId = ctx.instance.id;
   const now    = Date.now();
+  const tz = siteInfo?.timezone || null;
 
   const isTestMode = ctx.settingStr('test_mode', '0') === '1';
   if (isTestMode) {
@@ -144,13 +168,13 @@ function energyHandler(ctx, send) {
   const alertCool     = parseInt(ctx.setting('alert_cooldown_s',   900));
 
   // Determine active tariff (time-of-use or flat)
-  const currentH  = new Date().getHours();
+  const currentH  = getLocalHour(now, tz);
   const isPeak    = tariffMode === 'tou' && currentH >= peakStartH && currentH < peakEndH;
   const activeTariff = tariffMode === 'tou' ? (isPeak ? tariffPeak : tariffOffPeak) : tariffFlat;
 
   // ── Read persisted accumulators ──────────────────────────────────────────
-  const today = fmtDate(now);
-  const month = fmtMonth(now);
+  const today = fmtDate(now, tz);
+  const month = fmtMonth(now, tz);
   const lastDay   = ctx.settingStr('_day_reset',   '') || '';
   const lastMonth = ctx.settingStr('_month_reset', '') || '';
 
@@ -171,7 +195,7 @@ function energyHandler(ctx, send) {
     // Archive yesterday to history before resetting
     if (kwToday_ > 0) {
       const history = loadHistory(ctx);
-      history.push({ date: lastDay || fmtDate(now - 86400000), kwh: Math.round(kwToday_ * 1000) / 1000, cost: Math.round(kwToday_ * activeTariff * 100) / 100 });
+      history.push({ date: lastDay || fmtDate(now - 86400000, tz), kwh: Math.round(kwToday_ * 1000) / 1000, cost: Math.round(kwToday_ * activeTariff * 100) / 100 });
       while (history.length > 7) history.shift();
       saveHistory(ctx, history);
     }

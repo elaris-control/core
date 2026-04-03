@@ -2,7 +2,11 @@
 // Shared helpers for all switch-based lighting modules.
 
 function isTruthyState(v) {
-  return v === 'ON' || v === '1' || v === 'true' || v === 1 || v === true;
+  if (typeof v === 'string') {
+    const u = v.toUpperCase();
+    return u === 'ON' || u === '1' || u === 'TRUE';
+  }
+  return v === 1 || v === true;
 }
 
 function slugifyActionPart(input, fallback = 'Light') {
@@ -73,6 +77,19 @@ function handleSwitch(ctx, send, instId, opts) {
 
   const sw = ctx.state('switch_di');
   const prev = switchState.get(instId);
+
+  // If switch state is unknown (null/undefined), don't make decisions
+  if (sw === null || sw === undefined) {
+    return { handled: false, manualActive: !!manualState.get(instId) };
+  }
+
+  // If we have no previous state, initialize from current state without triggering
+  // This prevents unintended toggles after cache rebuild / ESPHome reconnection
+  if (prev === undefined || prev === null) {
+    switchState.set(instId, sw);
+    return { handled: false, manualActive: !!manualState.get(instId) };
+  }
+
   switchState.set(instId, sw);
 
   const swOn = isTruthyState(sw);
@@ -81,8 +98,8 @@ function handleSwitch(ctx, send, instId, opts) {
   const isToggle = switchType === 'toggle' || switchType === '1';
 
   if (isToggle) {
-    // Toggle mode: only react to rising edge
-    if (swOn && !prevOn) {
+    const prevWasExplicitlyOff = !isTruthyState(prev);
+    if (swOn && prevWasExplicitlyOff) {
       const isOn = relayKeys(ctx).some(k => ctx.isOn(k));
       const targetOn = !isOn;
       const reason = targetOn ? 'Manual ON' : 'Manual OFF';
@@ -92,12 +109,18 @@ function handleSwitch(ctx, send, instId, opts) {
       return { handled: true, manualActive: true };
     }
   } else {
-    // Follow mode: react to any state change
-    if (sw !== prev && prev != null) {
-      const reason = swOn ? 'Manual ON' : 'Manual OFF';
-      manualState.set(instId, { on: swOn, ts: Date.now() });
-      setRelays(send, ctx, swOn, reason, 'Switch', fallback);
-      broadcastState(ctx, { manual_active: true, source: 'manual', last_reason: reason, status: swOn ? 'on' : 'off', output_on: swOn });
+    // Follow mode: react to any state change — normalize to boolean to avoid
+    // false triggers from case differences ('ON' vs 'on') or type coercion
+    const swOn = isTruthyState(sw);
+    const prevOn = isTruthyState(prev);
+    if (swOn !== prevOn) {
+      const isOn = relayKeys(ctx).some(k => ctx.isOn(k));
+      if (isOn !== swOn) {
+        const reason = swOn ? 'Manual ON' : 'Manual OFF';
+        manualState.set(instId, { on: swOn, ts: Date.now() });
+        setRelays(send, ctx, swOn, reason, 'Switch', fallback);
+        broadcastState(ctx, { manual_active: true, source: 'manual', last_reason: reason, status: swOn ? 'on' : 'off', output_on: swOn });
+      }
       return { handled: true, manualActive: true };
     }
   }

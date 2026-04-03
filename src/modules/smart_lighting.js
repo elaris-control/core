@@ -30,7 +30,10 @@ function routes(app, ctx) {
       if (!access) return;
       const scenarioId = req.body.scenario_id;
       const settings   = engine.getSettings(instId);
-      const scenarios  = JSON.parse(settings.scenarios || '[]');
+      let scenarios = [];
+      try { scenarios = JSON.parse(settings.scenarios || '[]'); } catch (_) {
+        return res.status(400).json({ ok: false, error: 'invalid_scenarios_data' });
+      }
       const scenario   = scenarioId ? scenarios.find(s => s.id === scenarioId) : null;
       if (scenarioId && !scenario) return res.status(404).json({ ok: false, error: 'scenario not found' });
 

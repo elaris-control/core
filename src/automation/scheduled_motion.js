@@ -4,7 +4,7 @@
 const {
   isTruthyState, setRelays, broadcastState, handleSwitch, relayKeys,
 } = require('./helpers/light_common');
-const { parseTime, inRange, getSun } = require('./lighting');
+const { parseTime, inRange, getSun, localMinutes } = require('./lighting');
 
 const switchState    = new Map();
 const manualState    = new Map();
@@ -18,7 +18,7 @@ function scheduledMotionHandler(ctx, send, siteInfo) {
   const schedOnStr  = ctx.settingStr('schedule_on', '18:00');
   const schedOffStr = ctx.settingStr('schedule_off', '23:00');
   const isOn = relayKeys(ctx).some(k => ctx.isOn(k));
-  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const nowMin = localMinutes(siteInfo);
 
   // Wall switch — takes priority, can override dashboard manual
   const sw = handleSwitch(ctx, send, instId, { switchState, manualState, fallback: 'Scheduled_Motion' });

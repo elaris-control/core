@@ -10,7 +10,7 @@ function initAuthRoutes({ users, google, github, appSecret }) {
 
   const SESSION_COOKIE = "elaris_session";
   const SECURE = process.env.COOKIE_SECURE === "1";
-  const csrf = makeCsrfTools({ users, secret: appSecret || process.env.APP_SECRET || "elaris-csrf", secure: SECURE, sessionCookie: SESSION_COOKIE });
+  const csrf = makeCsrfTools({ users, secret: appSecret || process.env.APP_SECRET, secure: SECURE, sessionCookie: SESSION_COOKIE });
   const rateLimit = createAuthRateLimiter({
     windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS) || (15 * 60 * 1000),
     maxFailures: Number(process.env.AUTH_RATE_LIMIT_MAX_FAILURES) || 5,
@@ -18,9 +18,19 @@ function initAuthRoutes({ users, google, github, appSecret }) {
 
   // ── State map for OAuth CSRF protection (in-memory, short-lived) ──────
   const oauthStates = new Map();
+  const OAUTH_STATE_TTL = 10 * 60 * 1000; // 10 min
+  const OAUTH_STATE_MAX = 500; // cap to prevent OOM
   function newState() {
+    // Prune expired entries on every new state creation
+    const now = Date.now();
+    for (const [k, v] of oauthStates) { if (v < now) oauthStates.delete(k); }
+    // If still at capacity, evict oldest
+    if (oauthStates.size >= OAUTH_STATE_MAX) {
+      const oldest = oauthStates.keys().next().value;
+      oauthStates.delete(oldest);
+    }
     const s = crypto.randomBytes(16).toString("hex");
-    oauthStates.set(s, Date.now() + 10 * 60 * 1000); // 10 min TTL
+    oauthStates.set(s, Date.now() + OAUTH_STATE_TTL);
     return s;
   }
   function checkState(s) {

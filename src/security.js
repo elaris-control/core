@@ -40,7 +40,8 @@ function clearCookie(name, opts = {}) {
 }
 
 function createCsrfToken(sessionToken, secret) {
-  return crypto.createHmac("sha256", String(secret || "elaris-csrf"))
+  if (!secret) throw new Error("CSRF secret is required — set APP_SECRET or ENGINEER_SECRET in .env");
+  return crypto.createHmac("sha256", String(secret))
     .update(`csrf:${String(sessionToken || "")}`)
     .digest("hex");
 }

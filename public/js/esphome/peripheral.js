@@ -31,6 +31,13 @@ var AP_LIBRARY = [
   { id: 'float_switch', name: 'Float Switch (Tank Full/Empty)', protocol: 'gpio', baseType: 'di', uiCategory: 'Digital / GPIO Inputs' },
   { id: 'bh1750', name: 'BH1750 Lux Sensor (I²C)', protocol: 'i2c', addresses: ['0x23', '0x5C'], uiCategory: 'I²C Bus Devices' },
   { id: 'sht3x', name: 'SHT3x Temp + Humidity (I²C)', protocol: 'i2c', addresses: ['0x44', '0x45'], uiCategory: 'I²C Bus Devices' },
+  { id: 'bme280', name: 'BME280 Temp + Humidity + Pressure (I²C)', protocol: 'i2c', addresses: ['0x76', '0x77'], uiCategory: 'I²C Bus Devices' },
+  { id: 'bmp280', name: 'BMP280 Temp + Pressure (I²C)', protocol: 'i2c', addresses: ['0x76', '0x77'], uiCategory: 'I²C Bus Devices' },
+  { id: 'veml7700', name: 'VEML7700 Ambient Light (I²C)', protocol: 'i2c', addresses: ['0x10'], uiCategory: 'I²C Bus Devices' },
+  { id: 'ina219', name: 'INA219 Current / Voltage / Power (I²C)', protocol: 'i2c', addresses: ['0x40', '0x41', '0x44', '0x45'], uiCategory: 'I²C Bus Devices' },
+  { id: 'ccs811', name: 'CCS811 eCO2 / TVOC (I²C)', protocol: 'i2c', addresses: ['0x5A', '0x5B'], uiCategory: 'I²C Bus Devices' },
+  { id: 'mhz19', name: 'MH-Z19 CO2 Sensor (RS485/UART)', protocol: 'uart', uiCategory: 'UART / RS485 Bus Devices' },
+  { id: 'pzem004t', name: 'PZEM-004T Power / Energy Meter (RS485/UART)', protocol: 'uart', uiCategory: 'UART / RS485 Bus Devices' },
 ];
 
 function apGetTypeSpec(type) {
@@ -44,6 +51,10 @@ function apBaseType(type) {
 
 function apIsI2cType(type) {
   return apGetTypeSpec(type).protocol === 'i2c';
+}
+
+function apIsUartType(type) {
+  return apGetTypeSpec(type).protocol === 'uart';
 }
 
 function apCategoryLabelForType(type) {
@@ -158,6 +169,7 @@ function apLibraryForCurrentDevice() {
   if (!ports.length && !buses.length && !_apPinOptions) return AP_LIBRARY.slice();
   return AP_LIBRARY.filter(function(item) {
     if (item.protocol === 'i2c') return apCompatibleBuses(item.id).length > 0 || (!!(_apPinOptions && _apPinOptions.defaultI2c));
+    if (item.protocol === 'uart') return apCompatibleBuses(item.id).length > 0;
     return apCompatiblePorts(item.id).length > 0 || ports.some(function(port) {
       return !port.portId && Array.isArray(port.supports) && port.supports.indexOf(apBaseType(item.id)) >= 0;
     });
@@ -489,14 +501,15 @@ function apBuildBusDropdown(type) {
     return;
   }
 
+  var isUart = apIsUartType(type);
   var placeholder = document.createElement('option');
   placeholder.value = '';
-  placeholder.textContent = '— select board I²C bus —';
+  placeholder.textContent = isUart ? '— select board UART/RS485 bus —' : '— select board I²C bus —';
   busSel.appendChild(placeholder);
   buses.forEach(function(bus) {
     var opt = document.createElement('option');
     opt.value = String(bus.id || '').trim();
-    opt.textContent = bus.label + (bus.sda && bus.scl ? ' · ' + bus.sda + '/' + bus.scl : '');
+    opt.textContent = bus.label + (bus.tx !== undefined ? ' · TX:' + bus.tx + '/RX:' + bus.rx : bus.sda && bus.scl ? ' · ' + bus.sda + '/' + bus.scl : '');
     if (bus.usedAddresses && bus.usedAddresses.length) opt.textContent += ' · used ' + bus.usedAddresses.join(', ');
     opt.title = [bus.hint || '', (bus.usedBy || []).slice(0, 4).join(', ')].filter(Boolean).join(' · ');
     busSel.appendChild(opt);
@@ -517,12 +530,21 @@ function apApplyBusSelection() {
   var scl = document.getElementById('apScl');
   var hint = document.getElementById('apI2cHint');
   var address = document.getElementById('apAddress');
+  var type = document.getElementById('apType').value;
   if (!bus) {
     sda.readOnly = false;
     scl.readOnly = false;
     if (!sda.value && _apPinOptions && _apPinOptions.defaultI2c) sda.value = _apPinOptions.defaultI2c.sda || '';
     if (!scl.value && _apPinOptions && _apPinOptions.defaultI2c) scl.value = _apPinOptions.defaultI2c.scl || '';
-    hint.textContent = apHintTextForType(document.getElementById('apType').value);
+    hint.textContent = apHintTextForType(type);
+    return;
+  }
+  if (apIsUartType(type)) {
+    sda.readOnly = true;
+    scl.readOnly = true;
+    sda.value = '';
+    scl.value = '';
+    hint.textContent = (bus.hint || bus.label || 'Board UART/RS485 bus') + (bus.tx !== undefined ? ' · TX:' + bus.tx + '/RX:' + bus.rx : '');
     return;
   }
   if (bus.sda) sda.value = bus.sda;
@@ -530,9 +552,9 @@ function apApplyBusSelection() {
   sda.readOnly = !!bus.sda;
   scl.readOnly = !!bus.scl;
   hint.textContent = (bus.hint || bus.label || 'Board I²C bus') + (bus.sda && bus.scl ? ' · ' + bus.sda + '/' + bus.scl : '');
-  var spec = apGetTypeSpec(document.getElementById('apType').value);
+  var spec = apGetTypeSpec(type);
   if (spec.addresses && spec.addresses.length) {
-    var preferredAddress = apPickSuggestedAddress(document.getElementById('apType').value, bus);
+    var preferredAddress = apPickSuggestedAddress(type, bus);
     if (!address.value || (spec.addresses || []).indexOf(address.value) < 0 || (bus && Array.isArray(bus.usedAddresses) && bus.usedAddresses.map(function(x){ return String(x || '').toLowerCase(); }).indexOf(String(address.value || '').toLowerCase()) >= 0)) address.value = preferredAddress || spec.addresses[0];
   }
 }
@@ -610,6 +632,8 @@ function apBuildEntity(type, name, key) {
     entity.sda = String(document.getElementById('apSda').value || '').trim();
     entity.scl = String(document.getElementById('apScl').value || '').trim();
     entity.address = String(document.getElementById('apAddress').value || '').trim();
+  } else if (apIsUartType(type)) {
+    if (bus && bus.id) entity.bus_id = bus.id;
   } else {
     if (port && port.portId) entity.port_id = port.portId;
     entity.pin = apGetPin();
@@ -618,7 +642,7 @@ function apBuildEntity(type, name, key) {
 }
 
 function apRenderPinValidation() {
-  if (apIsI2cType(document.getElementById('apType').value)) {
+  if (apIsI2cType(document.getElementById('apType').value) || apIsUartType(document.getElementById('apType').value)) {
     apRenderNoticeBox('apPinValidation', '', []);
     return;
   }
@@ -676,8 +700,18 @@ function apRenderPinValidation() {
 }
 
 function apRenderI2cValidation() {
-  if (!apIsI2cType(document.getElementById('apType').value)) {
+  var type = document.getElementById('apType').value;
+  if (!apIsI2cType(type) && !apIsUartType(type)) {
     apRenderNoticeBox('apI2cValidation', '', []);
+    return;
+  }
+  if (apIsUartType(type)) {
+    var bus = apSelectedBus();
+    var hints = [];
+    if (bus) hints.push({ level: 'info', text: 'Using ' + bus.label + (bus.tx !== undefined ? ' · TX:' + bus.tx + '/RX:' + bus.rx : '') + '.' });
+    if (!hints.length) hints.push({ level: 'warn', text: 'Select a UART/RS485 bus from the dropdown.' });
+    else hints.push({ level: 'ok', text: 'UART/RS485 bus selected. MH-Z19 and PZEM-004T use this bus for Modbus/serial communication.' });
+    apRenderNoticeBox('apI2cValidation', 'UART/RS485 checks', hints);
     return;
   }
   var bus = apSelectedBus();
@@ -690,7 +724,7 @@ function apRenderI2cValidation() {
   else if (bus && Array.isArray(bus.usedAddresses) && bus.usedAddresses.length) hints.push({ level: 'info', text: 'Already used on ' + bus.label + ': ' + bus.usedAddresses.join(', ') + '.' });
   if (!/^GPIO\d+$/i.test(sda) || !/^GPIO\d+$/i.test(scl)) hints.push({ level: 'warn', text: 'Use GPIO<number> for SDA and SCL.' });
   if (!/^0x[0-9a-f]+$/i.test(addr)) hints.push({ level: 'warn', text: 'Use a hex I²C address like 0x23, 0x44 or 0x45.' });
-  var spec = apGetTypeSpec(document.getElementById('apType').value);
+  var spec = apGetTypeSpec(type);
   if (spec.addresses && spec.addresses.length) hints.push({ level: 'info', text: 'Typical addresses for ' + spec.name + ': ' + spec.addresses.join(' or ') + '.' });
   if (!hints.length) hints.push({ level: 'ok', text: 'I²C bus and address look valid. Shared SDA/SCL with unique addresses is supported.' });
   apRenderNoticeBox('apI2cValidation', 'I²C checks', hints);
@@ -702,11 +736,12 @@ async function apLoadPinOptions() {
   var type = document.getElementById('apType').value;
   var isPulse = type === 'pulse_counter';
   var isI2c = apIsI2cType(type);
+  var isUart = apIsUartType(type);
 
   document.getElementById('apScaleRow').style.display = isPulse ? '' : 'none';
   apApplyTypeDefaults();
   if (!isPulse) document.getElementById('apScaleCustomRow').style.display = 'none';
-  document.getElementById('apI2cRow').style.display = isI2c ? '' : 'none';
+  document.getElementById('apI2cRow').style.display = (isI2c || isUart) ? '' : 'none';
   apRenderNoticeBox('apPinValidation', '', []);
   apRenderNoticeBox('apI2cValidation', '', []);
 
@@ -760,8 +795,9 @@ async function apPreview() {
   if (!deviceId) { alert('Select a device.'); return; }
   if (!name) { alert('Enter a sensor name.'); return; }
   if (!key)  { alert('Key is required.'); return; }
-  if (!apIsI2cType(type) && !pin) { alert(apHasLogicalPorts(type) ? 'Select a board port first.' : 'Select or enter a GPIO pin.'); return; }
+  if (!apIsI2cType(type) && !apIsUartType(type) && !pin) { alert(apHasLogicalPorts(type) ? 'Select a board port first.' : 'Select or enter a GPIO pin.'); return; }
   if (apIsI2cType(type) && !bus && (!document.getElementById('apSda').value || !document.getElementById('apScl').value)) { alert('Select a board I²C bus or enter SDA/SCL.'); return; }
+  if (apIsUartType(type) && !bus) { alert('Select a board UART/RS485 bus.'); return; }
   if (_apMode === 'edit' && !_apEditOriginalKey) { alert('Pick a peripheral to edit first.'); return; }
 
   var replaceTarget = _apMode === 'add' ? apSelectedPortReplaceTarget(type) : null;

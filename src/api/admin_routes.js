@@ -311,7 +311,7 @@ function initAdminRoutes({ db, users, requireAdmin, historyRollups, mqttApi }) {
     try {
       const rows = db.prepare(`
         SELECT id, device_id, group_name, key, last_seen, last_value
-        FROM pending_io ORDER BY device_id, last_seen DESC
+        FROM pending_io ORDER BY device_id, group_name, key COLLATE NOCASE
       `).all();
       res.json({ ok: true, pending: rows });
     } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
@@ -376,9 +376,16 @@ function initAdminRoutes({ db, users, requireAdmin, historyRollups, mqttApi }) {
     try {
       const integrity = db.prepare(`PRAGMA integrity_check`).all();
       db.prepare(`PRAGMA wal_checkpoint(TRUNCATE)`).run();
-      db.exec(`VACUUM`);
+      // VACUUM can block the event loop on large databases — run async
+      setImmediate(() => {
+        try {
+          db.exec(`VACUUM`);
+        } catch (e) {
+          console.error('[ADMIN] VACUUM error:', e.message);
+        }
+      });
       const ok = integrity.length === 1 && integrity[0].integrity_check === 'ok';
-      res.json({ ok: true, integrity: ok ? 'ok' : 'errors', details: integrity });
+      res.json({ ok: true, integrity: ok ? 'ok' : 'errors', details: integrity, vacuum: 'scheduled' });
     } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 

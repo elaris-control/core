@@ -263,7 +263,11 @@ function lightingHandler(ctx, send, siteInfo) {
     const expired = manualExpiry > 0 && (now - manual.ts) > manualExpiry;
     if (!expired) {
       const r = manual.on ? 'Manual ON' : 'Manual OFF';
-      setOut(send, ctx, hasDimmer, manual.on, dimOnLevel, dimOffLevel, r, 'Switch');
+      // Use manual_level if set, otherwise fall back to dimOnLevel/dimOffLevel
+      const manualLevel = ctx.setting('manual_level', NaN);
+      const effectiveDimOn = Number.isFinite(manualLevel) ? manualLevel : dimOnLevel;
+      const effectiveDimOff = dimOffLevel;
+      setOut(send, ctx, hasDimmer, manual.on, effectiveDimOn, effectiveDimOff, r, 'Manual');
       broadcastLightingState(ctx, { manual_active: true, source: 'manual', schedule_active: inSched, motion_active: !!motion, dark: !!isDark, last_reason: r });
       return;
     }
@@ -477,4 +481,4 @@ const LIGHTING_MODULE = {
   ],
 };
 
-module.exports = { lightingHandler, LIGHTING_MODULE, setManual, clearManual, parseTime, inRange, getSun };
+module.exports = { lightingHandler, LIGHTING_MODULE, setManual, clearManual, parseTime, inRange, getSun, localMinutes };

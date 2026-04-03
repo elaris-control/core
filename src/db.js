@@ -503,7 +503,7 @@ db.exec(`
   }
 
   // ── Pending IO ─────────────────────────────────────────────────────────────
-  const listPendingIO = db.prepare(`SELECT * FROM pending_io ORDER BY last_seen DESC`);
+  const listPendingIO = db.prepare(`SELECT * FROM pending_io ORDER BY device_id, group_name, key COLLATE NOCASE`);
   const isApprovedIO = db.prepare(`SELECT 1 FROM io WHERE device_id=? AND group_name=? AND key=? LIMIT 1`);
   const isBlockedIO = db.prepare(`SELECT 1 FROM blocked_io WHERE device_id=? AND group_name=? AND key=? LIMIT 1`);
   const findApprovedIOByPath = db.prepare(`

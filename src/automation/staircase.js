@@ -5,6 +5,7 @@ const holdUntil = new Map();
 const switchSeen = new Map(); // instId -> {switch_di:'0', switch_di_2:'0', ...}
 const pirSeen = new Map();
 const manualState = new Map();
+const holdLastBroadcast = new Map(); // instId -> bucket (avoid spam on every tick)
 
 function slugifyActionPart(input, fallback = 'Staircase') {
   const raw = String(input || '').trim();
@@ -117,12 +118,19 @@ function staircaseHandler(ctx, send) {
   const until = holdUntil.get(instId) || 0;
   const remainingMs = until - now;
   if (remainingMs > 0) {
-    setRelays(send, ctx, true, `Timer hold ${Math.ceil(remainingMs/1000)}s left`, 'Timer');
-    broadcastState(ctx, { source: 'timer', timer_remaining_s: Math.ceil(remainingMs/1000), motion_active: !!pirOn, last_reason: `Timer hold ${Math.ceil(remainingMs/1000)}s left`, output_on: true, status: 'on' });
+    const bucket = Math.floor(remainingMs / 5000);
+    if (holdLastBroadcast.get(instId) !== bucket) {
+      holdLastBroadcast.set(instId, bucket);
+      broadcastState(ctx, { source: 'timer', timer_remaining_s: Math.ceil(remainingMs/1000), motion_active: !!pirOn, last_reason: `Timer hold ${Math.ceil(remainingMs/1000)}s left`, output_on: true, status: 'on' });
+    }
     return;
   }
 
   holdUntil.delete(instId);
+  holdLastBroadcast.delete(instId);
+
+  holdUntil.delete(instId);
+  holdLastBroadcast.delete(instId);
   setRelays(send, ctx, false, 'Timer expired', 'Timer');
   broadcastState(ctx, { source: 'timer', timer_remaining_s: 0, motion_active: !!pirOn, last_reason: 'Timer expired', output_on: false, status: 'off' });
 }

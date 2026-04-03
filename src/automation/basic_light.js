@@ -19,9 +19,14 @@ function basicLightHandler(ctx, send) {
   // Manual override from dashboard
   const manual = manualState.get(instId);
   if (manual) {
-    const reason = manual.on ? 'Manual ON' : 'Manual OFF';
-    setRelays(send, ctx, manual.on, reason, 'Manual', 'Basic_Light');
-    broadcastState(ctx, { manual_active: true, source: 'manual', status: manual.on ? 'on' : 'off', output_on: !!manual.on, last_reason: reason });
+    const isOn = relayKeys(ctx).some(k => ctx.isOn(k));
+    if (isOn !== manual.on) {
+      const reason = manual.on ? 'Manual ON' : 'Manual OFF';
+      setRelays(send, ctx, manual.on, reason, 'Manual', 'Basic_Light');
+      broadcastState(ctx, { manual_active: true, source: 'manual', status: manual.on ? 'on' : 'off', output_on: !!manual.on, last_reason: reason });
+    } else {
+      broadcastState(ctx, { manual_active: true, source: 'manual', status: isOn ? 'on' : 'off', output_on: isOn, last_reason: 'Already set' });
+    }
     return;
   }
 

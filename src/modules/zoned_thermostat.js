@@ -1,4 +1,5 @@
 const { ZONED_THERMOSTAT_MODULE, zonedThermostatHandler, setManual, clearManual } = require('../automation/zoned_thermostat');
+const { MAX_ZONES, applySetpointDelta } = require('../automation/helpers/thermostat_common');
 
 const MODULE  = ZONED_THERMOSTAT_MODULE;
 const handler = zonedThermostatHandler;
@@ -29,23 +30,11 @@ function routes(app, ctx) {
       // setpoint_delta: apply to global + all mapped temp-sensor zones
       if (body.setpoint_delta !== undefined) {
         const delta = Number(body.setpoint_delta);
-        if (!Number.isFinite(delta) || Math.abs(delta) > 5) return res.status(400).json({ ok: false, error: 'invalid_delta' });
-        const curGlobal = Number(engine.getSetting(id, 'setpoint') ?? 21);
-        const newGlobal = Math.max(5, Math.min(45, Math.round((curGlobal + delta) * 10) / 10));
-        engine.setSetting(id, 'setpoint', String(newGlobal));
-        out.setpoint = newGlobal;
-        const allMappings = (access.inst.mappings || []);
-        for (let n = 1; n <= 6; n++) {
-          const hasTempSensor = allMappings.some(m => m.input_key === `zone_${n}_temp` && m.io_id);
-          if (!hasTempSensor) continue;
-          const cur = engine.getSetting(id, `zone_${n}_setpoint`);
-          const curV = (cur !== null && cur !== '' && cur !== undefined && Number.isFinite(Number(cur))) ? Number(cur) : curGlobal;
-          const newV = Math.max(5, Math.min(45, Math.round((curV + delta) * 10) / 10));
-          engine.setSetting(id, `zone_${n}_setpoint`, String(newV));
-          out[`zone_${n}_setpoint`] = newV;
-        }
+        const deltaOut = applySetpointDelta(engine, id, access.inst.mappings, delta);
+        if (!deltaOut) return res.status(400).json({ ok: false, error: 'invalid_delta' });
+        Object.assign(out, deltaOut);
       }
-      for (let n = 1; n <= 6; n++) {
+      for (let n = 1; n <= MAX_ZONES; n++) {
         const spKey      = `zone_${n}_setpoint`;
         const nameKey    = `zone_${n}_name`;
         const schedKey   = `zone_${n}_schedule`;
@@ -68,7 +57,7 @@ function routes(app, ctx) {
       if (body.all_zones_setpoint !== undefined) {
         const v = Math.max(5, Math.min(45, Number(body.all_zones_setpoint)));
         if (Number.isFinite(v)) {
-          for (let n = 1; n <= 6; n++) engine.setSetting(id, `zone_${n}_setpoint`, String(Math.round(v * 10) / 10));
+          for (let n = 1; n <= MAX_ZONES; n++) engine.setSetting(id, `zone_${n}_setpoint`, String(Math.round(v * 10) / 10));
           engine.setSetting(id, 'setpoint', String(Math.round(v * 10) / 10));
           out.all_zones_setpoint = v;
         }

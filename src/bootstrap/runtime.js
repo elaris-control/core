@@ -71,6 +71,8 @@ function initRealtimeRuntime({ server, dbApi, db, access, users, auth, scenesApi
 }
 
 function startMaintenanceJobs({ db, users, historyRollups }) {
+  const timers = [];
+
   function cleanupEvents() {
     let retentionDays = 30;
     try {
@@ -91,7 +93,7 @@ function startMaintenanceJobs({ db, users, historyRollups }) {
   }
 
   cleanupEvents();
-  setInterval(cleanupEvents, 24 * 60 * 60 * 1000);
+  timers.push(setInterval(cleanupEvents, 24 * 60 * 60 * 1000));
 
   try {
     const r = historyRollups.backfillInitial?.();
@@ -100,32 +102,39 @@ function startMaintenanceJobs({ db, users, historyRollups }) {
     console.error('[ROLLUPS] startup backfill error:', e.message);
   }
 
-  setInterval(() => {
+  timers.push(setInterval(() => {
     try {
       const r = historyRollups.build5mRollups?.({ lookbackMs: 4 * 3600000 });
       if (r?.changed) console.log(`[ROLLUPS] 5m: upserted ${r.changed}`);
     } catch (e) {
       console.error('[ROLLUPS] 5m error:', e.message);
     }
-  }, 5 * 60 * 1000);
+  }, 5 * 60 * 1000));
 
-  setInterval(() => {
+  timers.push(setInterval(() => {
     try {
       const r = historyRollups.buildMissingHourlyRollups({ lookbackHours: 48 });
       if (r?.changed) console.log(`[ROLLUPS] 1h: upserted ${r.changed}`);
     } catch (e) {
       console.error('[ROLLUPS]', e.message);
     }
-  }, 60 * 60 * 1000);
+  }, 60 * 60 * 1000));
 
-  setInterval(() => {
+  timers.push(setInterval(() => {
     try {
       const r = historyRollups.buildDailyRollups?.({ lookbackDays: 7 });
       if (r?.changed) console.log(`[ROLLUPS] 1d: upserted ${r.changed}`);
     } catch (e) {
       console.error('[ROLLUPS] 1d error:', e.message);
     }
-  }, 60 * 60 * 1000);
+  }, 60 * 60 * 1000));
+
+  function stopAll() {
+    for (const t of timers) clearInterval(t);
+    timers.length = 0;
+  }
+
+  return { stopAll };
 }
 
 module.exports = {

@@ -4,10 +4,13 @@ function createHistoryRollupService(db) {
   const getSetting = db.prepare(`SELECT value FROM app_settings WHERE key = ?`);
   const listNumericIo = db.prepare(`SELECT id, device_id, key, type FROM io WHERE enabled = 1 AND type IN ('sensor','analog','ai')`);
 
-  const selectEvents = db.prepare(`
-    SELECT payload AS value, ts
+  // Use device_id + key_suffix pattern instead of LIKE '%/key' to leverage indexes.
+  // The topic column stores full MQTT topics like "elaris/dev1/tele/temp1".
+  // We match by device_id (indexed) and then filter in-memory on the key suffix.
+  const selectEventsByDevice = db.prepare(`
+    SELECT payload AS value, topic, ts
     FROM events
-    WHERE device_id = ? AND topic LIKE ? AND ts >= ? AND ts < ?
+    WHERE device_id = ? AND ts >= ? AND ts < ?
     ORDER BY ts ASC
   `);
 
@@ -52,9 +55,15 @@ function createHistoryRollupService(db) {
   // ── Aggregation helpers ───────────────────────────────────────────────
   function aggFromValues(values) {
     if (!values.length) return null;
-    const min   = Math.min(...values);
-    const max   = Math.max(...values);
-    const avg   = values.reduce((a, b) => a + b, 0) / values.length;
+    // Avoid spread operator stack overflow on large arrays (>65K elements)
+    let min = Infinity, max = -Infinity, sum = 0;
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+      sum += v;
+    }
+    const avg   = sum / values.length;
     const last  = values[values.length - 1];
     return { min, max, avg, last, count: values.length };
   }
@@ -80,8 +89,15 @@ function createHistoryRollupService(db) {
 
   // ── Rollup per IO ─────────────────────────────────────────────────────
   function rollupBucketFromEvents(io, bucketStart, bucketMs) {
-    const rows   = selectEvents.all(io.device_id, `%/${io.key}`, bucketStart, bucketStart + bucketMs);
-    const values = rows.map(r => parseFloat(r.value)).filter(v => Number.isFinite(v));
+    const suffix = `/${io.key}`;
+    const rows   = selectEventsByDevice.all(io.device_id, bucketStart, bucketStart + bucketMs);
+    const values = [];
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].topic.endsWith(suffix)) {
+        const v = parseFloat(rows[i].value);
+        if (Number.isFinite(v)) values.push(v);
+      }
+    }
     return aggFromValues(values);
   }
 

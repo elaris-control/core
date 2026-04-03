@@ -36,7 +36,7 @@
       if(!name) name='Zone '+n;
       var isOnZone=status==='on';
       var isMapped=!!status;
-      var hasTempSensor=source==='temp'||!!zt;
+      var hasTempSensor=source==='temp'||!!zt||x.sp['_zone_'+n+'_source']==='temp';
       var srcBadge='';
       if(source==='call') srcBadge=badge('DI','#1d8cff','rgba(29,140,255,.3)');
       else if(source==='temp') srcBadge=badge('Temp','#22d97a','rgba(34,217,122,.3)');
@@ -53,17 +53,21 @@
       cards+='<div style="font-size:10px;font-weight:800;color:'+(isOnZone?'#22d97a':'var(--muted2)')+';white-space:nowrap">'+(status?status.toUpperCase():('Z'+n))+'</div>';
       cards+='</div>';
       cards+='<div style="margin-top:6px;display:flex;justify-content:space-between;gap:8px">';
-      cards+='<div><div style="font-size:10px;color:var(--muted2);text-transform:uppercase">Room</div><div style="font-size:14px;font-weight:900;color:'+(zt!=null?'var(--text)':'var(--muted2)')+'">'+(zt!=null?esc(zt.toFixed(1)+'°'):'—')+'</div></div>';
-      if(hasTempSensor && isMapped){
-        var spM=Math.round((effectiveSp-0.5)*10)/10, spP=Math.round((effectiveSp+0.5)*10)/10;
-        var spKey='zone_'+n+'_setpoint';
-        cards+='<div style="text-align:right">';
-        cards+='<div style="font-size:10px;color:var(--muted2);text-transform:uppercase">Setpoint'+(isGlobalSp?' <span style="font-size:9px;opacity:.6">(global)</span>':'')+'</div>';
-        cards+='<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;margin-top:2px">';
-        cards+='<button onclick="var p={};p[\''+spKey+'\']='+spM+';thermoControl(\''+moduleId+'\','+instId+',p)" style="padding:2px 7px;border-radius:8px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:11px;font-weight:800;cursor:pointer">−</button>';
-        cards+='<span style="font-size:14px;font-weight:900;color:#f5c842;min-width:34px;text-align:center">'+esc(effectiveSp.toFixed(1)+'°')+'</span>';
-        cards+='<button onclick="var p={};p[\''+spKey+'\']='+spP+';thermoControl(\''+moduleId+'\','+instId+',p)" style="padding:2px 7px;border-radius:8px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:11px;font-weight:800;cursor:pointer">+</button>';
-        cards+='</div></div>';
+      cards+='<div><div style="font-size:10px;color:var(--muted2);text-transform:uppercase">Room</div><div style="font-size:14px;font-weight:900;color:'+(zt!=null?'var(--text)':(hasTempSensor?'#ef4444':'var(--muted2)'))+'">'+(zt!=null?esc(zt.toFixed(1)+'°'):(hasTempSensor?'ERR':'—'))+'</div></div>';
+      if(hasTempSensor){
+        if(zt!=null){
+          var spM=Math.round((effectiveSp-0.5)*10)/10, spP=Math.round((effectiveSp+0.5)*10)/10;
+          var spKey='zone_'+n+'_setpoint';
+          cards+='<div style="text-align:right">';
+          cards+='<div style="font-size:10px;color:var(--muted2);text-transform:uppercase">Setpoint'+(isGlobalSp?' <span style="font-size:9px;opacity:.6">(global)</span>':'')+'</div>';
+          cards+='<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;margin-top:2px">';
+          cards+='<button onclick="var p={};p[\''+spKey+'\']='+spM+';thermoControl(\''+moduleId+'\','+instId+',p)" style="padding:2px 7px;border-radius:8px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:11px;font-weight:800;cursor:pointer">−</button>';
+          cards+='<span style="font-size:14px;font-weight:900;color:#f5c842;min-width:34px;text-align:center">'+esc(effectiveSp.toFixed(1)+'°')+'</span>';
+          cards+='<button onclick="var p={};p[\''+spKey+'\']='+spP+';thermoControl(\''+moduleId+'\','+instId+',p)" style="padding:2px 7px;border-radius:8px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:11px;font-weight:800;cursor:pointer">+</button>';
+          cards+='</div></div>';
+        } else {
+          cards+='<div style="text-align:right"><div style="font-size:10px;color:var(--muted2);text-transform:uppercase">Sensor</div><div style="font-size:12px;font-weight:900;color:#ef4444">No reading</div></div>';
+        }
       } else if(source==='call'){
         cards+='<div style="text-align:right"><div style="font-size:10px;color:var(--muted2);text-transform:uppercase">Source</div><div style="font-size:12px;font-weight:900;color:#1d8cff">DI Call</div></div>';
       } else {
@@ -106,7 +110,7 @@
       h+='</div>';
     }
     if(meta.isZoned){ var zc=zoneCards(inst,x); if(zc) h+='<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">'+zc+'</div>'; }
-    if(canEngineerUI()) h+='<button onclick="toggleLightPause('+inst.id+','+paused+')" style="width:100%;margin-top:2px;padding:8px;border-radius:9px;border:1px solid '+(paused?'rgba(245,158,11,.4)':'var(--line2)')+';background:'+(paused?'rgba(245,158,11,.1)':'rgba(255,255,255,.03)')+';color:'+(paused?'#f59e0b':'var(--muted2)')+';font-size:12px;font-weight:800;cursor:pointer">'+(paused?'▶ Resume':'⏸ Pause Automation')+'</button>';
+    if(canEngineerUI()) h+='<button onclick="toggleThermoPause('+inst.id+','+paused+')" style="width:100%;margin-top:2px;padding:8px;border-radius:9px;border:1px solid '+(paused?'rgba(245,158,11,.4)':'var(--line2)')+';background:'+(paused?'rgba(245,158,11,.1)':'rgba(255,255,255,.03)')+';color:'+(paused?'#f59e0b':'var(--muted2)')+';font-size:12px;font-weight:800;cursor:pointer">'+(paused?'▶ Resume':'⏸ Pause Automation')+'</button>';
     h+='</div>';
     return h;
   }

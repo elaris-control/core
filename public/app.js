@@ -387,51 +387,6 @@ function meteoconImg(code, isDay, size) {
   var sz = size || 48;
   return '<img src="https://api.iconify.design/meteocons:'+name+'.svg" width="'+sz+'" height="'+sz+'" style="display:block" alt="" onerror="this.style.display=\'none\'">';
 }
-function renderWeatherWidget(w){
-  if(!w||!w.current) return '';
-  var c=w.current, fc=(w.forecast||[]).slice(0,5);
-  var DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  var tabStyle='display:inline-block;padding:5px 14px;font-size:11px;font-weight:700;border-radius:6px;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--muted2);font-family:inherit;';
-  var tabActiveStyle='background:rgba(29,140,255,.12);border-color:var(--blue);color:var(--blue);';
-  var h='<div>';
-  // Tabs
-  h+='<div style="display:flex;gap:6px;margin-bottom:12px">';
-  h+='<button style="'+tabStyle+tabActiveStyle+'" onclick="wTab(0,this)">Today</button>';
-  h+='<button style="'+tabStyle+'" onclick="wTab(1,this)">5 Days</button>';
-  h+='</div>';
-  // Today tab
-  h+='<div id="wTabToday">';
-  h+='<div style="display:flex;align-items:center;gap:12px">';
-  h+=meteoconImg(c.code, c.is_day, 64);
-  h+='<div>';
-  h+='<div style="font-size:42px;font-weight:900;line-height:1;color:var(--text)">'+c.temp+'<span style="font-size:20px;color:var(--muted2)">&deg;</span></div>';
-  h+='<div style="font-size:12px;color:var(--muted2);margin-top:2px">'+c.desc+'</div>';
-  h+='</div></div>';
-  h+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:12px">';
-  h+='<div style="text-align:center;padding:8px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:8px"><div style="font-size:9px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Feels</div><div style="font-size:15px;font-weight:700;margin-top:3px">'+c.feels_like+'&deg;</div></div>';
-  h+='<div style="text-align:center;padding:8px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:8px"><div style="font-size:9px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Humidity</div><div style="font-size:15px;font-weight:700;margin-top:3px">'+c.humidity+'%</div></div>';
-  h+='<div style="text-align:center;padding:8px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:8px"><div style="font-size:9px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Wind</div><div style="font-size:15px;font-weight:700;margin-top:3px">'+c.wind_speed+'<span style="font-size:10px;color:var(--muted2)">km/h '+c.wind_dir+'</span></div></div>';
-  h+='</div></div>';
-  // Week tab
-  h+='<div id="wTabWeek" style="display:none">';
-  fc.forEach(function(d,i){
-    var lbl=d.date?DAYS[new Date(d.date+'T12:00:00').getDay()]:'';
-    var isToday=i===0;
-    h+='<div style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--line)'+(i===fc.length-1?';border-bottom:none':'')+'">';
-    h+='<div style="font-size:11px;font-weight:800;color:'+(isToday?'var(--blue)':'var(--muted2)')+';width:28px">'+(isToday?'NOW':lbl)+'</div>';
-    h+=meteoconImg(d.code, true, 28);
-    h+='<div style="font-size:11px;color:var(--muted2);flex:1">'+d.desc+'</div>';
-    h+='<div style="font-size:11px;color:var(--muted2)">'+d.min+'&deg;</div>';
-    h+='<div style="width:40px;height:4px;background:rgba(255,255,255,.08);border-radius:2px;margin:0 4px;position:relative"><div style="position:absolute;left:0;top:0;height:4px;background:var(--blue);border-radius:2px;width:'+(fc.length>1?Math.round(((d.max-(Math.min.apply(null,fc.map(function(x){return x.min;}))))/(((Math.max.apply(null,fc.map(function(x){return x.max;})))-(Math.min.apply(null,fc.map(function(x){return x.min;}))||1))))*100)+'%':50+'%')+'"></div></div>';
-    h+='<div style="font-size:12px;font-weight:700;width:26px;text-align:right">'+d.max+'&deg;</div>';
-    if(d.precip>0) h+='<div style="font-size:10px;color:#60a5fa;width:28px;text-align:right">'+d.precip+'mm</div>';
-    h+='</div>';
-  });
-  h+='</div>';
-  h+='</div>';
-  return h;
-}
-
 function wTab(idx, btn){
   var tod=$('wTabToday'), wk=$('wTabWeek');
   if(tod) tod.style.display=idx===0?'':'none';

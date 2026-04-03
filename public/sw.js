@@ -11,7 +11,6 @@ const STATIC_ASSETS = [
   '/app.js',
   '/csrf.js',
   '/theme.js',
-  '/i18n.js',
   '/role-ui.js',
   '/site-context.js',
   '/logo.png',

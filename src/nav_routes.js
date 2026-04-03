@@ -3,6 +3,7 @@
 const express=require('express');
 function initNavRoutes({db,requireLogin,access}){
   db.exec("CREATE TABLE IF NOT EXISTS nav_pages (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, icon TEXT NOT NULL DEFAULT 'page', sort_order INTEGER NOT NULL DEFAULT 0, instances_json TEXT NOT NULL DEFAULT '[]', page_type TEXT NOT NULL DEFAULT 'custom', pinned_home INTEGER NOT NULL DEFAULT 1, featured_home INTEGER NOT NULL DEFAULT 0, hero_order INTEGER NOT NULL DEFAULT 0, summary_config TEXT NOT NULL DEFAULT '{}', created_ts INTEGER NOT NULL)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_nav_pages_user ON nav_pages(user_id)");
   try {
     const cols = db.prepare("PRAGMA table_info(nav_pages)").all().map(r => r.name);
     if (!cols.includes('page_type')) db.exec("ALTER TABLE nav_pages ADD COLUMN page_type TEXT NOT NULL DEFAULT 'custom'");

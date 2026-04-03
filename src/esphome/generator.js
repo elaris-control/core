@@ -1012,6 +1012,224 @@ function addPeripheralToYaml(yamlText, deviceSafeName, entity, opts = {}) {
     ].join('\n');
     result = _insertSensorItem(result, sensorItem);
 
+  } else if (type === 'bme280') {
+    const ensured = _ensureI2cBlock(result, sda || 'GPIO21', scl || 'GPIO22', entity.bus_id);
+    result = ensured.yamlText;
+    const humKey = key + '_hum';
+    const pressKey = key + '_press';
+    const sensorItem = [
+      '  - platform: bme280',
+      ...(ensured.busId ? [`    i2c_id: ${ensured.busId}`] : []),
+      `    address: ${address || '0x76'}`,
+      '    temperature:',
+      `      name: "${yamlStr(name)} Temperature"`,
+      `      id: ${key}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.1f", x);',
+      '    humidity:',
+      `      name: "${yamlStr(name)} Humidity"`,
+      `      id: ${humKey}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${humKey}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.1f", x);',
+      '    pressure:',
+      `      name: "${yamlStr(name)} Pressure"`,
+      `      id: ${pressKey}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${pressKey}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.1f", x);',
+    ].join('\n');
+    result = _insertSensorItem(result, sensorItem);
+
+  } else if (type === 'bmp280') {
+    const ensured = _ensureI2cBlock(result, sda || 'GPIO21', scl || 'GPIO22', entity.bus_id);
+    result = ensured.yamlText;
+    const pressKey = key + '_press';
+    const sensorItem = [
+      '  - platform: bmp280',
+      ...(ensured.busId ? [`    i2c_id: ${ensured.busId}`] : []),
+      `    address: ${address || '0x76'}`,
+      '    temperature:',
+      `      name: "${yamlStr(name)} Temperature"`,
+      `      id: ${key}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.1f", x);',
+      '    pressure:',
+      `      name: "${yamlStr(name)} Pressure"`,
+      `      id: ${pressKey}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${pressKey}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.1f", x);',
+    ].join('\n');
+    result = _insertSensorItem(result, sensorItem);
+
+  } else if (type === 'veml7700') {
+    const ensured = _ensureI2cBlock(result, sda || 'GPIO21', scl || 'GPIO22', entity.bus_id);
+    result = ensured.yamlText;
+    const sensorItem = [
+      '  - platform: veml7700',
+      ...(ensured.busId ? [`    i2c_id: ${ensured.busId}`] : []),
+      `    address: ${address || '0x10'}`,
+      `    name: "${yamlStr(name)}"`,
+      `    id: ${key}`,
+      '    update_interval: 30s',
+      '    on_value:',
+      '      - mqtt.publish:',
+      `          topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '          payload: !lambda |-',
+      '            return str_sprintf("%.0f", x);',
+    ].join('\n');
+    result = _insertSensorItem(result, sensorItem);
+
+  } else if (type === 'ina219') {
+    const ensured = _ensureI2cBlock(result, sda || 'GPIO21', scl || 'GPIO22', entity.bus_id);
+    result = ensured.yamlText;
+    const powerKey = key + '_power';
+    const voltageKey = key + '_voltage';
+    const sensorItem = [
+      '  - platform: ina219',
+      ...(ensured.busId ? [`    i2c_id: ${ensured.busId}`] : []),
+      `    address: ${address || '0x40'}`,
+      `    name: "${yamlStr(name)} Current"`,
+      `    id: ${key}`,
+      '    update_interval: 30s',
+      '    on_value:',
+      '      - mqtt.publish:',
+      `          topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '          payload: !lambda |-',
+      '            return str_sprintf("%.3f", x);',
+      '    max_voltage: 32.0',
+      '    max_current: 3.2',
+      '    shunt_resistance: 0.1',
+      '    power:',
+      `      name: "${yamlStr(name)} Power"`,
+      `      id: ${powerKey}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${powerKey}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.2f", x);',
+      '    bus_voltage:',
+      `      name: "${yamlStr(name)} Voltage"`,
+      `      id: ${voltageKey}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${voltageKey}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.2f", x);',
+    ].join('\n');
+    result = _insertSensorItem(result, sensorItem);
+
+  } else if (type === 'ccs811') {
+    const ensured = _ensureI2cBlock(result, sda || 'GPIO21', scl || 'GPIO22', entity.bus_id);
+    result = ensured.yamlText;
+    const tvocKey = key + '_tvoc';
+    const sensorItem = [
+      '  - platform: ccs811',
+      ...(ensured.busId ? [`    i2c_id: ${ensured.busId}`] : []),
+      `    address: ${address || '0x5A'}`,
+      `    name: "${yamlStr(name)} eCO2"`,
+      `    id: ${key}`,
+      '    update_interval: 30s',
+      '    on_value:',
+      '      - mqtt.publish:',
+      `          topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '          payload: !lambda |-',
+      '            return str_sprintf("%.0f", x);',
+      '    tvoc:',
+      `      name: "${yamlStr(name)} TVOC"`,
+      `      id: ${tvocKey}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${tvocKey}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.0f", x);',
+    ].join('\n');
+    result = _insertSensorItem(result, sensorItem);
+
+  } else if (type === 'mhz19') {
+    const tempKey = key + '_temp';
+    const uartId = entity.bus_id || 'uart_rs485';
+    const sensorItem = [
+      '  - platform: mhz19',
+      `    uart_id: ${uartId}`,
+      '    co2:',
+      `      name: "${yamlStr(name)} CO2"`,
+      `      id: ${key}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.0f", x);',
+      '    temperature:',
+      `      name: "${yamlStr(name)} Temperature"`,
+      `      id: ${tempKey}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${tempKey}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.1f", x);',
+      '    update_interval: 30s',
+      '    automatic_baseline_calibration: false',
+    ].join('\n');
+    result = _insertSensorItem(result, sensorItem);
+
+  } else if (type === 'pzem004t') {
+    const voltageKey = key + '_voltage';
+    const currentKey = key + '_current';
+    const energyKey = key + '_energy';
+    const uartId = entity.bus_id || 'uart_rs485';
+    const sensorItem = [
+      '  - platform: pzemac',
+      `    uart_id: ${uartId}`,
+      '    voltage:',
+      `      name: "${yamlStr(name)} Voltage"`,
+      `      id: ${voltageKey}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${voltageKey}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.1f", x);',
+      '    current:',
+      `      name: "${yamlStr(name)} Current"`,
+      `      id: ${currentKey}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${currentKey}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.3f", x);',
+      '    power:',
+      `      name: "${yamlStr(name)} Power"`,
+      `      id: ${key}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${key}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.1f", x);',
+      '    energy:',
+      `      name: "${yamlStr(name)} Energy"`,
+      `      id: ${energyKey}`,
+      '      on_value:',
+      '        - mqtt.publish:',
+      `            topic: "elaris/${deviceSafeName}/tele/${energyKey}"`,
+      '            payload: !lambda |-',
+      '              return str_sprintf("%.3f", x);',
+      '    update_interval: 30s',
+    ].join('\n');
+    result = _insertSensorItem(result, sensorItem);
+
   } else if (type === 'pulse_counter') {
     let unit, filterLines;
     if (scale === 'yfs201') {

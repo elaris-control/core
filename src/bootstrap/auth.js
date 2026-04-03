@@ -9,8 +9,8 @@ const { makeRequireLogin } = require('../auth_routes');
 function initAuthContext({ db, users, hasFeature, appSecret, engineerCode, engineerSecret, appUrl, googleClientId, googleClientSecret, githubClientId, githubClientSecret }) {
   const auth = makeAuth({
     hasFeature,
-    engineerCode: engineerCode || '1234',
-    engineerSecret: engineerSecret || 'dev-secret-change-me',
+    engineerCode: engineerCode,
+    engineerSecret: engineerSecret,
   });
 
   const access = initAccess({ db, auth });
@@ -45,7 +45,7 @@ function initAuthContext({ db, users, hasFeature, appSecret, engineerCode, engin
 
   const csrf = makeCsrfTools({
     users,
-    secret: appSecret || engineerSecret || 'elaris-csrf',
+    secret: appSecret || engineerSecret,
     secure: process.env.COOKIE_SECURE === '1',
   });
 

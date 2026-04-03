@@ -9,7 +9,7 @@ const { securityHeaders } = require('../security');
 function createHttpApp({ isProd = false } = {}) {
   const app = express();
   app.disable('x-powered-by');
-  if (process.env.TRUST_PROXY) app.set('trust proxy', 1);
+  if (['1', 'true', 'yes'].includes(process.env.TRUST_PROXY)) app.set('trust proxy', 1);
   app.use(securityHeaders({ isProd }));
 
   if (!isProd) {

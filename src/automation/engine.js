@@ -46,6 +46,7 @@ class AutomationEngine {
       CREATE INDEX IF NOT EXISTS idx_automation_log_instance_ts ON automation_log(instance_id, ts DESC);
       CREATE INDEX IF NOT EXISTS idx_module_instances_site_active ON module_instances(site_id, active);
       CREATE INDEX IF NOT EXISTS idx_module_mappings_instance ON module_mappings(instance_id);
+      CREATE INDEX IF NOT EXISTS idx_module_mappings_io ON module_mappings(io_id);
     `);
 
     // Prepared statements
@@ -210,7 +211,7 @@ class AutomationEngine {
       },
 
       // Check if a relay is currently ON
-      isOn(inputKey) { return this.state(inputKey) === "ON"; },
+      isOn(inputKey) { const v = this.state(inputKey); return v != null && typeof v === 'string' ? v.toUpperCase() === 'ON' : v === 1 || v === true; },
 
       // Persist a setting (for energy kWh, maintenance hours, etc.)
       setSetting(key, value) {

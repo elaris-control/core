@@ -8,6 +8,22 @@ function initWS(server, { db, access, getRole } = {}) {
   const logBuffer = [];
   const LOG_BUF_MAX = 200;
 
+  // Heartbeat to detect silently-dropped connections (network drops, browser crashes, etc.)
+  const HEARTBEAT_INTERVAL = 30_000;
+  const heartbeatTimer = setInterval(() => {
+    for (const client of wss.clients) {
+      if (client.isAlive === false) {
+        logSubs.delete(client);
+        client.terminate();
+        continue;
+      }
+      client.isAlive = false;
+      client.ping();
+    }
+  }, HEARTBEAT_INTERVAL);
+
+  wss.on("close", () => clearInterval(heartbeatTimer));
+
   function hasScope(client) {
     return !!((client._siteIds && client._siteIds.size) || (client._deviceIds && client._deviceIds.size));
   }
@@ -76,6 +92,8 @@ function initWS(server, { db, access, getRole } = {}) {
     const role = typeof getRole === "function" ? getRole(req) : null;
     ws._role      = role;                                          // null = unauthenticated
     ws._isEngineer = role === "ENGINEER" || role === "ADMIN";
+    ws.isAlive = true;
+    ws.on("pong", () => { ws.isAlive = true; });
     ws.send(JSON.stringify({ type: "hello", ts: Date.now() }));
 
     ws.on("message", (data) => {

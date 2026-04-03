@@ -445,3 +445,13 @@ function termLine(level, text) {
   term.appendChild(d);
   term.scrollTop = term.scrollHeight;
 }
+
+// Cleanup polling interval on page navigation / tab close
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'hidden') stopFlashPolling();
+  });
+  window.addEventListener('beforeunload', function() {
+    stopFlashPolling();
+  });
+}

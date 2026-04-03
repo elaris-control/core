@@ -7,7 +7,7 @@
 <p align="center"><strong>Modular automation platform for homes, buildings, and light industrial control.</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.6-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.6.7-blue" alt="Version">
   <img src="https://img.shields.io/badge/node-20+-green" alt="Node">
   <img src="https://img.shields.io/badge/license-BSL--1.1-blue" alt="License">
   <img src="https://img.shields.io/badge/platform-Pi%20%7C%20Linux%20%7C%20Windows-red" alt="Platform">

@@ -29,17 +29,30 @@ const PORT = process.env.PORT || 8080;
 const MQTT_URL = process.env.MQTT_URL || 'mqtt://localhost:1883';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const IS_PROD = NODE_ENV === 'production';
-const ENGINEER_CODE = process.env.ENGINEER_CODE;
-const ENGINEER_SECRET = process.env.ENGINEER_SECRET;
-const APP_SECRET = process.env.APP_SECRET;
 
-if (IS_PROD) {
-  const missing = Object.entries({ ENGINEER_CODE, ENGINEER_SECRET, APP_SECRET })
-    .filter(([, v]) => !v)
-    .map(([k]) => k);
-  if (missing.length) {
-    console.error(`[ELARIS] FATAL: Missing required env vars in production: ${missing.join(', ')}`);
-    console.error('[ELARIS] Copy .env.example to .env and fill in all required values.');
+function randomHex(bytes = 32) {
+  return require('crypto').randomBytes(bytes).toString('hex');
+}
+
+function randomCode(digits = 6) {
+  let out = '';
+  for (let i = 0; i < digits; i++) out += require('crypto').randomInt(0, 10);
+  return out;
+}
+
+const ENGINEER_CODE = process.env.ENGINEER_CODE || randomCode();
+const ENGINEER_SECRET = process.env.ENGINEER_SECRET || randomHex();
+const APP_SECRET = process.env.APP_SECRET || randomHex();
+
+if (!process.env.ENGINEER_CODE || !process.env.ENGINEER_SECRET || !process.env.APP_SECRET) {
+  const missing = [];
+  if (!process.env.ENGINEER_CODE) missing.push('ENGINEER_CODE');
+  if (!process.env.ENGINEER_SECRET) missing.push('ENGINEER_SECRET');
+  if (!process.env.APP_SECRET) missing.push('APP_SECRET');
+  console.warn(`[ELARIS] WARNING: Auto-generated random secrets for: ${missing.join(', ')}`);
+  console.warn(`[ELARIS] Set these in .env for persistent sessions.`);
+  if (IS_PROD) {
+    console.error(`[ELARIS] FATAL: Secrets must be set via env vars in production.`);
     process.exit(1);
   }
 }
@@ -76,7 +89,7 @@ async function main() {
     githubClientSecret: GITHUB_CLIENT_SECRET,
   });
 
-  startMaintenanceJobs({ db, users, historyRollups });
+  const maint = startMaintenanceJobs({ db, users, historyRollups });
 
   const runtime = initRealtimeRuntime({
     server,
@@ -134,6 +147,7 @@ async function main() {
     console.log(`[ELARIS] ${signal} received, shutting down...`);
     server.close(() => {
       runtime.shutdown();
+      maint.stopAll();
       db.close();
       console.log('[ELARIS] Shutdown complete.');
       process.exit(0);

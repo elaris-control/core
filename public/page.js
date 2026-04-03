@@ -113,6 +113,28 @@ async function renderThermostat(inst){
   }
   function pill(label,val,color){ return '<span class="pill" style="font-size:10px;border-color:'+(color||'var(--line2)')+';color:'+(color||'var(--muted2)')+'">'+label+': '+val+'</span>'; }
 
+  // Call thermostat — simple DI→relay, no setpoint needed
+  if (inst.module_id === 'call_thermostat') {
+    var callRaw = vals.zone_1_call;
+    var outOn = vals.zone_1_output === 'ON';
+    var pumpOn = vals.zone_1_pump === 'ON';
+    var hasPump = mappings.some(function(m){ return m.input_key === 'zone_1_pump' && m.io_id; });
+    var callDemand = callRaw === 'ON' || callRaw === '1' || callRaw === 'true';
+    var h = '';
+    h += '<div style="display:flex;gap:8px;flex-wrap:nowrap;margin-bottom:10px">' + modeBtn('Heat','heating','🔥') + modeBtn('Cool','cooling','❄') + modeBtn('Off','off','⏻') + '</div>';
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">';
+    h += '<div style="background:' + (callDemand ? 'rgba(34,217,122,.08)' : 'rgba(255,255,255,.03)') + ';border:1px solid ' + (callDemand ? 'rgba(34,217,122,.22)' : 'var(--line)') + ';border-radius:10px;padding:12px;text-align:center"><div style="font-size:10px;font-weight:800;color:var(--muted2);text-transform:uppercase">Call Input</div><div style="font-size:28px;font-weight:900;margin-top:4px;color:' + (callDemand ? '#22d97a' : 'var(--muted)') + '">' + (callDemand ? '● ON' : '○ OFF') + '</div></div>';
+    h += '<div style="background:' + (outOn ? 'rgba(29,140,255,.08)' : 'rgba(255,255,255,.03)') + ';border:1px solid ' + (outOn ? 'rgba(29,140,255,.18)' : 'var(--line)') + ';border-radius:10px;padding:12px;text-align:center"><div style="font-size:10px;font-weight:800;color:var(--muted2);text-transform:uppercase">Output</div><div style="font-size:28px;font-weight:900;margin-top:4px;color:' + (outOn ? mc : 'var(--muted)') + '">' + (outOn ? '● ON' : '○ OFF') + '</div></div>';
+    h += '</div>';
+    if (hasPump) {
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)"><span style="font-weight:700">Pump</span><span style="font-weight:800;font-size:14px;color:' + (pumpOn ? '#22d97a' : 'var(--muted)') + '">' + (pumpOn ? '● ON' : '○ OFF') + '</span></div>';
+    }
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)"><span style="font-weight:700">Mode</span><span style="font-weight:800;font-size:14px;color:' + mc + '">' + modeKey.toUpperCase() + '</span></div>';
+    h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' + pill('min_run', (sp.min_run_time || 120) + 's') + pill('min_off', (sp.min_off_time || 120) + 's') + (String(sp.test_mode || '0') === '1' ? pill('TEST MODE', '#ffd978', 'rgba(255,201,71,.35)') : '') + '</div>';
+    if (canEngineerUI()) h += '<button onclick="toggleThermoPause(' + inst.id + ',' + paused + ')" style="width:100%;margin-top:12px;padding:9px;border-radius:9px;border:1px solid ' + (paused ? 'rgba(245,158,11,.4)' : 'var(--line2)') + ';background:' + (paused ? 'rgba(245,158,11,.1)' : 'rgba(255,255,255,.03)') + ';color:' + (paused ? '#f59e0b' : 'var(--muted2)') + ';font-size:12px;font-weight:800;cursor:pointer">' + (paused ? '▶ Resume' : '⏸ Pause') + '</button>';
+    return h;
+  }
+
   if(!hasZoned){
     var tRoom=vals.temp_room!=null?parseFloat(vals.temp_room).toFixed(1):null;
     var tOut=vals.temp_outdoor!=null?parseFloat(vals.temp_outdoor).toFixed(1):null;
@@ -986,7 +1008,7 @@ async function renderAwning(inst){
   else if(lastReason.toLowerCase().includes('deploy')||lastReason.toLowerCase().includes('open')){stateLabel='Open';stateColor='#22d97a';}
   else if(lastReason.toLowerCase().includes('retract')||lastReason.toLowerCase().includes('clos')){stateLabel='Closed';stateColor='#f59e0b';}
 
-  var h='<div style="display:flex;flex-direction:column;gap=10px">';
+  var h='<div style="display:flex;flex-direction:column;gap:10px">';
 
   // State header
   h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';

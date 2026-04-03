@@ -1,0 +1,81 @@
+{
+  "id": "kincony_kc868_a6v3",
+  "label": "KinCony KC868-A6v3 (6CH Relay / 6DI / 2AO, ESP32-S3)",
+  "platform": "esp32",
+  "board": "esp32-s3-devkitc-1",
+  "framework_default": "esp-idf",
+  "source": "manual_seed",
+  "notes": [
+    "ESP32-S3-WROOM-1 (N16R8), 6CH relay, 6DI, 2AO (0-10V via DAC).",
+    "I2C: SDA=GPIO4, SCL=GPIO15. PCF8574 at 0x22 (DI), 0x24 (relay).",
+    "AO: GPIO26 (AO1/DAC1), GPIO25 (AO2/DAC2) — ESP32 native DAC.",
+    "RS485: TX=GPIO27, RX=GPIO14. RS232: TX=GPIO17, RX=GPIO16.",
+    "SPI: CLK=GPIO18, MOSI=GPIO23, MISO=GPIO19.",
+    "RTC: DS3231 on I2C.",
+    "No Ethernet on this board — WiFi only."
+  ],
+  "definition": {
+    "id": "kincony_kc868_a6v3",
+    "label": "KinCony KC868-A6v3 (6CH Relay / 6DI / 2AO, ESP32-S3)",
+    "board": "esp32-s3-devkitc-1",
+    "platform": "esp32",
+    "frameworkDefault": "esp-idf",
+    "supports": { "usb": true, "ota": true, "wifi": true, "ethernet": false },
+    "i2c": { "sda": 4, "scl": 15, "scan": true, "id": "bus_a" },
+    "pcf8574": [
+      { "id": "inputs", "address": "0x22", "pcf8575": false },
+      { "id": "outputs", "address": "0x24", "pcf8575": false }
+    ],
+    "boardPorts": [
+      { "id": "DI1", "label": "DI1", "group": "di", "protocols": ["di"], "supports": ["pulse_counter"], "aliases": ["IN1"], "hint": "Digital input via PCF8574." },
+      { "id": "DI2", "label": "DI2", "group": "di", "protocols": ["di"], "supports": ["pulse_counter"], "aliases": ["IN2"], "hint": "Digital input via PCF8574." },
+      { "id": "DI3", "label": "DI3", "group": "di", "protocols": ["di"], "supports": ["pulse_counter"], "aliases": ["IN3"], "hint": "Digital input via PCF8574." },
+      { "id": "DI4", "label": "DI4", "group": "di", "protocols": ["di"], "supports": ["pulse_counter"], "aliases": ["IN4"], "hint": "Digital input via PCF8574." },
+      { "id": "DI5", "label": "DI5", "group": "di", "protocols": ["di"], "supports": ["pulse_counter"], "aliases": ["IN5"], "hint": "Digital input via PCF8574." },
+      { "id": "DI6", "label": "DI6", "group": "di", "protocols": ["di"], "supports": ["pulse_counter"], "aliases": ["IN6"], "hint": "Digital input via PCF8574." },
+      { "id": "DO1", "label": "DO1", "group": "do", "protocols": ["do"], "supports": [], "aliases": ["OUT1"], "hint": "Relay output via PCF8574." },
+      { "id": "DO2", "label": "DO2", "group": "do", "protocols": ["do"], "supports": [], "aliases": ["OUT2"], "hint": "Relay output via PCF8574." },
+      { "id": "DO3", "label": "DO3", "group": "do", "protocols": ["do"], "supports": [], "aliases": ["OUT3"], "hint": "Relay output via PCF8574." },
+      { "id": "DO4", "label": "DO4", "group": "do", "protocols": ["do"], "supports": [], "aliases": ["OUT4"], "hint": "Relay output via PCF8574." },
+      { "id": "DO5", "label": "DO5", "group": "do", "protocols": ["do"], "supports": [], "aliases": ["OUT5"], "hint": "Relay output via PCF8574." },
+      { "id": "DO6", "label": "DO6", "group": "do", "protocols": ["do"], "supports": [], "aliases": ["OUT6"], "hint": "Relay output via PCF8574." },
+      { "id": "AO1", "label": "AO1", "group": "ao", "pin": "GPIO26", "protocols": ["dac", "gpio"], "supports": ["analog_output"], "aliases": ["DAC1"], "range": "0-10V", "hint": "Analog output 1 (ESP32 DAC1, 0-10V via amplifier)." },
+      { "id": "AO2", "label": "AO2", "group": "ao", "pin": "GPIO25", "protocols": ["dac", "gpio"], "supports": ["analog_output"], "aliases": ["DAC2"], "range": "0-10V", "hint": "Analog output 2 (ESP32 DAC2, 0-10V via amplifier)." }
+    ],
+    "boardBuses": [
+      { "id": "bus_a", "label": "I2C Bus A", "protocol": "i2c", "aliases": ["I2C"], "sda": 4, "scl": 15, "supports": ["ds1307", "ds3231", "bh1750", "sht3x", "bme280", "bmp280", "ina219", "ccs811"], "addresses": ["0x22", "0x24", "0x3C", "0x50", "0x68"], "hint": "Main I2C bus with PCF8574 expanders." },
+      { "id": "rs485_1", "label": "RS485", "protocol": "rs485", "tx": 27, "rx": 14, "supports": ["mhz19", "pzem004t"], "hint": "RS485 / Modbus bus." },
+      { "id": "rs232_1", "label": "RS232", "protocol": "rs232", "tx": 17, "rx": 16, "supports": [], "hint": "RS232 serial port." }
+    ],
+    "pinRules": {
+      "reserved": [4, 15, 16, 17, 18, 19, 23, 25, 26, 27],
+      "inputOnly": [],
+      "noPullup": [],
+      "flashPins": [],
+      "strapping": [0, 3, 45, 46]
+    },
+    "entityDefaults": [
+      { "key": "relay_1", "name": "Relay 1", "type": "relay", "source": "OUT1", "pcf8574": "outputs", "number": 0, "mode": "OUTPUT", "inverted": true },
+      { "key": "relay_2", "name": "Relay 2", "type": "relay", "source": "OUT2", "pcf8574": "outputs", "number": 1, "mode": "OUTPUT", "inverted": true },
+      { "key": "relay_3", "name": "Relay 3", "type": "relay", "source": "OUT3", "pcf8574": "outputs", "number": 2, "mode": "OUTPUT", "inverted": true },
+      { "key": "relay_4", "name": "Relay 4", "type": "relay", "source": "OUT4", "pcf8574": "outputs", "number": 3, "mode": "OUTPUT", "inverted": true },
+      { "key": "relay_5", "name": "Relay 5", "type": "relay", "source": "OUT5", "pcf8574": "outputs", "number": 4, "mode": "OUTPUT", "inverted": true },
+      { "key": "relay_6", "name": "Relay 6", "type": "relay", "source": "OUT6", "pcf8574": "outputs", "number": 5, "mode": "OUTPUT", "inverted": true },
+      { "key": "di_1", "name": "DI 1", "type": "di", "source": "IN1", "pcf8574": "inputs", "number": 0, "mode": "INPUT", "inverted": true },
+      { "key": "di_2", "name": "DI 2", "type": "di", "source": "IN2", "pcf8574": "inputs", "number": 1, "mode": "INPUT", "inverted": true },
+      { "key": "di_3", "name": "DI 3", "type": "di", "source": "IN3", "pcf8574": "inputs", "number": 2, "mode": "INPUT", "inverted": true },
+      { "key": "di_4", "name": "DI 4", "type": "di", "source": "IN4", "pcf8574": "inputs", "number": 3, "mode": "INPUT", "inverted": true },
+      { "key": "di_5", "name": "DI 5", "type": "di", "source": "IN5", "pcf8574": "inputs", "number": 4, "mode": "INPUT", "inverted": true },
+      { "key": "di_6", "name": "DI 6", "type": "di", "source": "IN6", "pcf8574": "inputs", "number": 5, "mode": "INPUT", "inverted": true },
+      { "key": "ao_1", "name": "AO 1", "type": "ao", "pin": "GPIO26", "range": "0-10V" },
+      { "key": "ao_2", "name": "AO 2", "type": "ao", "pin": "GPIO25", "range": "0-10V" }
+    ]
+  },
+  "capabilities": {
+    "relay": 6,
+    "di": 6,
+    "ao": 2,
+    "ds18b20": 0,
+    "dht": 0
+  }
+}

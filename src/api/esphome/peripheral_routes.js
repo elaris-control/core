@@ -15,7 +15,7 @@ const {
   normalizePinInput, ensureDeviceAccess, hasYamlId, getCandidatePins, getDefaultI2cBus,
 } = require('../../esphome/helpers');
 
-const ALLOWED_TYPES = ['ds18b20', 'dht11', 'dht', 'analog', 'pulse_counter', 'bh1750', 'sht3x', 'di'];
+const ALLOWED_TYPES = ['ds18b20', 'dht11', 'dht', 'analog', 'pulse_counter', 'bh1750', 'sht3x', 'di', 'bme280', 'bmp280', 'veml7700', 'ina219', 'ccs811', 'mhz19', 'pzem004t', 'relay'];
 
 const TYPE_ALIASES = {
   anemometer: { type: 'pulse_counter', scale: 'anemometer' },
@@ -49,8 +49,9 @@ function sanitizeEntityInput(rawEntity = {}) {
   const eKey = String(rawEntity.key || '').trim().replace(/[^a-z0-9_]/g, '_').replace(/^_|_$/g, '');
   const eScale = String(rawEntity.scale || (alias && alias.scale) || 'none').trim();
   const eScaleFactor = Number(rawEntity.scale_factor) || 1;
-  const isI2c = eType === 'bh1750' || eType === 'sht3x';
-  return { eType, eName, ePortId, eBusId, ePinRaw, ePin, eSdaRaw, eSclRaw, eAddress, eKey, eScale, eScaleFactor, isI2c };
+  const isUart = eType === 'mhz19' || eType === 'pzem004t';
+  const isI2c = eType === 'bh1750' || eType === 'sht3x' || eType === 'bme280' || eType === 'bmp280' || eType === 'veml7700' || eType === 'ina219' || eType === 'ccs811';
+  return { eType, eName, ePortId, eBusId, ePinRaw, ePin, eSdaRaw, eSclRaw, eAddress, eKey, eScale, eScaleFactor, isI2c, isUart };
 }
 
 function validateRawEntityBasics(clean) {
@@ -58,6 +59,8 @@ function validateRawEntityBasics(clean) {
   if (!ALLOWED_TYPES.includes(clean.eType)) return 'unsupported_entity_type';
   if (clean.isI2c) {
     if (!clean.eAddress) return 'i2c_fields_required';
+  } else if (clean.isUart) {
+    if (!clean.eBusId) return 'uart_bus_required';
   } else {
     if (!clean.ePortId && !clean.ePinRaw) return 'entity pin required';
     if (!clean.ePortId && !clean.ePin) return 'invalid_pin_format — use GPIO<number> or a numeric GPIO pin';
@@ -68,6 +71,12 @@ function validateRawEntityBasics(clean) {
 function keysForEntityType(type, key) {
   const t = String(type || '').toLowerCase();
   if (t === 'dht' || t === 'dht11' || t === 'sht3x') return [key, `${key}_hum`];
+  if (t === 'bme280') return [key, `${key}_hum`, `${key}_press`];
+  if (t === 'bmp280') return [key, `${key}_press`];
+  if (t === 'ina219') return [key, `${key}_power`, `${key}_voltage`];
+  if (t === 'ccs811') return [key, `${key}_tvoc`];
+  if (t === 'mhz19') return [key, `${key}_temp`];
+  if (t === 'pzem004t') return [key, `${key}_voltage`, `${key}_current`, `${key}_energy`];
   return [key];
 }
 
@@ -78,6 +87,12 @@ function syncIoRowsForPeripheral(db, deviceName, oldPeripheral, nextEntity, boar
   const newNames = (function(){
     const t = String(nextEntity.type || '').toLowerCase();
     if (t === 'dht' || t === 'dht11' || t === 'sht3x') return [`${nextEntity.name} Temperature`, `${nextEntity.name} Humidity`];
+    if (t === 'bme280') return [`${nextEntity.name} Temperature`, `${nextEntity.name} Humidity`, `${nextEntity.name} Pressure`];
+    if (t === 'bmp280') return [`${nextEntity.name} Temperature`, `${nextEntity.name} Pressure`];
+    if (t === 'ina219') return [`${nextEntity.name} Current`, `${nextEntity.name} Power`, `${nextEntity.name} Voltage`];
+    if (t === 'ccs811') return [`${nextEntity.name} eCO2`, `${nextEntity.name} TVOC`];
+    if (t === 'mhz19') return [`${nextEntity.name} CO2`, `${nextEntity.name} Temperature`];
+    if (t === 'pzem004t') return [`${nextEntity.name} Power`, `${nextEntity.name} Voltage`, `${nextEntity.name} Current`, `${nextEntity.name} Energy`];
     return [nextEntity.name || nextEntity.key];
   })();
   const group = 'tele';
@@ -398,14 +413,15 @@ function mountPeripheralRoutes({ app, db, wsApi, dataDir, cfgDir, requireEnginee
     const finalScl = resolvedEntity.scl || clean.eSclRaw;
     const finalAddress = resolvedEntity.address || clean.eAddress;
     if (clean.isI2c && (!finalSda || !finalScl || !finalAddress)) return res.status(400).json({ ok: false, error: 'i2c_fields_required' });
-    if (!clean.isI2c && !finalPin) return res.status(400).json({ ok: false, error: 'entity pin required' });
+    if (clean.isUart && !clean.eBusId) return res.status(400).json({ ok: false, error: 'uart_bus_required' });
+    if (!clean.isI2c && !clean.isUart && !finalPin) return res.status(400).json({ ok: false, error: 'entity pin required' });
     const validation = validatePeripheralEntity({ profile, yamlText: existingYamlForCheck, entity: clean.isI2c ? { type: clean.eType, sda: finalSda, scl: finalScl, address: finalAddress, allow_reserved_profile_bus: !!resolvedEntity.allow_reserved_profile_bus } : { type: clean.eType, pin: finalPin, allow_reserved_profile_port: !!resolvedEntity.allow_reserved_profile_port } });
     if (!validation.ok) return res.status(400).json({ ok: false, error: validation.errors.join(' · '), warnings: validation.warnings || [] });
     const deviceSafeName = device.name || safeName(device.friendly_name || 'device');
     let updatedYaml;
     try {
       updatedYaml = addPeripheralToYaml(existingYamlForCheck, deviceSafeName, {
-        type: clean.eType, name: clean.eName, key: clean.eKey, pin: validation.pin || finalPin, sda: validation.sda || finalSda, scl: validation.scl || finalScl, address: validation.address || finalAddress, pin_mode: validation.pinMode, scale: clean.eScale, scale_factor: clean.eScaleFactor,
+        type: clean.eType, name: clean.eName, key: clean.eKey, pin: validation.pin || finalPin, sda: validation.sda || finalSda, scl: validation.scl || finalScl, address: validation.address || finalAddress, pin_mode: validation.pinMode, scale: clean.eScale, scale_factor: clean.eScaleFactor, bus_id: clean.eBusId || resolvedEntity.bus_id || null,
       }, { deviceName: device.friendly_name || device.name || deviceSafeName, boardLabel: profile?.label || device.board_profile_id, boardProfileId: device.board_profile_id });
     } catch (e) { return res.status(500).json({ ok: false, error: 'yaml_merge_failed: ' + String(e?.message || e) }); }
     return runPeripheralFlash({
@@ -450,13 +466,14 @@ function mountPeripheralRoutes({ app, db, wsApi, dataDir, cfgDir, requireEnginee
     const finalScl = resolvedEntity.scl || clean.eSclRaw;
     const finalAddress = resolvedEntity.address || clean.eAddress;
     if (clean.isI2c && (!finalSda || !finalScl || !finalAddress)) return res.status(400).json({ ok: false, error: 'i2c_fields_required' });
-    if (!clean.isI2c && !finalPin) return res.status(400).json({ ok: false, error: 'entity pin required' });
+    if (clean.isUart && !clean.eBusId) return res.status(400).json({ ok: false, error: 'uart_bus_required' });
+    if (!clean.isI2c && !clean.isUart && !finalPin) return res.status(400).json({ ok: false, error: 'entity pin required' });
     const validation = validatePeripheralEntity({ profile, yamlText: existingYaml, entity: clean.isI2c ? { type: clean.eType, sda: finalSda, scl: finalScl, address: finalAddress, allow_reserved_profile_bus: !!resolvedEntity.allow_reserved_profile_bus } : { type: clean.eType, pin: finalPin, allow_reserved_profile_port: !!resolvedEntity.allow_reserved_profile_port } });
     if (!validation.ok) return res.status(400).json({ ok: false, error: validation.errors.join(' · '), warnings: validation.warnings || [] });
     const deviceSafeName = device.name || safeName(device.friendly_name || 'device');
     try {
       const updatedYaml = addPeripheralToYaml(existingYaml, deviceSafeName, {
-        type: clean.eType, name: clean.eName, key: clean.eKey, pin: validation.pin || finalPin, sda: validation.sda || finalSda, scl: validation.scl || finalScl, address: validation.address || finalAddress, pin_mode: validation.pinMode, scale: clean.eScale, scale_factor: clean.eScaleFactor,
+        type: clean.eType, name: clean.eName, key: clean.eKey, pin: validation.pin || finalPin, sda: validation.sda || finalSda, scl: validation.scl || finalScl, address: validation.address || finalAddress, pin_mode: validation.pinMode, scale: clean.eScale, scale_factor: clean.eScaleFactor, bus_id: clean.eBusId || resolvedEntity.bus_id || null,
       }, { deviceName: device.friendly_name || device.name || deviceSafeName, boardLabel: profile?.label || device.board_profile_id, boardProfileId: device.board_profile_id });
       res.json({ ok: true, yaml: updatedYaml, warnings: validation.warnings || [] });
     } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
@@ -489,11 +506,14 @@ function mountPeripheralRoutes({ app, db, wsApi, dataDir, cfgDir, requireEnginee
     const finalSda = resolvedEntity.sda || clean.eSdaRaw;
     const finalScl = resolvedEntity.scl || clean.eSclRaw;
     const finalAddress = resolvedEntity.address || clean.eAddress;
+    if (clean.isI2c && (!finalSda || !finalScl || !finalAddress)) return res.status(400).json({ ok: false, error: 'i2c_fields_required' });
+    if (clean.isUart && !clean.eBusId) return res.status(400).json({ ok: false, error: 'uart_bus_required' });
+    if (!clean.isI2c && !clean.isUart && !finalPin) return res.status(400).json({ ok: false, error: 'entity pin required' });
     const validation = validatePeripheralEntity({ profile, yamlText: baseYaml, entity: clean.isI2c ? { type: clean.eType, sda: finalSda, scl: finalScl, address: finalAddress, allow_reserved_profile_bus: !!resolvedEntity.allow_reserved_profile_bus } : { type: clean.eType, pin: finalPin, allow_reserved_profile_port: !!resolvedEntity.allow_reserved_profile_port } });
     if (!validation.ok) return res.status(400).json({ ok: false, error: validation.errors.join(' · '), warnings: validation.warnings || [] });
     const deviceSafeName = device.name || safeName(device.friendly_name || 'device');
     try {
-      const updated = updateManagedPeripheralInYaml(existingYaml, originalKey, { type: clean.eType, name: clean.eName, key: clean.eKey, pin: validation.pin || finalPin, sda: validation.sda || finalSda, scl: validation.scl || finalScl, address: validation.address || finalAddress, pin_mode: validation.pinMode, scale: clean.eScale, scale_factor: clean.eScaleFactor }, { deviceSafeName, deviceName: device.friendly_name || device.name || deviceSafeName, boardLabel: profile?.label || device.board_profile_id, boardProfileId: device.board_profile_id });
+      const updated = updateManagedPeripheralInYaml(existingYaml, originalKey, { type: clean.eType, name: clean.eName, key: clean.eKey, pin: validation.pin || finalPin, sda: validation.sda || finalSda, scl: validation.scl || finalScl, address: validation.address || finalAddress, pin_mode: validation.pinMode, scale: clean.eScale, scale_factor: clean.eScaleFactor, bus_id: clean.eBusId || resolvedEntity.bus_id || null }, { deviceSafeName, deviceName: device.friendly_name || device.name || deviceSafeName, boardLabel: profile?.label || device.board_profile_id, boardProfileId: device.board_profile_id });
       res.json({ ok: true, yaml: updated.yaml, warnings: validation.warnings || [], previous: current });
     } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
@@ -528,14 +548,17 @@ function mountPeripheralRoutes({ app, db, wsApi, dataDir, cfgDir, requireEnginee
     const finalSda = resolvedEntity.sda || clean.eSdaRaw;
     const finalScl = resolvedEntity.scl || clean.eSclRaw;
     const finalAddress = resolvedEntity.address || clean.eAddress;
+    if (clean.isI2c && (!finalSda || !finalScl || !finalAddress)) return res.status(400).json({ ok: false, error: 'i2c_fields_required' });
+    if (clean.isUart && !clean.eBusId) return res.status(400).json({ ok: false, error: 'uart_bus_required' });
+    if (!clean.isI2c && !clean.isUart && !finalPin) return res.status(400).json({ ok: false, error: 'entity pin required' });
     const validation = validatePeripheralEntity({ profile, yamlText: baseYaml, entity: clean.isI2c ? { type: clean.eType, sda: finalSda, scl: finalScl, address: finalAddress, allow_reserved_profile_bus: !!resolvedEntity.allow_reserved_profile_bus } : { type: clean.eType, pin: finalPin, allow_reserved_profile_port: !!resolvedEntity.allow_reserved_profile_port } });
     if (!validation.ok) return res.status(400).json({ ok: false, error: validation.errors.join(' · '), warnings: validation.warnings || [] });
     const deviceSafeName = device.name || safeName(device.friendly_name || 'device');
     let updated;
     try {
-      updated = updateManagedPeripheralInYaml(existingYaml, originalKey, { type: clean.eType, name: clean.eName, key: clean.eKey, pin: validation.pin || finalPin, sda: validation.sda || finalSda, scl: validation.scl || finalScl, address: validation.address || finalAddress, pin_mode: validation.pinMode, scale: clean.eScale, scale_factor: clean.eScaleFactor, source: clean.isI2c ? (resolvedEntity.bus_id || null) : (resolvedEntity.port_id || validation.pin || finalPin), port_id: resolvedEntity.port_id || null, bus_id: resolvedEntity.bus_id || null }, { deviceSafeName, deviceName: device.friendly_name || device.name || deviceSafeName, boardLabel: profile?.label || device.board_profile_id, boardProfileId: device.board_profile_id });
+      updated = updateManagedPeripheralInYaml(existingYaml, originalKey, { type: clean.eType, name: clean.eName, key: clean.eKey, pin: validation.pin || finalPin, sda: validation.sda || finalSda, scl: validation.scl || finalScl, address: validation.address || finalAddress, pin_mode: validation.pinMode, scale: clean.eScale, scale_factor: clean.eScaleFactor, bus_id: clean.isUart ? (resolvedEntity.bus_id || null) : null, source: clean.isI2c || clean.isUart ? (resolvedEntity.bus_id || null) : (resolvedEntity.port_id || validation.pin || finalPin), port_id: resolvedEntity.port_id || null, bus_id: resolvedEntity.bus_id || null }, { deviceSafeName, deviceName: device.friendly_name || device.name || deviceSafeName, boardLabel: profile?.label || device.board_profile_id, boardProfileId: device.board_profile_id });
     } catch (e) { return res.status(500).json({ ok: false, error: String(e?.message || e) }); }
-    const nextEntityMeta = { source: clean.isI2c ? (resolvedEntity.bus_id || null) : (resolvedEntity.port_id || validation.pin || finalPin), port_id: resolvedEntity.port_id || null, bus_id: resolvedEntity.bus_id || null, type: clean.eType, key: clean.eKey };
+    const nextEntityMeta = { source: clean.isI2c || clean.isUart ? (resolvedEntity.bus_id || null) : (resolvedEntity.port_id || validation.pin || finalPin), port_id: resolvedEntity.port_id || null, bus_id: resolvedEntity.bus_id || null, type: clean.eType, key: clean.eKey };
     return runPeripheralFlash({
       action: 'edit_peripheral', req, res, db, wsApi, dataDir, cfgDir, state, stmts, access,
       deviceId, ip, clientId, updatedYaml: updated.yaml, originalYaml: existingYaml, originalYamlHash: device.yaml_hash || null,

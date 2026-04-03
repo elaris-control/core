@@ -41,7 +41,7 @@ function mountAllRoutes(app, ctx) {
     next();
   });
 
-  app.use('/auth', initAuthRoutes({ users, google, github, appSecret: process.env.APP_SECRET || process.env.ENGINEER_SECRET || 'elaris-csrf' }));
+  app.use('/auth', initAuthRoutes({ users, google, github, appSecret: process.env.APP_SECRET || process.env.ENGINEER_SECRET }));
 
   app.get('/api/me', (req, res) => {
     csrf.ensureForRequest(req, res);
