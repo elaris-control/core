@@ -6,6 +6,7 @@ const switchSeen = new Map(); // instId -> {switch_di:'0', switch_di_2:'0', ...}
 const pirSeen = new Map();
 const manualState = new Map();
 const holdLastBroadcast = new Map(); // instId -> bucket (avoid spam on every tick)
+const lastSwitchActivity = new Map(); // instId -> timestamp (for reconnect gap detection)
 
 function slugifyActionPart(input, fallback = 'Staircase') {
   const raw = String(input || '').trim();
@@ -72,6 +73,9 @@ function staircaseHandler(ctx, send) {
   let switchTriggered = false;
   let triggerSource = '';
 
+  const lastActivity = lastSwitchActivity.get(instId) || 0;
+  const longGap = lastActivity > 0 && (now - lastActivity) > 10000;
+
   for (const key of switchKeys) {
     if (!ctx.io(key)) continue;
     const cur = ctx.state(key);
@@ -79,19 +83,24 @@ function staircaseHandler(ctx, send) {
     swMap[key] = cur;
     const curOn = isTruthyState(cur);
     const prevOn = isTruthyState(prev);
-    if (curOn && !prevOn) {
+    if (longGap) {
+      // Reconnect / ESP reboot — sync state only, don't trigger
+    } else if (curOn && prevOn !== undefined && !prevOn) {
       switchTriggered = true;
       triggerSource = key;
     }
   }
   switchSeen.set(instId, swMap);
+  if (switchTriggered || longGap) {
+    lastSwitchActivity.set(instId, now);
+  }
 
   const pirState = ctx.io('pir_sensor') ? ctx.state('pir_sensor') : null;
   const prevPir = pirSeen.get(instId);
   pirSeen.set(instId, pirState);
   const pirOn = isTruthyState(pirState);
   const prevPirOn = isTruthyState(prevPir);
-  const pirTriggered = pirOn && !prevPirOn;
+  const pirTriggered = pirOn && prevPirOn !== undefined && !prevPirOn;
 
   const manual = manualState.get(instId);
   if (manual) {

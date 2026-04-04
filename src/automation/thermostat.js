@@ -12,6 +12,8 @@ const tempHistory   = new Map(); // instId → [{ v, ts }]  for window detection
 const windowLockout = new Map(); // instId → ts (when lockout expires)
 const preLead       = new Map(); // instId → computed lead minutes
 const centralPumpPostRun = new Map(); // instId -> ts until central pump should remain ON
+const manualState   = new Map(); // instId → { on, ts }
+const zoneManualState = new Map(); // instId -> Map<zone, boolean>
 
 const WINDOW_WINDOW_MS = 2 * 60 * 1000; // 2 min rolling window
 const MAX_ZONES = 6;
@@ -296,6 +298,72 @@ function zonedThermostatHandler(ctx, send) {
     return;
   }
 
+  // Manual override (all zones)
+  const manual = manualState.get(instId);
+  if (manual) {
+    const reason = manual.on ? 'Manual ON' : 'Manual OFF';
+    let anyActive = false;
+    let configuredZones = 0;
+    for (let zone = 1; zone <= MAX_ZONES; zone++) {
+      if (!zoneConfigured(ctx, zone)) continue;
+      configuredZones++;
+      const keys = zoneKeys(ctx, zone);
+      const zoneName = zoneDisplayName(ctx, zone);
+      const outputCurrent = keys.output ? ctx.isOn(keys.output) : false;
+      const pumpCurrent = keys.pump ? ctx.isOn(keys.pump) : false;
+      const outKey = runtimeKey(instId, `zone_${zone}_output`);
+      const pumpKey = runtimeKey(instId, `zone_${zone}_pump`);
+      const outputFinal = keys.output ? applyMinRunOff(outputCurrent, !!manual.on, outKey, minRunMs, minOffMs) : false;
+      const pumpFinal = keys.pump ? applyMinRunOff(pumpCurrent, !!manual.on, pumpKey, minRunMs, minOffMs) : false;
+      if (keys.output && outputFinal !== outputCurrent) {
+        rememberTransition(outKey, outputFinal);
+        sendIfMapped(send, keys.output, outputFinal ? 'ON' : 'OFF', `${zoneName} manual ${outputFinal ? 'ON' : 'OFF'}`, { action: zoneCallingAction(zoneName, mode, outputFinal ? 'ON' : 'OFF') });
+      }
+      if (keys.pump && pumpFinal !== pumpCurrent) {
+        rememberTransition(pumpKey, pumpFinal);
+        sendIfMapped(send, keys.pump, pumpFinal ? 'ON' : 'OFF', `${zoneName} pump manual ${pumpFinal ? 'ON' : 'OFF'}`, { action: zonePumpAction(zoneName, pumpFinal ? 'ON' : 'OFF') });
+      }
+      if (outputFinal || pumpFinal) anyActive = true;
+      setZoneStatus(ctx, zone, {
+        status: (outputFinal || pumpFinal) ? 'on' : 'off',
+        source: 'manual',
+        demand: manual.on ? '1' : '0',
+        output_state: outputFinal ? '1' : '0',
+        pump_state: pumpFinal ? '1' : '0',
+        reason,
+      });
+    }
+    if (hasMapping(ctx, 'central_pump')) {
+      const currentCentral = ctx.isOn('central_pump');
+      const centralFinal = applyMinRunOff(currentCentral, anyActive, runtimeKey(instId, 'central_pump'), minRunMs, minOffMs);
+      if (centralFinal !== currentCentral) {
+        rememberTransition(runtimeKey(instId, 'central_pump'), centralFinal);
+        send('central_pump', centralFinal ? 'ON' : 'OFF', `Central pump manual ${centralFinal ? 'ON' : 'OFF'}`, { action: `Central_Pump_${centralFinal ? 'ON' : 'OFF'}` });
+      }
+      setCentralStatus(ctx, {
+        state: centralFinal ? '1' : '0',
+        reason,
+        configured_zones: String(configuredZones),
+        calling_zones: anyActive ? String(configuredZones) : '0',
+        di_calling: '0',
+        temp_calling: '0',
+      });
+    }
+    ctx.broadcastState({
+      status: anyActive ? 'on' : 'off',
+      output_on: anyActive,
+      source: 'manual',
+      manual_active: true,
+      last_reason: reason,
+      mode,
+      calling_zones: anyActive ? configuredZones : 0,
+      configured_zones: configuredZones,
+      di_calling: 0,
+      temp_calling: 0,
+    });
+    return;
+  }
+
   let anyDemand = false;
   let configuredZones = 0;
   let callingZones = 0;
@@ -310,11 +378,20 @@ function zonedThermostatHandler(ctx, send) {
     const zoneResolved = resolveZoneSetpoint(ctx, zone, holidayMode ? holidaySetpoint : setpoint, hyst);
     const evald = evaluateZoneDemand({ ctx, zone, keys, mode, setpoint: zoneResolved.setpoint, hyst: zoneResolved.hyst });
 
+    // Per-zone manual override
+    const zManual = zoneManualState.get(instId);
+    const zManualOn = zManual && zManual.has(zone) ? zManual.get(zone) : null;
+    let desiredActive = evald.desiredActive;
+    let reason = evald.reason;
+    if (zManualOn !== null) {
+      desiredActive = zManualOn;
+      reason = zManualOn ? `${zoneName} manual ON` : `${zoneName} manual OFF`;
+    }
+
     const outputCurrent = keys.output ? ctx.isOn(keys.output) : false;
     const pumpCurrent = keys.pump ? ctx.isOn(keys.pump) : false;
     let outputFinal = false;
     let pumpFinal = false;
-    let reason = evald.reason;
 
     if (evald.tempVal !== null) setZoneStatus(ctx, zone, { last_temp: Number(evald.tempVal).toFixed(1) });
     if (evald.callDemand !== null) setZoneStatus(ctx, zone, { last_call: evald.callDemand ? '1' : '0' });
@@ -343,22 +420,23 @@ function zonedThermostatHandler(ctx, send) {
 
     if (keys.output) {
       const outKey = runtimeKey(instId, `zone_${zone}_output`);
-      outputFinal = applyMinRunOff(outputCurrent, evald.desiredActive, outKey, minRunMs, minOffMs);
+      outputFinal = applyMinRunOff(outputCurrent, desiredActive, outKey, minRunMs, minOffMs);
       if (outputFinal !== outputCurrent) rememberTransition(outKey, outputFinal);
       sendIfMapped(send, keys.output, outputFinal ? 'ON' : 'OFF', `${zoneName} ${stateReasonPrefix(mode)} output ${outputFinal ? 'ON' : 'OFF'} (${reason})`, { action: zoneCallingAction(zoneName, mode, outputFinal ? 'ON' : 'OFF') });
-      if (outputFinal !== evald.desiredActive) reason += outputFinal ? ' · held by min run' : ' · held by min off';
+      if (outputFinal !== desiredActive) reason += outputFinal ? ' · held by min run' : ' · held by min off';
     }
 
     if (keys.pump) {
       const pumpKey = runtimeKey(instId, `zone_${zone}_pump`);
-      pumpFinal = applyMinRunOff(pumpCurrent, evald.desiredActive, pumpKey, minRunMs, minOffMs);
+      pumpFinal = applyMinRunOff(pumpCurrent, desiredActive, pumpKey, minRunMs, minOffMs);
       if (pumpFinal !== pumpCurrent) rememberTransition(pumpKey, pumpFinal);
       sendIfMapped(send, keys.pump, pumpFinal ? 'ON' : 'OFF', `${zoneName} pump ${pumpFinal ? 'ON' : 'OFF'} (${reason})`, { action: zonePumpAction(zoneName, pumpFinal ? 'ON' : 'OFF') });
-      if (!keys.output && pumpFinal !== evald.desiredActive) reason += pumpFinal ? ' · pump held by min run' : ' · pump held by min off';
+      if (!keys.output && pumpFinal !== desiredActive) reason += pumpFinal ? ' · pump held by min run' : ' · pump held by min off';
     }
 
-    const storedState = outputFinal || pumpFinal || evald.desiredActive;
+    const storedState = outputFinal || pumpFinal || desiredActive;
     ctx.setSetting(`_zone_${zone}_state`, storedState ? '1' : '0');
+    ctx.setSetting(`_zone_${zone}_manual`, zManualOn !== null ? (zManualOn ? '1' : '0') : '');
     setZoneStatus(ctx, zone, {
       status: storedState ? 'on' : 'off',
       source: evald.source,
@@ -432,6 +510,7 @@ function zonedThermostatHandler(ctx, send) {
     status: anyDemand ? 'on' : 'off',
     output_on: anyDemand,
     source: 'zones',
+    manual_active: false,
     last_reason: anyDemand ? 'Zone demand active' : 'No zone demand',
     mode,
     calling_zones: callingZones,
@@ -447,7 +526,7 @@ function legacySingleZoneHandler(ctx, send) {
   const defaults  = DEFAULTS[mode] || DEFAULTS.cooling;
   if (mode === 'off') {
     send('ac_relay', 'OFF', 'Thermostat OFF', { action: 'Thermostat_Legacy_Output_OFF' });
-    ctx.broadcastState({ status: 'off', output_on: false, source: 'mode', last_reason: 'Mode is OFF', mode });
+    ctx.broadcastState({ status: 'off', output_on: false, source: 'mode', manual_active: false, last_reason: 'Mode is OFF', mode });
     return;
   }
   const setpoint  = ctx.setting("setpoint",    defaults.setpoint);
@@ -457,13 +536,36 @@ function legacySingleZoneHandler(ctx, send) {
 
   const tempRoom    = ctx.value("temp_room");
   if (tempRoom === null) {
-    ctx.broadcastState({ status: 'off', output_on: false, source: 'sensor', last_reason: 'No sensor reading', mode });
+    ctx.broadcastState({ status: 'off', output_on: false, source: 'sensor', manual_active: false, last_reason: 'No sensor reading', mode });
     return;
   }
 
   const isOn   = ctx.isOn("ac_relay");
   const now    = Date.now();
   const instId = ctx.instance.id;
+
+  // Manual override
+  const manual = manualState.get(instId);
+  if (manual) {
+    const reason = manual.on ? 'Manual ON' : 'Manual OFF';
+    const legacyKey = runtimeKey(instId, 'legacy');
+    const finalActive = applyMinRunOff(isOn, !!manual.on, legacyKey, minRun, minOff);
+    if (finalActive !== isOn) {
+      rememberTransition(legacyKey, finalActive);
+      send("ac_relay", finalActive ? "ON" : "OFF", reason, { action: `Thermostat_Legacy_Output_${finalActive ? 'ON' : 'OFF'}` });
+    }
+    ctx.broadcastState({
+      status: finalActive ? 'on' : 'off',
+      output_on: finalActive,
+      source: 'manual',
+      manual_active: true,
+      last_reason: reason,
+      mode,
+      temp: tempRoom != null ? Number(tempRoom).toFixed(1) : null,
+      setpoint,
+    });
+    return;
+  }
 
   const windowDetect = ctx.setting("window_detect", 1);
   const windowDrop   = ctx.setting("window_drop", 0.5);
@@ -569,6 +671,7 @@ function legacySingleZoneHandler(ctx, send) {
     status: isOn ? 'on' : 'off',
     output_on: isOn,
     source: 'temp',
+    manual_active: false,
     last_reason: reason || 'Within hysteresis band',
     mode,
     temp: tempRoom != null ? Number(tempRoom).toFixed(1) : null,
@@ -704,4 +807,14 @@ const THERMOSTAT_MODULE = {
   ],
 };
 
-module.exports = { thermostatHandler, THERMOSTAT_MODULE };
+module.exports = { thermostatHandler, THERMOSTAT_MODULE, setManual, clearManual, setZoneManual, clearZoneManual };
+
+function setManual(instId, on) { manualState.set(instId, { on: !!on, ts: Date.now() }); }
+function clearManual(instId)   { manualState.delete(instId); }
+function setZoneManual(instId, zone, on) {
+  if (!zoneManualState.has(instId)) zoneManualState.set(instId, new Map());
+  zoneManualState.get(instId).set(zone, !!on);
+}
+function clearZoneManual(instId, zone) {
+  if (zoneManualState.has(instId)) zoneManualState.get(instId).delete(zone);
+}

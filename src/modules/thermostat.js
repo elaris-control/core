@@ -1,7 +1,7 @@
 // src/modules/thermostat.js
 // Thermostat module — MODULE definition + engine handler + API routes
 
-const { thermostatHandler, THERMOSTAT_MODULE } = require('../automation/thermostat');
+const { thermostatHandler, THERMOSTAT_MODULE, setManual, clearManual, setZoneManual, clearZoneManual } = require('../automation/thermostat');
 const { MAX_ZONES, applySetpointDelta } = require('../automation/helpers/thermostat_common');
 
 const MODULE = THERMOSTAT_MODULE;
@@ -22,7 +22,10 @@ function routes(app, ctx) {
       if (body.setpoint !== undefined) {
         const setpoint = Math.max(5, Math.min(45, Number(body.setpoint)));
         if (!Number.isFinite(setpoint)) return res.status(400).json({ ok: false, error: 'invalid_setpoint' });
-        out.setpoint = engine.setSetting(id, 'setpoint', String(Math.round(setpoint * 10) / 10));
+        const rounded = String(Math.round(setpoint * 10) / 10);
+        out.setpoint = engine.setSetting(id, 'setpoint', rounded);
+        // Propagate global setpoint to all zones
+        for (let z = 1; z <= MAX_ZONES; z++) engine.setSetting(id, `zone_${z}_setpoint`, rounded);
       }
       if (body.mode !== undefined) {
         const mode = String(body.mode || '').toLowerCase();
@@ -62,6 +65,32 @@ function routes(app, ctx) {
           for (let z = 1; z <= MAX_ZONES; z++) engine.setSetting(id, `zone_${z}_setpoint`, String(Math.round(v * 10) / 10));
           engine.setSetting(id, 'setpoint', String(Math.round(v * 10) / 10));
           out.all_zones_setpoint = v;
+        }
+      }
+      if (body.manual !== undefined) {
+        setManual(id, !!body.manual);
+        engine.evaluate(access.inst);
+        return res.json({ ok: true, manual: !!body.manual });
+      }
+      if (body.clear_manual === true) {
+        clearManual(id);
+        engine.evaluate(access.inst);
+        return res.json({ ok: true, manual: false });
+      }
+      if (body.zone_manual !== undefined) {
+        const zone = Number(body.zone_manual);
+        if (zone >= 1 && zone <= MAX_ZONES) {
+          setZoneManual(id, zone, !!body.on);
+          engine.evaluate(access.inst);
+          return res.json({ ok: true, zone_manual: zone, on: !!body.on });
+        }
+      }
+      if (body.clear_zone_manual !== undefined) {
+        const zone = Number(body.clear_zone_manual);
+        if (zone >= 1 && zone <= MAX_ZONES) {
+          clearZoneManual(id, zone);
+          engine.evaluate(access.inst);
+          return res.json({ ok: true, cleared_zone_manual: zone });
         }
       }
       if (!Object.keys(out).length) return res.status(400).json({ ok: false, error: 'no_changes' });

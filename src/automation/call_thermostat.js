@@ -17,7 +17,7 @@ function callThermostatHandler(ctx, send) {
   if (mode === 'off') {
     send('zone_1_output', 'OFF', 'Thermostat OFF', { action: 'Call_Thermostat_OFF' });
     if (hasPump) send('zone_1_pump', 'OFF', 'Thermostat OFF', { action: 'Call_Pump_OFF' });
-    ctx.broadcastState({ status: 'off', output_on: false, source: 'mode', last_reason: 'Mode is OFF', mode });
+    ctx.broadcastState({ status: 'off', output_on: false, source: 'mode', manual_active: false, last_reason: 'Mode is OFF', mode });
     return;
   }
 
@@ -31,7 +31,7 @@ function callThermostatHandler(ctx, send) {
       send('zone_1_output', finalActive ? 'ON' : 'OFF', reason, { action: `Call_Thermostat_${finalActive ? 'ON' : 'OFF'}` });
       if (hasPump) send('zone_1_pump', finalActive ? 'ON' : 'OFF', reason, { action: `Call_Pump_${finalActive ? 'ON' : 'OFF'}` });
     }
-    ctx.broadcastState({ status: finalActive ? 'on' : 'off', output_on: finalActive, source: 'manual', last_reason: reason, mode });
+    ctx.broadcastState({ status: finalActive ? 'on' : 'off', output_on: finalActive, source: 'manual', manual_active: true, last_reason: reason, mode });
     return;
   }
 
@@ -40,7 +40,7 @@ function callThermostatHandler(ctx, send) {
 
   if (callDemand === null) {
     const reason = callRaw == null ? 'No call signal yet' : `Unknown call state: ${String(callRaw)}`;
-    ctx.broadcastState({ status: isOn ? 'on' : 'off', output_on: isOn, source: 'idle', last_reason: reason, mode });
+    ctx.broadcastState({ status: isOn ? 'on' : 'off', output_on: isOn, source: 'idle', manual_active: false, last_reason: reason, mode });
     return;
   }
 
@@ -54,7 +54,7 @@ function callThermostatHandler(ctx, send) {
     if (hasPump) send('zone_1_pump', finalActive ? 'ON' : 'OFF', reason, { action: `Call_Pump_${finalActive ? 'ON' : 'OFF'}` });
   }
 
-  ctx.broadcastState({ status: finalActive ? 'on' : 'off', output_on: finalActive, source: 'call', last_reason: reason, mode, call_active: callDemand });
+  ctx.broadcastState({ status: finalActive ? 'on' : 'off', output_on: finalActive, source: 'call', manual_active: false, last_reason: reason, mode, call_active: callDemand });
 }
 
 function setManual(instId, on) { manualState.set(instId, { on: !!on, ts: Date.now() }); }

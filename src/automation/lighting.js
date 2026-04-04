@@ -185,22 +185,35 @@ function lightingHandler(ctx, send, siteInfo) {
   const isOn = hasDimmer
     ? (ctx.value('dimmer_output') ?? 0) > (dimOffLevel + 5)
     : ctx.isOn('light_relay');
+  const relayStateUnknown = !hasDimmer && isOn === undefined;
 
   // ── Wall switch (DI) — fast path for immediate light response ───────
   if (hasSwitch) {
     const sw    = ctx.state('switch_di');
     const prevSw= switchState.get(instId);
-    switchState.set(instId, sw);
+
+    // Long gap (>10 sec) → reconnect / ESP reboot → sync state only, don't toggle
+    const lastTap = switchTapTime.get(instId) || 0;
+    if (lastTap > 0 && (now - lastTap) > 10000) {
+      switchState.set(instId, sw);
+      switchFastLock.set(instId, now + switchRetriggerBlockMs);
+    } else {
+      switchState.set(instId, sw);
+    }
+
     const swOn  = sw==='ON'||sw==='1'||sw==='true';
     const prevOn= prevSw==='ON'||prevSw==='1'||prevSw==='true';
     let fastHandled = false;
 
-    if (swOn && !prevOn) { // rising edge
+    // Skip edge detection entirely if we just synced after a long gap
+    const justSynced = lastTap > 0 && (now - lastTap) > 10000;
+    if (justSynced) {
+      // State synced, no action needed
+    } else if (swOn && !prevOn) { // rising edge
       const lockUntil = switchFastLock.get(instId) || 0;
       if (switchRetriggerBlockMs > 0 && now < lockUntil) {
         // skip switch logic only, continue to PIR/schedule/lux
       } else {
-        const lastTap = switchTapTime.get(instId) || 0;
         const dt = now - lastTap;
         switchTapTime.set(instId, now);
         if (dt > 50 && dt < 500) { // double-tap detected
@@ -215,6 +228,7 @@ function lightingHandler(ctx, send, siteInfo) {
           broadcastLightingState(ctx, { manual_active: true, source: 'manual', schedule_active: false, motion_active: false, dark: null, last_reason: 'Double-tap: ON', status: 'on', output_on: true });
           return;
         }
+        if (relayStateUnknown) return;
         const targetOn = switchToggle ? !isOn : swOn;
         const reason = targetOn ? 'Manual ON' : 'Manual OFF';
         manualState.set(instId, { on: targetOn, ts: now });

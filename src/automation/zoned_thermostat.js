@@ -4,6 +4,7 @@
 const { parseDemandState, applyMinRunOff, rememberTransition } = require('./helpers/thermostat_common');
 
 const manualState = new Map();
+const zoneManualState = new Map(); // instId -> Map<zone, boolean>
 const MAX_ZONES   = 6;
 
 const DEFAULTS = {
@@ -120,7 +121,7 @@ function zonedThermostatHandler(ctx, send) {
       if (k.pump)   send(k.pump,   'OFF', 'Thermostat OFF', { action: `Zone_${n}_Pump_OFF` });
     }
     if (hasMapping(ctx, 'central_pump')) send('central_pump', 'OFF', 'Thermostat OFF', { action: 'Central_Pump_OFF' });
-    ctx.broadcastState({ status: 'off', output_on: false, source: 'mode', last_reason: 'Mode is OFF', mode,
+    ctx.broadcastState({ status: 'off', output_on: false, source: 'mode', manual_active: false, last_reason: 'Mode is OFF', mode,
       calling_zones: 0, configured_zones: 0, di_calling: 0, temp_calling: 0 });
     return;
   }
@@ -149,7 +150,7 @@ function zonedThermostatHandler(ctx, send) {
       const centralOn = ctx.isOn('central_pump');
       if (anyActive !== centralOn) send('central_pump', anyActive ? 'ON' : 'OFF', reason, { action: `Central_Pump_${anyActive ? 'ON' : 'OFF'}` });
     }
-    ctx.broadcastState({ status: anyActive ? 'on' : 'off', output_on: anyActive, source: 'manual', last_reason: reason, mode,
+    ctx.broadcastState({ status: anyActive ? 'on' : 'off', output_on: anyActive, source: 'manual', manual_active: true, last_reason: reason, mode,
       calling_zones: anyActive ? configuredZones : 0, configured_zones: configuredZones, di_calling: 0, temp_calling: 0 });
     return;
   }
@@ -170,10 +171,20 @@ function zonedThermostatHandler(ctx, send) {
 
     const { setpoint, hyst, fromSchedule } = resolveZoneSetpoint(ctx, n, globalSp, globalHyst);
 
+    // Per-zone manual override
+    const zManual = zoneManualState.get(instId);
+    const zManualOn = zManual && zManual.has(n) ? zManual.get(n) : null;
+
     const demand = evaluateZoneDemand({ ctx, keys: k, mode, setpoint, hyst });
+    let desiredActive = demand.desiredActive;
+    let reason = demand.reason;
+    if (zManualOn !== null) {
+      desiredActive = zManualOn;
+      reason = zManualOn ? `Zone ${n} manual ON` : `Zone ${n} manual OFF`;
+    }
     const isOn   = k.output ? ctx.isOn(k.output) : (k.pump ? ctx.isOn(k.pump) : false);
     const rKey   = `${instId}:z${n}`;
-    const active = applyMinRunOff(isOn, demand.desiredActive, rKey, minRunMs, minOffMs);
+    const active = applyMinRunOff(isOn, desiredActive, rKey, minRunMs, minOffMs);
 
     if (active !== isOn) {
       rememberTransition(rKey, active);
@@ -192,11 +203,12 @@ function zonedThermostatHandler(ctx, send) {
 
     // Store per-zone state for dashboard
     ctx.setSetting(`_zone_${n}_status`,       active ? 'on' : 'off');
-    ctx.setSetting(`_zone_${n}_reason`,       demand.reason);
+    ctx.setSetting(`_zone_${n}_reason`,       reason);
     ctx.setSetting(`_zone_${n}_name`,         name);
-    ctx.setSetting(`_zone_${n}_source`,       demand.source);
+    ctx.setSetting(`_zone_${n}_source`,       zManualOn !== null ? 'manual' : demand.source);
     ctx.setSetting(`_zone_${n}_from_schedule`, fromSchedule ? '1' : '0');
     ctx.setSetting(`_zone_${n}_setpoint`,     String(setpoint));
+    ctx.setSetting(`_zone_${n}_manual`,       zManualOn !== null ? (zManualOn ? '1' : '0') : '');
   }
 
   // Central pump follows any active zone
@@ -216,6 +228,7 @@ function zonedThermostatHandler(ctx, send) {
     status: anyActive ? 'on' : 'off',
     output_on: anyActive,
     source: 'zones',
+    manual_active: false,
     last_reason: reason,
     mode,
     calling_zones:    callingZones,
@@ -227,6 +240,13 @@ function zonedThermostatHandler(ctx, send) {
 
 function setManual(instId, on) { manualState.set(instId, { on: !!on, ts: Date.now() }); }
 function clearManual(instId)   { manualState.delete(instId); }
+function setZoneManual(instId, zone, on) {
+  if (!zoneManualState.has(instId)) zoneManualState.set(instId, new Map());
+  zoneManualState.get(instId).set(zone, !!on);
+}
+function clearZoneManual(instId, zone) {
+  if (zoneManualState.has(instId)) zoneManualState.get(instId).delete(zone);
+}
 
 // Build inputs and zone setpoints for N zones
 const zoneInputs = [];
@@ -284,4 +304,4 @@ const ZONED_THERMOSTAT_MODULE = {
   ],
 };
 
-module.exports = { zonedThermostatHandler, setManual, clearManual, ZONED_THERMOSTAT_MODULE };
+module.exports = { zonedThermostatHandler, setManual, clearManual, setZoneManual, clearZoneManual, ZONED_THERMOSTAT_MODULE };

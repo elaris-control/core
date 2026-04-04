@@ -104,11 +104,12 @@
     }
     if(meta.hasSetpoint) h+='<div style="border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:12px;padding:10px"><div style="font-size:10px;color:var(--muted2);font-weight:800;letter-spacing:.04em;text-transform:uppercase">Setpoint</div><div style="display:flex;align-items:center;gap:6px;margin-top:5px"><button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+','+(meta.isZoned?'{setpoint_delta:-0.5}':'{setpoint:'+(Math.round((x.setpoint-0.5)*10)/10)+'}')+'" style="padding:2px 10px;border-radius:8px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:14px;font-weight:800;cursor:pointer">−</button><span style="font-size:16px;font-weight:900;color:#f5c842;min-width:38px;text-align:center">'+esc(x.setpoint.toFixed(1)+'°')+'</span><button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+','+(meta.isZoned?'{setpoint_delta:0.5}':'{setpoint:'+(Math.round((x.setpoint+0.5)*10)/10)+'}')+'" style="padding:2px 10px;border-radius:8px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--text);font-size:14px;font-weight:800;cursor:pointer">+</button></div></div>';
     h+='</div>';
+    h+='<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">';
+    h+='<button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+',{manual:'+(x.manualActive?'false':'true')+'})" style="padding:8px 12px;border-radius:12px;border:1px solid '+(x.manualActive?'rgba(245,158,11,.5)':'var(--line2)')+';background:'+(x.manualActive?'rgba(245,158,11,.15)':'rgba(255,255,255,.05)')+';color:'+(x.manualActive?'#f59e0b':'var(--text)')+';font-size:12px;font-weight:800;cursor:pointer">'+(x.manualActive?'Manual ON (active)':'Manual ON')+'</button>';
     if(x.manualActive){
-      h+='<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">';
       h+='<button onclick="thermoControl(\''+inst.module_id+'\','+inst.id+',{clear_manual:true})" style="padding:8px 12px;border-radius:12px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
-      h+='</div>';
     }
+    h+='</div>';
     if(meta.isZoned){ var zc=zoneCards(inst,x); if(zc) h+='<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">'+zc+'</div>'; }
     if(canEngineerUI()) h+='<button onclick="toggleThermoPause('+inst.id+','+paused+')" style="width:100%;margin-top:2px;padding:8px;border-radius:9px;border:1px solid '+(paused?'rgba(245,158,11,.4)':'var(--line2)')+';background:'+(paused?'rgba(245,158,11,.1)':'rgba(255,255,255,.03)')+';color:'+(paused?'#f59e0b':'var(--muted2)')+';font-size:12px;font-weight:800;cursor:pointer">'+(paused?'▶ Resume':'⏸ Pause Automation')+'</button>';
     h+='</div>';

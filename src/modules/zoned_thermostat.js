@@ -1,4 +1,4 @@
-const { ZONED_THERMOSTAT_MODULE, zonedThermostatHandler, setManual, clearManual } = require('../automation/zoned_thermostat');
+const { ZONED_THERMOSTAT_MODULE, zonedThermostatHandler, setManual, clearManual, setZoneManual, clearZoneManual } = require('../automation/zoned_thermostat');
 const { MAX_ZONES, applySetpointDelta } = require('../automation/helpers/thermostat_common');
 
 const MODULE  = ZONED_THERMOSTAT_MODULE;
@@ -24,7 +24,10 @@ function routes(app, ctx) {
       if (body.setpoint !== undefined) {
         const v = Math.max(5, Math.min(45, Number(body.setpoint)));
         if (!Number.isFinite(v)) return res.status(400).json({ ok: false, error: 'invalid_setpoint' });
-        engine.setSetting(id, 'setpoint', String(Math.round(v * 10) / 10));
+        const rounded = String(Math.round(v * 10) / 10);
+        engine.setSetting(id, 'setpoint', rounded);
+        // Propagate global setpoint to all zones
+        for (let n = 1; n <= MAX_ZONES; n++) engine.setSetting(id, `zone_${n}_setpoint`, rounded);
         out.setpoint = v;
       }
       // setpoint_delta: apply to global + all mapped temp-sensor zones
@@ -69,6 +72,21 @@ function routes(app, ctx) {
       if (body.clear_manual) {
         clearManual(id);
         out.cleared_manual = true;
+      }
+      if (body.zone_manual !== undefined) {
+        const zone = Number(body.zone_manual);
+        if (zone >= 1 && zone <= MAX_ZONES) {
+          setZoneManual(id, zone, !!body.on);
+          out.zone_manual = zone;
+          out.on = !!body.on;
+        }
+      }
+      if (body.clear_zone_manual !== undefined) {
+        const zone = Number(body.clear_zone_manual);
+        if (zone >= 1 && zone <= MAX_ZONES) {
+          clearZoneManual(id, zone);
+          out.cleared_zone_manual = zone;
+        }
       }
 
       if (!Object.keys(out).length) return res.status(400).json({ ok: false, error: 'no_changes' });

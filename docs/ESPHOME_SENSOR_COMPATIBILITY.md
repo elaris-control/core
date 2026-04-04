@@ -397,3 +397,7 @@ The system should keep these as:
 - **separate entities**
 - with their own keys / address / bus context
 - not auto-merge them into one input
+
+## Wiring & YAML Examples
+
+For complete wiring diagrams and ready-to-use ESPHome YAML snippets, see **[ESPHOME_WIRING_EXAMPLES.md](ESPHOME_WIRING_EXAMPLES.md)**.

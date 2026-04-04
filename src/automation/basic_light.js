@@ -19,6 +19,12 @@ function basicLightHandler(ctx, send) {
   // Manual override from dashboard
   const manual = manualState.get(instId);
   if (manual) {
+    // If relay state is unknown (MQTT reconnect), don't make decisions
+    const relayKnown = relayKeys(ctx).some(k => ctx.state(k) !== null && ctx.state(k) !== undefined);
+    if (!relayKnown) {
+      broadcastState(ctx, { manual_active: true, source: 'manual', status: 'unknown', output_on: false, last_reason: 'Waiting for relay state' });
+      return;
+    }
     const isOn = relayKeys(ctx).some(k => ctx.isOn(k));
     if (isOn !== manual.on) {
       const reason = manual.on ? 'Manual ON' : 'Manual OFF';

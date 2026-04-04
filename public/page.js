@@ -120,6 +120,8 @@ async function renderThermostat(inst){
     var pumpOn = vals.zone_1_pump === 'ON';
     var hasPump = mappings.some(function(m){ return m.input_key === 'zone_1_pump' && m.io_id; });
     var callDemand = callRaw === 'ON' || callRaw === '1' || callRaw === 'true';
+    var state = sR.state || {};
+    var manualActive = !!state.manual_active || /manual/i.test(String(state.last_reason || ''));
     var h = '';
     h += '<div style="display:flex;gap:8px;flex-wrap:nowrap;margin-bottom:10px">' + modeBtn('Heat','heating','🔥') + modeBtn('Cool','cooling','❄') + modeBtn('Off','off','⏻') + '</div>';
     h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">';
@@ -131,6 +133,12 @@ async function renderThermostat(inst){
     }
     h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)"><span style="font-weight:700">Mode</span><span style="font-weight:800;font-size:14px;color:' + mc + '">' + modeKey.toUpperCase() + '</span></div>';
     h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' + pill('min_run', (sp.min_run_time || 120) + 's') + pill('min_off', (sp.min_off_time || 120) + 's') + (String(sp.test_mode || '0') === '1' ? pill('TEST MODE', '#ffd978', 'rgba(255,201,71,.35)') : '') + '</div>';
+    h += '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:8px">';
+    h += '<button onclick="(async function(){var m='+inst.id+',mid=\''+inst.module_id+'\';try{await api(\'/automation/\'+mid+\'/\'+m+\'/control\',{method:\'POST\',body:JSON.stringify({manual:'+(manualActive?false:true)+'})});}catch(e){toast(\'Cannot control \'+mid);}setTimeout(function(){rerenderInstance(m);},220);})()" style="padding:8px 12px;border-radius:12px;border:1px solid '+(manualActive?'rgba(245,158,11,.5)':'var(--line2)')+';background:'+(manualActive?'rgba(245,158,11,.15)':'rgba(255,255,255,.05)')+';color:'+(manualActive?'#f59e0b':'var(--text)')+';font-size:12px;font-weight:800;cursor:pointer">'+(manualActive?'Manual ON (active)':'Manual ON')+'</button>';
+    if(manualActive){
+      h += '<button onclick="(async function(){var m='+inst.id+',mid=\''+inst.module_id+'\';try{await api(\'/automation/\'+mid+\'/\'+m+\'/control\',{method:\'POST\',body:JSON.stringify({clear_manual:true})});}catch(e){toast(\'Cannot control \'+mid);}setTimeout(function(){rerenderInstance(m);},220);})()" style="padding:8px 12px;border-radius:12px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
+    }
+    h += '</div>';
     if (canEngineerUI()) h += '<button onclick="toggleThermoPause(' + inst.id + ',' + paused + ')" style="width:100%;margin-top:12px;padding:9px;border-radius:9px;border:1px solid ' + (paused ? 'rgba(245,158,11,.4)' : 'var(--line2)') + ';background:' + (paused ? 'rgba(245,158,11,.1)' : 'rgba(255,255,255,.03)') + ';color:' + (paused ? '#f59e0b' : 'var(--muted2)') + ';font-size:12px;font-weight:800;cursor:pointer">' + (paused ? '▶ Resume' : '⏸ Pause') + '</button>';
     return h;
   }
@@ -139,6 +147,8 @@ async function renderThermostat(inst){
     var tRoom=vals.temp_room!=null?parseFloat(vals.temp_room).toFixed(1):null;
     var tOut=vals.temp_outdoor!=null?parseFloat(vals.temp_outdoor).toFixed(1):null;
     var acOn=vals.ac_relay==='ON';
+    var state = sR.state || {};
+    var manualActive = !!state.manual_active || /manual/i.test(String(state.last_reason || ''));
     var h='';
     h+='<div style="display:flex;gap:8px;flex-wrap:nowrap;margin-bottom:10px">'+modeBtn('Heat','heating','🔥')+modeBtn('Cool','cooling','❄')+modeBtn('Off','off','⏻')+'</div>';
     h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">';
@@ -152,6 +162,12 @@ async function renderThermostat(inst){
     h+='</div></div>';
     h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)"><span style="font-weight:700">Status</span><span style="font-weight:800;font-size:14px;color:'+(acOn?mc:'var(--muted)')+'">'+(acOn?'● ON':'○ OFF')+'</span></div>';
     h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'+pill('mode',modeKey)+(tOut!==null?pill('outdoor',tOut+'°'):'')+(String(sp.test_mode||'0')==='1'?pill('TEST MODE','#ffd978','rgba(255,201,71,.35)'):'')+pill('hyst','±'+hyst+'°')+'</div>';
+    h += '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:8px">';
+    h += '<button onclick="(async function(){var m='+inst.id+',mid=\''+inst.module_id+'\';try{await api(\'/automation/\'+mid+\'/\'+m+\'/control\',{method:\'POST\',body:JSON.stringify({manual:'+(manualActive?false:true)+'})});}catch(e){toast(\'Cannot control \'+mid);}setTimeout(function(){rerenderInstance(m);},220);})()" style="padding:8px 12px;border-radius:12px;border:1px solid '+(manualActive?'rgba(245,158,11,.5)':'var(--line2)')+';background:'+(manualActive?'rgba(245,158,11,.15)':'rgba(255,255,255,.05)')+';color:'+(manualActive?'#f59e0b':'var(--text)')+';font-size:12px;font-weight:800;cursor:pointer">'+(manualActive?'Manual ON (active)':'Manual ON')+'</button>';
+    if(manualActive){
+      h += '<button onclick="(async function(){var m='+inst.id+',mid=\''+inst.module_id+'\';try{await api(\'/automation/\'+mid+\'/\'+m+\'/control\',{method:\'POST\',body:JSON.stringify({clear_manual:true})});}catch(e){toast(\'Cannot control \'+mid);}setTimeout(function(){rerenderInstance(m);},220);})()" style="padding:8px 12px;border-radius:12px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#f59e0b;font-size:12px;font-weight:800;cursor:pointer">Clear Manual</button>';
+    }
+    h += '</div>';
     if(canEngineerUI()) h+='<button onclick="toggleThermoPause('+inst.id+','+paused+')" style="width:100%;margin-top:12px;padding:9px;border-radius:9px;border:1px solid '+(paused?'rgba(245,158,11,.4)':'var(--line2)')+';background:'+(paused?'rgba(245,158,11,.1)':'rgba(255,255,255,.03)')+';color:'+(paused?'#f59e0b':'var(--muted2)')+';font-size:12px;font-weight:800;cursor:pointer">'+(paused?'▶ Resume':'⏸ Pause')+'</button>';
     return h;
   }
@@ -792,15 +808,15 @@ async function renderInstance(inst){
   var isNew=!card;
   if(isNew){card=document.createElement('div');card.id=cardId;card.className='inst-card';card.style.setProperty('--inst-accent',MODULE_ACCENT[inst.module_id]||'#1d8cff');grid.appendChild(card);}
   card.classList.toggle('wide-card', false);
-  card.classList.toggle('thermo-card', inst.module_id==='thermostat');
+  card.classList.toggle('thermo-card', false);
   var icon=MODULE_ICON[inst.module_id]||'\ud83d\udce6';
   if(isNew){card.innerHTML='<div class="inst-header"><div class="inst-name">'+icon+' '+escapeHTML(inst.name||'Instance #'+inst.id)+'</div><div class="inst-id">#'+inst.id+'</div></div><div id="inst-body-'+inst.id+'"><div style="color:var(--muted);font-size:12px">Loading...</div></div>';}
   var content='';
   try{
     if(inst.module_id==='solar')content=await renderSolar(inst);
-    else if(inst.module_id==='thermostat')content=await renderThermostat(inst);
     else if(inst.module_id==='lighting')content=await renderLighting(inst);
     else if(inst.module_id==='staircase')content=await renderStaircase(inst);
+    else if(typeof window.isThermostatModule==='function' && window.isThermostatModule(inst.module_id))content=await window.renderThermostatModule(inst);
     else if(inst.module_id==='awning')content=await renderAwning(inst);
     else if(inst.module_id==='smart_lighting')content=await renderSmartLighting(inst);
     else if(inst.module_id==='irrigation')content=await renderIrrigation(inst);

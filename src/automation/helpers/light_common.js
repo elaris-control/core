@@ -1,6 +1,8 @@
 // src/automation/helpers/light_common.js
 // Shared helpers for all switch-based lighting modules.
 
+const lastSwitchChange = new Map(); // Debounce tracker
+
 function isTruthyState(v) {
   if (typeof v === 'string') {
     const u = v.toUpperCase();
@@ -90,6 +92,25 @@ function handleSwitch(ctx, send, instId, opts) {
     return { handled: false, manualActive: !!manualState.get(instId) };
   }
 
+  // Debounce: Ignore rapid state changes (switch bounce + reconnect transients)
+  const now = Date.now();
+  const last = lastSwitchChange.get(instId) || 0;
+
+  // Long gap (>10 sec) → reconnect / ESP reboot → sync state only, don't toggle
+  // Also clear any stale manual state — the physical relay state is the source of truth
+  if (now - last > 10000) {
+    switchState.set(instId, sw);
+    lastSwitchChange.set(instId, now);
+    manualState.delete(instId); // Clear stale manual after reconnect
+    return { handled: false, manualActive: false };
+  }
+
+  if (now - last < 400) {
+    switchState.set(instId, sw);
+    return { handled: false, manualActive: !!manualState.get(instId) };
+  }
+  lastSwitchChange.set(instId, now);
+
   switchState.set(instId, sw);
 
   const swOn = isTruthyState(sw);
@@ -100,7 +121,13 @@ function handleSwitch(ctx, send, instId, opts) {
   if (isToggle) {
     const prevWasExplicitlyOff = !isTruthyState(prev);
     if (swOn && prevWasExplicitlyOff) {
-      const isOn = relayKeys(ctx).some(k => ctx.isOn(k));
+      const relayStates = relayKeys(ctx).map(k => ctx.isOn(k));
+      const anyUnknown = relayStates.some(v => v === null || v === undefined);
+      if (anyUnknown) {
+        // Relay state unknown (likely after reconnect) — don't toggle, wait for state to stabilize
+        return { handled: false, manualActive: !!manualState.get(instId) };
+      }
+      const isOn = relayStates.some(v => v);
       const targetOn = !isOn;
       const reason = targetOn ? 'Manual ON' : 'Manual OFF';
       manualState.set(instId, { on: targetOn, ts: Date.now() });
@@ -114,7 +141,13 @@ function handleSwitch(ctx, send, instId, opts) {
     const swOn = isTruthyState(sw);
     const prevOn = isTruthyState(prev);
     if (swOn !== prevOn) {
-      const isOn = relayKeys(ctx).some(k => ctx.isOn(k));
+      const relayStates = relayKeys(ctx).map(k => ctx.isOn(k));
+      const anyUnknown = relayStates.some(v => v === null || v === undefined);
+      if (anyUnknown) {
+        // Relay state unknown (likely after reconnect) — don't toggle, wait for state to stabilize
+        return { handled: true, manualActive: !!manualState.get(instId) };
+      }
+      const isOn = relayStates.some(v => v);
       if (isOn !== swOn) {
         const reason = swOn ? 'Manual ON' : 'Manual OFF';
         manualState.set(instId, { on: swOn, ts: Date.now() });

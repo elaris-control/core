@@ -249,6 +249,9 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
         } catch (e) {
           emit("mqtt_config_error", { deviceId, topic: msgTopic, error: String(e?.message || e) });
         }
+        if (typeof solarAuto?.notifyDeviceReconnect === 'function') {
+          solarAuto.notifyDeviceReconnect(deviceId);
+        }
         persistEvent(dbApi, deviceId, msgTopic, payload, ts);
         return;
       }
@@ -298,6 +301,9 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
       const lower = String(trimmedPayload || '').toLowerCase();
       const status = lower === 'offline' ? 'offline' : 'online';
       touchRegistry(dbApi, deviceId, status, ts);
+      if (status === 'online' && typeof solarAuto?.notifyDeviceReconnect === 'function') {
+        solarAuto.notifyDeviceReconnect(deviceId);
+      }
       mqttDebug('registry_touch', { deviceId, status, retained, from: 'status_topic' });
 
       persistEvent(dbApi, deviceId, msgTopic, payload, ts);

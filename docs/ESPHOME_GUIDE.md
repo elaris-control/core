@@ -17,6 +17,7 @@ This guide covers how ESPHome works inside ELARIS — flashing boards, importing
 9. [Adding Peripherals After Flash](#adding-peripherals-after-flash)
 10. [How MQTT Entity Mapping Works](#how-mqtt-entity-mapping-works)
 11. [Troubleshooting](#troubleshooting)
+12. [Wiring & YAML Examples](#wiring--yaml-examples)
 
 ---
 
@@ -479,3 +480,20 @@ The validator checks for:
 - **Reserved pins** — used by Ethernet, I2C, UART, etc.
 
 If you get a validation error, check the pin assignments against the board's pin rules.
+
+---
+
+## Wiring & YAML Examples
+
+For complete wiring diagrams and ESPHome YAML examples for common peripherals, see the dedicated **[ESPHOME_WIRING_EXAMPLES.md](ESPHOME_WIRING_EXAMPLES.md)** guide.
+
+It covers:
+
+- **DS18B20** — single and multi-drop (multiple sensors on one 1-Wire bus)
+- **I2C sensors** — BME280, BH1750, multiple devices on same bus
+- **Analog Output (AO)** — 0-10V via ESP32 DAC
+- **NTC Thermistor** — voltage divider wiring and calibration
+- **CT Clamp** — AC current measurement circuit
+- **MH-Z19** — CO2 sensor UART wiring
+- **PZEM-004T** — energy monitor Modbus/RS485
+- **Pulse Counter** — YF-S201 water flow meter

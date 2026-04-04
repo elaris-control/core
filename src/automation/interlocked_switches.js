@@ -115,6 +115,19 @@ function interlockedSwitchesHandler(ctx, send) {
 
   const now = Date.now();
   const lastTs = lastEventTs.get(instId) || 0;
+
+  // Long gap (>10 sec) → reconnect / ESP reboot → sync state only, don't toggle
+  if (lastTs > 0 && (now - lastTs) > 10000) {
+    broadcastState(ctx, {
+      source: 'idle',
+      status: outputOn(ctx) ? 'on' : 'off',
+      output_on: outputOn(ctx),
+      last_reason: 'State synced after long gap',
+    });
+    lastEventTs.set(instId, now);
+    return;
+  }
+
   if ((now - lastTs) < debounceMs) {
     broadcastState(ctx, {
       source: 'idle',

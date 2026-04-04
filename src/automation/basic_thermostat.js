@@ -16,7 +16,7 @@ function basicThermostatHandler(ctx, send) {
 
   if (mode === 'off') {
     send('ac_relay', 'OFF', 'Thermostat OFF', { action: 'Basic_Thermostat_OFF' });
-    ctx.broadcastState({ status: 'off', output_on: false, source: 'mode', last_reason: 'Mode is OFF', mode });
+    ctx.broadcastState({ status: 'off', output_on: false, source: 'mode', manual_active: false, last_reason: 'Mode is OFF', mode });
     return;
   }
 
@@ -37,13 +37,13 @@ function basicThermostatHandler(ctx, send) {
       rememberTransition(rKey, finalActive);
       send('ac_relay', finalActive ? 'ON' : 'OFF', reason, { action: `Basic_Thermostat_${finalActive ? 'ON' : 'OFF'}` });
     }
-    ctx.broadcastState({ status: finalActive ? 'on' : 'off', output_on: finalActive, source: 'manual', last_reason: reason, mode, setpoint });
+    ctx.broadcastState({ status: finalActive ? 'on' : 'off', output_on: finalActive, source: 'manual', manual_active: true, last_reason: reason, mode, setpoint });
     return;
   }
 
   const temp = ctx.value('temp_room');
   if (temp === null) {
-    ctx.broadcastState({ status: isOn ? 'on' : 'off', output_on: isOn, source: 'idle', last_reason: 'No sensor reading', mode, setpoint });
+    ctx.broadcastState({ status: isOn ? 'on' : 'off', output_on: isOn, source: 'idle', manual_active: false, last_reason: 'No sensor reading', mode, setpoint });
     return;
   }
 
@@ -65,7 +65,7 @@ function basicThermostatHandler(ctx, send) {
     send('ac_relay', finalActive ? 'ON' : 'OFF', reason, { action: `Basic_Thermostat_${finalActive ? 'ON' : 'OFF'}` });
   }
 
-  ctx.broadcastState({ status: finalActive ? 'on' : 'off', output_on: finalActive, source: 'temp', last_reason: reason, mode, temp_value: temp, setpoint });
+  ctx.broadcastState({ status: finalActive ? 'on' : 'off', output_on: finalActive, source: 'temp', manual_active: false, last_reason: reason, mode, temp_value: temp, setpoint });
 }
 
 function setManual(instId, on) { manualState.set(instId, { on: !!on, ts: Date.now() }); }

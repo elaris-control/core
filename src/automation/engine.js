@@ -12,6 +12,8 @@ class AutomationEngine {
     this.ioOverrides = new Map(); // io_id → { value, active, ts }
     this.runtimeState = new Map(); // instance_id → latest module broadcast state
     this.dryRunLog = new Map(); // instance_id → recent dry-run commands
+    this._lastSentState = new Map(); // "deviceId:ioKey" → { value, ts } — prevents flip-flop across all modules
+    this._deviceReconnectTs = new Map(); // deviceId → ts of reconnect — 10s stabilization window
 
     // Ensure automation_log table exists
     db.exec(`
@@ -185,6 +187,7 @@ class AutomationEngine {
 
       // Get raw string state (e.g. "ON"/"OFF")
       state(inputKey) {
+        if (this._stateOverrides && this._stateOverrides[inputKey] != null) return this._stateOverrides[inputKey];
         const io = this.io(inputKey);
         if (!io) return null;
         const ov = engine.getActiveIOOverride(io.id);
@@ -477,6 +480,43 @@ class AutomationEngine {
       }
     }
 
+    // Skip redundant sends — if relay is already in desired state, don't resend
+    // Uses both MQTT state AND last-sent-state as fallback (handles null state after reconnect)
+    if (!meta.force) {
+      const sentKey = `${io.device_id}:${io.key}`;
+      const lastSent = this._lastSentState.get(sentKey);
+      const now = Date.now();
+
+      // Skip if same value sent within last 5 seconds (flip-flop prevention)
+      if (lastSent && lastSent.value === normalized && (now - lastSent.ts) < 5000) {
+        return { ok: true, value: normalized, skipped: true, reason: 'recently_sent' };
+      }
+
+      // Also check current MQTT state
+      const stateKey = io.group_name ? `${io.group_name}.${io.key}` : io.key;
+      const row = this._getLatestState.get(io.device_id, stateKey) || this._getLatestState.get(io.device_id, io.key);
+      if (row) {
+        const cu = String(row.value).toUpperCase();
+        const currentOn = cu === 'ON' || cu === '1' || cu === 'TRUE' || cu === 'YES';
+        const nv = String(normalized).toUpperCase();
+        const desiredOn = nv === 'ON' || nv === '1' || nv === 'TRUE' || nv === 'YES';
+        if (currentOn === desiredOn) {
+          // Update last-sent-state so the 5s cooldown is refreshed
+          this._lastSentState.set(sentKey, { value: normalized, ts: now });
+          return { ok: true, value: normalized, skipped: true, reason: 'already_in_state' };
+        }
+      } else if (lastSent) {
+        // MQTT state unknown — check last-sent-state as fallback
+        const lu = String(lastSent.value).toUpperCase();
+        const lastOn = lu === 'ON' || lu === '1' || lu === 'TRUE' || lu === 'YES';
+        const nv = String(normalized).toUpperCase();
+        const desiredOn = nv === 'ON' || nv === '1' || nv === 'TRUE' || nv === 'YES';
+        if (lastOn === desiredOn) {
+          return { ok: true, value: normalized, skipped: true, reason: 'last_sent_matches' };
+        }
+      }
+    }
+
     if (!this.mqttApi) return { ok: false, error: "mqtt_not_ready" };
     let sent = null;
     if (this.mqttApi.sendCommand) {
@@ -495,6 +535,17 @@ class AutomationEngine {
     if (!m?.io_id) return { ok: false, error: "mapping_not_found" };
     const io = this._getIOById.get(m.io_id);
     if (!io) return { ok: false, error: "io_not_found" };
+
+    // Normalize the value to compare against last sent state
+    const normalized = this._normalizeOverrideValue(io, value);
+    const sentKey = `${io.device_id}:${io.key}`;
+    const lastSent = this._lastSentState.get(sentKey);
+    const now = Date.now();
+
+    // Skip if same value sent within last 5 seconds (flip-flop prevention)
+    if (!meta.force && lastSent && lastSent.value === normalized && (now - lastSent.ts) < 5000) {
+      return { ok: true, value: normalized, skipped: true, reason: 'recently_sent' };
+    }
 
     const result = this.sendIOCommand(io, value, {
       moduleId: instance.module_id,
@@ -516,6 +567,11 @@ class AutomationEngine {
       }
       return result;
     }
+
+    if (result.skipped) return result;
+
+    // Track what we just sent (device-level key, not instance-level)
+    this._lastSentState.set(sentKey, { value: normalized, ts: now });
 
     const isDryRun = result.dryRun === true;
     const customAction = (meta && typeof meta.action === 'string') ? String(meta.action).trim() : '';
@@ -560,6 +616,35 @@ class AutomationEngine {
 
     try {
       const ctx = this.makeCtx(instance);
+
+      // Skip evaluation if any mapped relay/DO output has unknown state
+      // (common after MQTT reconnect / ESP reboot — prevents false flip-flop)
+      const relayOutputKeys = ['light_relay', 'light_relay_2', 'light_relay_3', 'light_relay_4',
+        'filter_pump', 'pump', 'heater', 'backup', 'ac_relay',
+        'central_pump', 'solar_pump', 'spa_jets', 'lights', 'hp_defrost',
+        'ph_minus_pump', 'ph_plus_pump', 'cl_pump', 'heat_source_1', 'heat_source_2',
+        'humidity_relay', 'tv_relay', 'radio_relay', 'awning_relay', 'presence_sensor',
+        'dimmer_output'];
+      const callOutputKeys = ['zone_1_output', 'zone_2_output', 'zone_3_output', 'zone_4_output', 'zone_5_output', 'zone_6_output'];
+      for (const key of relayOutputKeys) {
+        const io = ctx.io(key);
+        if (!io) continue;
+        const raw = ctx.state(key);
+        if (raw === null || raw === undefined) {
+          return; // Unknown output state — skip to avoid false decisions
+        }
+      }
+      // Call-thermostat outputs: treat unknown as OFF so the handler can engage the relay
+      for (const key of callOutputKeys) {
+        const io = ctx.io(key);
+        if (!io) continue;
+        const raw = ctx.state(key);
+        if (raw === null || raw === undefined) {
+          ctx._stateOverrides = ctx._stateOverrides || {};
+          ctx._stateOverrides[key] = 'OFF';
+        }
+      }
+
       // Fetch site info for modules that need lat/lon (lighting sunrise/sunset)
       let siteInfo = null;
       try {
@@ -576,6 +661,9 @@ class AutomationEngine {
 
   // ── Called on every MQTT update ───────────────────────────────────────
   onSensorUpdate(deviceId, key) {
+    const reconnectTs = this._deviceReconnectTs.get(deviceId);
+    const inStabilization = reconnectTs && (Date.now() - reconnectTs) < 10000;
+
     const instances = this._getInstances.all();
     for (const inst of instances) {
       const mappings = this._getMappings.all(inst.id);
@@ -591,8 +679,12 @@ class AutomationEngine {
           break;
         }
       }
-      if (relevant) this.evaluate(inst);
+      if (relevant && !inStabilization) this.evaluate(inst);
     }
+  }
+
+  notifyDeviceReconnect(deviceId) {
+    this._deviceReconnectTs.set(String(deviceId), Date.now());
   }
 
   evaluateAll() {
