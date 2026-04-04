@@ -11,7 +11,7 @@ function openRuleBuilder(instId, moduleIdArg) {
 
   // Pre-load scenes for scene action selector
   const sceneSiteId = Number(inst?.site_id || siteId || 0);
-  api('/api/scenes'+(sceneSiteId?('?site_id='+encodeURIComponent(sceneSiteId)):''))
+  api('/scenes'+(sceneSiteId?('?site_id='+encodeURIComponent(sceneSiteId)):''))
     .then(r => { window._scenesCache = r.scenes || []; }).catch(()=>{});
   const moduleId = moduleIdArg || inst?.module_id || '';
   const endpoint = moduleSettingsEndpoint(instId);

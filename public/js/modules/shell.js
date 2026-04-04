@@ -9,12 +9,12 @@ function showModulesNoSiteState() {
 
 async function initModulesPage() {
   try {
-    const me = await api('/api/me');
+    const me = await api('/me');
     if (!me.ok || !me.user) { window.location.href = '/login.html'; return; }
 
     try { siteId = Number(localStorage.getItem('elaris_site_id') || ''); } catch {}
     if (!siteId) {
-      const sites = await api('/api/sites');
+      const sites = await api('/sites');
       siteId = sites.sites?.[0]?.id;
     }
     if (!siteId) {
@@ -23,7 +23,7 @@ async function initModulesPage() {
     }
 
     const [defsRes, ioRes] = await Promise.all([
-      api('/api/modules/definitions'),
+      api('/modules/definitions'),
       api(`/api/modules/io/${siteId}`),
     ]);
 

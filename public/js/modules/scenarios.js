@@ -16,7 +16,7 @@ const TRIGGER_LABELS = {
 async function openScenarioEditor(instId) {
   scenarioEditorInstId = instId;
   try {
-    const d = await api(`/api/automation/settings/${instId}`);
+    const d = await api(`/automation/settings/${instId}`);
     scenarios = JSON.parse(d.settings?.scenarios || '[]');
     if (!Array.isArray(scenarios)) scenarios = [];
   } catch { scenarios = []; }
@@ -162,17 +162,18 @@ function scTrigger(si, trigger) {
 }
 
 function addScenario() {
+  const inst = instances.find(i=>String(i.id)===String(scenarioEditorInstId));
+  const mappings = (inst?.mappings||[]).filter(m=>m.io_id && (m.input_key.startsWith('do_')||m.input_key.startsWith('ao_')));
+  const defaultOutputs = mappings.map(m => ({ io_key: m.input_key, level: 100 }));
   scenarios.push({
     id: 'sc_'+Date.now(),
     name: 'New Scenario',
     icon: '💡',
     enabled: true,
-    outputs: [],
+    outputs: defaultOutputs,
     trigger: 'manual',
     off_after: 0,
   });
-  const inst = instances.find(i=>String(i.id)===String(scenarioEditorInstId));
-  const mappings = (inst?.mappings||[]).filter(m=>m.io_id && (m.input_key.startsWith('do_')||m.input_key.startsWith('ao_')));
   renderScenarioEditorModal(inst, mappings);
 }
 
@@ -185,7 +186,7 @@ function removeScenario(si) {
 
 async function saveScenarios() {
   try {
-    await api(`/api/automation/settings/${scenarioEditorInstId}`, {
+    await api(`/automation/settings/${scenarioEditorInstId}`, {
       method: 'PATCH',
       body: JSON.stringify({ key: 'scenarios', value: JSON.stringify(scenarios) })
     });
@@ -203,7 +204,7 @@ function closeScenarioEditor() {
 // Dashboard: activate a scenario manually via POST
 async function activateScenario(instId, scenarioId) {
   try {
-    await api(`/api/automation/smart_lighting/${instId}/activate`, {
+    await api(`/automation/smart_lighting/${instId}/activate`, {
       method: 'POST',
       body: JSON.stringify({ scenario_id: scenarioId })
     });

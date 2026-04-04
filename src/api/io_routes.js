@@ -149,7 +149,7 @@ function initIoRoutes({ db, engine, access, requireLogin, requireEngineerAccess 
       if (!io) return res.status(404).json({ ok: false, error: 'IO not found' });
       const siteRef = access.getIoSiteRef(io_id);
       if (!siteRef || !access.canAccessSiteRef(req, siteRef)) return res.status(403).json({ ok: false, error: 'forbidden' });
-      const isNumeric = ['sensor', 'analog', 'ai'].includes(io.type);
+      const isNumeric = ['sensor', 'analog', 'ai'].includes(io.type) && io.group_name !== 'tele';
       let points = [];
       let source = 'raw';
 
@@ -192,8 +192,17 @@ function initIoRoutes({ db, engine, access, requireLogin, requireEngineerAccess 
         `).all(io.device_id, `%/${io.key}`, since);
         points = rows.map(r => {
           let v;
-          if (isNumeric) { v = parseFloat(r.value); if (isNaN(v)) return null; }
-          else { const s = String(r.value).toUpperCase().trim(); v = (s === 'ON' || s === '1' || s === 'TRUE') ? 1 : 0; }
+          if (isNumeric) {
+            v = parseFloat(r.value);
+            if (isNaN(v)) {
+              // Fallback: sensor might be a DI with ON/OFF values
+              const s = String(r.value).toUpperCase().trim();
+              v = (s === 'ON' || s === '1' || s === 'TRUE') ? 1 : 0;
+            }
+          } else {
+            const s = String(r.value).toUpperCase().trim();
+            v = (s === 'ON' || s === '1' || s === 'TRUE') ? 1 : 0;
+          }
           return { ts: r.ts, v };
         }).filter(Boolean);
         source = 'raw';

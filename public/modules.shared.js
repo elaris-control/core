@@ -1,35 +1,5 @@
 // public/modules.shared.js
-// Shared helpers for the Modules page
-
-// ── API helper ────────────────────────────────────────────────────────────
-async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  });
-  if (!res.ok) {
-    let j = null;
-    try { j = await res.json(); } catch {}
-    throw new Error(j?.error || ('HTTP ' + res.status));
-  }
-  return res.json();
-}
-
-async function apiPost(path, body) {
-  return api(path, { method: 'POST', body: JSON.stringify(body) });
-}
-
-// ── Toast ─────────────────────────────────────────────────────────────────
-function toast(msg, type = 'ok') {
-  const wrap = document.getElementById('toastWrap');
-  if (!wrap) return;
-  const el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.textContent = msg;
-  wrap.appendChild(el);
-  setTimeout(() => el.remove(), 3000);
-}
+// Shared helpers for the Modules page — NO api() or toast() (those live in core.js)
 
 // ── Category tabs ─────────────────────────────────────────────────────────
 function renderCatTabs(categories) {
@@ -53,14 +23,14 @@ function renderDefs() {
   if (!el) return;
   const filtered = activeCat === 'all' ? defs : defs.filter(d => d.category === activeCat);
   if (!filtered.length) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-text">No modules in this category.</div></div>';
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">\uD83D\uDD0D</div><div class="empty-text">No modules in this category.</div></div>';
     return;
   }
   el.innerHTML = filtered.map(d => {
     const safeId = String(d.id || '').replace(/'/g, '\\&#39;').replace(/"/g, '&quot;');
     const safeName = escHtml(d.name || '');
     const safeDesc = escHtml(d.description || '');
-    const safeIcon = escHtml(d.icon || '📦');
+    const safeIcon = escHtml(d.icon || '\uD83D\uDCE6');
     const safeColor = d.color || 'var(--blue)';
     return `<div class="def-card" id="def_${safeId}" style="--card-accent:${safeColor}"
           onclick="selectDef('${safeId}')">
@@ -76,21 +46,21 @@ function renderDefs() {
 async function resetCustomAlarms(instId) {
   if (!confirm('Reset all latched alarms for this module?')) return;
   try {
-    await api(`/api/automation/instances/${instId}/command`, {
+    await api(`/automation/instances/${instId}/command`, {
       method: 'POST',
       body: JSON.stringify({ command: 'reset_alarm' }),
     });
-    toast('Alarms reset');
-  } catch(e) { toast('Error: ' + e.message, 'err'); }
+    toast('Alarms reset', true);
+  } catch (e) { toast('Error: ' + e.message, false); }
 }
 
 async function resetCustomLock(instId) {
   if (!confirm('Reset engineer lock? Requires Engineer role.')) return;
   try {
-    await api(`/api/automation/instances/${instId}/command`, {
+    await api(`/automation/instances/${instId}/command`, {
       method: 'POST',
       body: JSON.stringify({ command: 'reset_lock' }),
     });
-    toast('Lock reset');
-  } catch(e) { toast('Error: ' + e.message, 'err'); }
+    toast('Lock reset', true);
+  } catch (e) { toast('Error: ' + e.message, false); }
 }

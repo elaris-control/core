@@ -18,6 +18,7 @@ This guide covers how ESPHome works inside ELARIS — flashing boards, importing
 10. [How MQTT Entity Mapping Works](#how-mqtt-entity-mapping-works)
 11. [Troubleshooting](#troubleshooting)
 12. [Wiring & YAML Examples](#wiring--yaml-examples)
+13. [Important: API `reboot_timeout`](#important-api-reboot_timeout)
 
 ---
 
@@ -497,3 +498,42 @@ It covers:
 - **MH-Z19** — CO2 sensor UART wiring
 - **PZEM-004T** — energy monitor Modbus/RS485
 - **Pulse Counter** — YF-S201 water flow meter
+
+---
+
+## Important: API `reboot_timeout`
+
+If your YAML includes the `api:` component but you **only use MQTT** (no ESPHome native API clients), you **must** set `reboot_timeout: 0s`:
+
+```yaml
+api:
+  reboot_timeout: 0s  # Prevents auto-reboot when no API clients connect
+```
+
+### Why?
+
+By default, ESPHome's `api:` component reboots the device if no native API client connects within 15 minutes. When this happens:
+
+1. ESPHome logs: `[E][api:129]: No clients; rebooting`
+2. The device reboots
+3. On boot, relays go to `restore_mode` (typically OFF)
+4. All state topics are re-published via MQTT
+5. The Elaris engine re-evaluates → sends commands back
+6. **Result: relay clicks/flickers** — the relay briefly turns OFF then back ON
+
+This looks like a software bug but is actually caused by the ESPHome auto-reboot behavior.
+
+### Solutions
+
+| Scenario | What to do |
+|----------|------------|
+| Using **only MQTT** (no ESPHome dashboard) | Set `reboot_timeout: 0s` |
+| Want **both MQTT and native API** | Set `reboot_timeout: 0s` — the API still works for debugging/OTA, it just won't auto-reboot |
+| Don't need native API at all | Remove the `api:` block entirely |
+
+### Symptoms of this issue
+
+- Relay clicks randomly every ~15 minutes
+- MQTT logs show `status offline` → `status online` cycles
+- ESPHome debug logs show `[E][api:129]: No clients; rebooting`
+- Elaris engine appears to be sending commands but the device keeps resetting

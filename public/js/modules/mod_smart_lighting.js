@@ -99,10 +99,60 @@ registerModule('smart_lighting', {
     if (!Array.isArray(scenarios)) scenarios = [];
     scCount = scenarios.filter(s=>s.enabled!==false).length;
     const summary = renderSmartLightingSummary(inst, scenarios, inst._liveStatus);
+
+    const maps = inst.mappings || [];
+    const outMappings = maps.filter(m => m.io_id && (String(m.input_key).startsWith('do_') || String(m.input_key).startsWith('ao_')));
+    const inMappings = maps.filter(m => m.io_id && (String(m.input_key).startsWith('di_') || String(m.input_key).startsWith('ai_')));
+
+    let ioHtml = '';
+    if (outMappings.length || inMappings.length) {
+      ioHtml = '<div style="font-size:10px;color:var(--muted2);margin:8px 0 4px">Mapped IO</div>';
+      outMappings.forEach(m => { ioHtml += '<div style="font-size:11px;color:var(--muted)">→ ' + escapeHTML(m.input_key) + ': ' + escapeHTML(m.io_name || m.io_key || '') + '</div>'; });
+      inMappings.forEach(m => { ioHtml += '<div style="font-size:11px;color:var(--muted)">← ' + escapeHTML(m.input_key) + ': ' + escapeHTML(m.io_name || m.io_key || '') + '</div>'; });
+    }
+
+    const adaptiveOn = String(settings.adaptive_brightness || '0') === '1';
+    const followOn = String(settings.follow_me || '0') === '1';
+    const sunriseOn = String(settings.sunrise_enabled || '0') === '1';
+    const sleepOn = String(settings.sleep_enabled || '0') === '1';
+
+    let featureHtml = '';
+    if (adaptiveOn || followOn || sunriseOn || sleepOn) {
+      featureHtml = '<div style="font-size:10px;color:var(--muted2);margin:8px 0 4px">Active Features</div>';
+      if (adaptiveOn) featureHtml += renderBadge('ADAPTIVE', '#06b6d4', 'rgba(6,182,212,.3)') + ' ';
+      if (followOn) featureHtml += renderBadge('FOLLOW-ME', '#84cc16', 'rgba(132,204,22,.3)') + ' ';
+      if (sunriseOn) featureHtml += renderBadge('SUNRISE', '#f97316', 'rgba(249,115,22,.3)') + ' ';
+      if (sleepOn) featureHtml += renderBadge('SLEEP', '#6366f1', 'rgba(99,102,241,.3)') + ' ';
+    }
+
+    // Render setpoints using the shared setpoint row renderer
+    const def = inst.definition;
+    let setpointsHtml = '';
+    if (def?.setpoints?.length) {
+      setpointsHtml = '<details class="sp-group" style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">⚙️ Settings</summary>';
+      def.setpoints.forEach(sp => {
+        const val = settings[sp.key] ?? sp.default ?? '';
+        const help = sp.help ? `<div class="sp-help" style="font-size:10px;color:var(--muted);margin-top:2px">${escapeHTML(sp.help)}</div>` : '';
+        if (sp.type === 'select') {
+          const options = (sp.options || []).map(o => typeof o === 'object' ? o : { value: o, label: o });
+          setpointsHtml += `<div class="sp-row"><span class="sp-label">${escapeHTML(sp.label)}</span><div class="sp-ctrl"><select class="sp-select" id="sp_${inst.id}_${sp.key}" onchange="saveSP(${inst.id},'${sp.key}',this.value)">${options.map(o => `<option value="${escapeHTML(String(o.value))}" ${String(val) === String(o.value) ? 'selected' : ''}>${escapeHTML(o.label)}</option>`).join('')}</select></div>${help}</div>`;
+        } else if (sp.type === 'time') {
+          setpointsHtml += `<div class="sp-row"><span class="sp-label">${escapeHTML(sp.label)}</span><div class="sp-ctrl"><input type="time" class="sp-input" style="width:85px" id="sp_${inst.id}_${sp.key}" value="${escapeHTML(String(val))}" onchange="saveSP(${inst.id},'${sp.key}',this.value)"></div>${help}</div>`;
+        } else if (sp.type === 'text') {
+          setpointsHtml += `<div class="sp-row"><span class="sp-label">${escapeHTML(sp.label)}</span><div class="sp-ctrl"><input class="sp-input" type="text" id="sp_${inst.id}_${sp.key}" value="${escapeHTML(String(val))}"><button class="btn btn-xs sp-btn" onclick="saveSP(${inst.id},'${sp.key}',document.getElementById('sp_${inst.id}_${sp.key}').value)">Save</button></div>${help}</div>`;
+        } else {
+          setpointsHtml += `<div class="sp-row"><span class="sp-label">${escapeHTML(sp.label)}</span><div class="sp-ctrl"><input class="sp-input" type="number" step="${escapeHTML(String(sp.step || 1))}" id="sp_${inst.id}_${sp.key}" value="${escapeHTML(String(val))}"><span class="sp-unit">${escapeHTML(sp.unit || '')}</span><button class="btn btn-xs sp-btn" onclick="saveSP(${inst.id},'${sp.key}',document.getElementById('sp_${inst.id}_${sp.key}').value)">Save</button></div>${help}</div>`;
+        }
+      });
+      setpointsHtml += '</details>';
+    }
+
     spEl.innerHTML = `
       <div class="sp-panel">
         <div class="sp-title">✨ Scenarios</div>
         ${summary}
+        ${ioHtml}
+        ${featureHtml}
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px">${testMode ? renderBadge('TEST MODE', '#ffd978', 'rgba(255,201,71,.35)') : ''}</div>
         <button class="btn btn-sm" style="width:100%;background:linear-gradient(135deg,rgba(240,192,64,.15),rgba(240,192,64,.05));border-color:rgba(240,192,64,.4);color:#f0c040"
                 onclick="openScenarioEditor(${inst.id})">
@@ -115,6 +165,7 @@ registerModule('smart_lighting', {
         <div style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center">
           ${scCount} active scenario(s)
         </div>
+        ${setpointsHtml}
       </div>`;
   },
 });

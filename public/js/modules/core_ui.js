@@ -3,7 +3,7 @@
 
 function moduleSettingsEndpoint(instOrId) {
   const id = typeof instOrId === "object" ? instOrId?.id : instOrId;
-  return `/api/automation/settings/${id}`;
+  return `/automation/settings/${id}`;
 }
 
 function moduleLogEndpoint(instOrId) {

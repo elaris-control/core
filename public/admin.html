@@ -800,7 +800,7 @@ function renderUsers() {
 // ── Actions ───────────────────────────────────────────────────────────────
 async function loadUsers() {
   try {
-    const d = await api("/api/admin/users");
+    const d = await api("/admin/users");
     users = d.users || [];
     renderStats();
     renderUsers();
@@ -970,7 +970,7 @@ function renderMqttDebugCard() {
 
 async function loadRuntimeDebug() {
   try {
-    const d = await api('/api/admin/runtime/debug');
+    const d = await api('/admin/runtime/debug');
     mqttDebugEnabled = !!d.mqtt_debug_enabled;
     const meta = document.getElementById('mqttDebugMeta');
     if (meta) {
@@ -996,7 +996,7 @@ async function setMqttDebug(enabled) {
   if (enableBtn) enableBtn.disabled = true;
   if (disableBtn) disableBtn.disabled = true;
   try {
-    const d = await api('/api/admin/runtime/debug', {
+    const d = await api('/admin/runtime/debug', {
       method: 'PATCH',
       body: JSON.stringify({ mqtt_debug_enabled: !!enabled })
     });
@@ -1045,7 +1045,7 @@ function renderEsphomeStatusRuntimeCard() {
 
 async function loadEsphomeStatusRuntime() {
   try {
-    const d = await api('/api/admin/runtime/esphome-status');
+    const d = await api('/admin/runtime/esphome-status');
     esphomeOnlineStaleMinutes = Number(d.online_stale_minutes) || 15;
     esphomeDefaultStaleMinutes = Number(d.default_stale_minutes) || 10;
     const meta = document.getElementById('staleRuntimeMeta');
@@ -1083,7 +1083,7 @@ async function saveEsphomeStatusRuntime() {
   }
   if (saveBtn) saveBtn.disabled = true;
   try {
-    const d = await api('/api/admin/runtime/esphome-status', {
+    const d = await api('/admin/runtime/esphome-status', {
       method: 'PATCH',
       body: JSON.stringify({ online_stale_minutes: onlineMinutes, default_stale_minutes: defaultMinutes })
     });
@@ -1131,7 +1131,7 @@ function renderHistoryRetentionCard() {
 
 async function loadHistoryRetentionRuntime() {
   try {
-    const d = await api('/api/admin/runtime/history-retention');
+    const d = await api('/admin/runtime/history-retention');
     eventsRetentionDays = Number(d.events_retention_days) || 30;
     const meta = document.getElementById('historyRetentionMeta');
     if (meta) {
@@ -1165,7 +1165,7 @@ async function saveHistoryRetentionRuntime() {
   }
   if (saveBtn) saveBtn.disabled = true;
   try {
-    const d = await api('/api/admin/runtime/history-retention', {
+    const d = await api('/admin/runtime/history-retention', {
       method: 'PATCH',
       body: JSON.stringify({ events_retention_days: retentionDays })
     });
@@ -1215,7 +1215,7 @@ function renderRollupsCard() {
 
 async function loadRollupsRuntime() {
   try {
-    const d = await api('/api/admin/runtime/rollups');
+    const d = await api('/admin/runtime/rollups');
     rollupsRetentionDays = Number(d.rollups_retention_days) || 1095;
     const meta = document.getElementById('rollupsMeta');
     if (meta) {
@@ -1249,7 +1249,7 @@ async function saveRollupsRuntime() {
   }
   if (saveBtn) saveBtn.disabled = true;
   try {
-    const d = await api('/api/admin/runtime/rollups', {
+    const d = await api('/admin/runtime/rollups', {
       method: 'PATCH',
       body: JSON.stringify({ rollups_retention_days: retentionDays })
     });
@@ -1271,7 +1271,7 @@ async function rebuildRollupsNow() {
   const btn = document.getElementById('rollupsRebuildBtn');
   if (btn) btn.disabled = true;
   try {
-    const d = await api('/api/admin/runtime/rollups/rebuild', { method: 'POST' });
+    const d = await api('/admin/runtime/rollups/rebuild', { method: 'POST' });
     toast(`✓ Rebuilt rollups (${Number(d.changed || 0)} buckets updated)`);
     await loadRollupsRuntime();
   } catch (e) {
@@ -1286,7 +1286,7 @@ async function loadStaleRetained() {
   if (!el) return;
   el.innerHTML = '<span class="helper-note">Loading…</span>';
   try {
-    const d = await api('/api/admin/mqtt/stale-retained');
+    const d = await api('/admin/mqtt/stale-retained');
     const devices = d.devices || [];
     if (!devices.length) {
       el.innerHTML = '<span class="helper-note" style="color:var(--ok)">✓ No stale retained messages found. (They appear after a device reconnects to the broker.)</span>';
@@ -1310,7 +1310,7 @@ async function loadStaleRetained() {
 async function clearStaleRetained(deviceId, btn) {
   if (btn) btn.disabled = true;
   try {
-    const d = await api('/api/admin/mqtt/stale-retained/clear', { method: 'POST', body: JSON.stringify({ device_id: deviceId }) });
+    const d = await api('/admin/mqtt/stale-retained/clear', { method: 'POST', body: JSON.stringify({ device_id: deviceId }) });
     toast(`✓ Cleared ${d.topics_cleared} retained topic${d.topics_cleared !== 1 ? 's' : ''} for ${deviceId}`);
     await loadStaleRetained();
   } catch(e) {
@@ -1337,7 +1337,7 @@ function switchDbTab(tab) {
 
 async function loadDbDevices() {
   try {
-    const d = await api('/api/admin/db/devices');
+    const d = await api('/admin/db/devices');
     dbDevices = d.devices || [];
     renderDbDevices();
   } catch(e) { toast('Error: ' + e.message, 'err'); }
@@ -1378,7 +1378,7 @@ function confirmDeleteDevice(deviceId) {
 
 async function loadDbPending() {
   try {
-    const d = await api('/api/admin/db/pending');
+    const d = await api('/admin/db/pending');
     dbPending = d.pending || [];
     renderDbPending();
   } catch(e) { toast('Error: ' + e.message, 'err'); }
@@ -1417,7 +1417,7 @@ function confirmDeleteAllPending() {
     `Delete <strong>all ${dbPending.length} pending IOs</strong>?<br><br>They will reappear if the devices send MQTT messages again.`,
     async () => {
       try {
-        await api('/api/admin/db/pending', { method: 'DELETE' });
+        await api('/admin/db/pending', { method: 'DELETE' });
         toast('✓ All pending IOs deleted');
         dbPending = [];
         renderDbPending();
@@ -1427,7 +1427,7 @@ function confirmDeleteAllPending() {
 
 async function loadDbProfiles() {
   try {
-    const d = await api('/api/admin/db/profiles');
+    const d = await api('/admin/db/profiles');
     dbProfiles = d.profiles || [];
     renderDbProfiles();
   } catch(e) { toast('Error: ' + e.message, 'err'); }
@@ -1474,7 +1474,7 @@ async function exportRecentLogs() {
   const meta = document.getElementById('exportRecentLogsMeta');
   if (btn) { btn.disabled = true; btn.textContent = 'Exporting...'; }
   try {
-    const d = await api('/api/admin/logs/export', { method: 'POST' });
+    const d = await api('/admin/logs/export', { method: 'POST' });
     if (meta) meta.textContent = `Saved ${d.count || 0} rows to ${d.folder}/${d.filename}`;
     toast(`✓ Saved ${d.filename}`);
   } catch (e) {
@@ -1489,7 +1489,7 @@ async function doRepairDb() {
   btn.disabled = true;
   btn.textContent = '⏳ Repairing...';
   try {
-    const d = await api('/api/admin/db/repair', { method: 'POST' });
+    const d = await api('/admin/db/repair', { method: 'POST' });
     if (d.integrity === 'ok') {
       toast('✓ Database OK — integrity check passed, WAL flushed, VACUUM done');
     } else {
@@ -1514,7 +1514,7 @@ function checkEraseConfirm() {
 }
 async function doEraseDb() {
   try {
-    await api('/api/admin/db/erase', { method: 'POST', body: JSON.stringify({ confirm: 'ERASE' }) });
+    await api('/admin/db/erase', { method: 'POST', body: JSON.stringify({ confirm: 'ERASE' }) });
     closeEraseModal();
     toast('✓ All device data erased');
     dbDevices = []; dbPending = [];
@@ -1528,7 +1528,7 @@ let adminSites = [];
 
 async function loadAdminSites() {
   try {
-    const d = await api("/api/sites");
+    const d = await api("/sites");
     adminSites = d.sites || [];
     renderAdminSites();
   } catch (e) { toast("Failed to load sites: " + e.message, "err"); }
@@ -1593,7 +1593,7 @@ async function saveSite() {
       await api(`/api/sites/${id}`, { method: "PATCH", body: JSON.stringify({ name, note }) });
       await api(`/api/sites/${id}/visibility`, { method: "PATCH", body: JSON.stringify({ is_private }) });
     } else {
-      await api("/api/sites", { method: "POST", body: JSON.stringify({ name, note, is_private }) });
+      await api("/sites", { method: "POST", body: JSON.stringify({ name, note, is_private }) });
     }
     closeSiteModal();
     toast(id ? "Site updated." : "Site created.");
@@ -1632,7 +1632,7 @@ document.getElementById("siteModal")?.addEventListener("click", e => {
 
 (async function init() {
   try {
-    const d = await api("/api/me");
+    const d = await api("/me");
 
     // Not logged in
     if (!d.ok || !d.user) {

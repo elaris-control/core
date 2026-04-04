@@ -817,6 +817,7 @@ async function renderInstance(inst){
     else if(inst.module_id==='lighting')content=await renderLighting(inst);
     else if(inst.module_id==='staircase')content=await renderStaircase(inst);
     else if(typeof window.isThermostatModule==='function' && window.isThermostatModule(inst.module_id))content=await window.renderThermostatModule(inst);
+    else if(typeof window.isSmartLightingModule==='function' && window.isSmartLightingModule(inst.module_id))content=await window.renderSmartLightingModule(inst);
     else if(inst.module_id==='awning')content=await renderAwning(inst);
     else if(inst.module_id==='smart_lighting')content=await renderSmartLighting(inst);
     else if(inst.module_id==='irrigation')content=await renderIrrigation(inst);

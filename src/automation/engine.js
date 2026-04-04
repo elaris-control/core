@@ -14,6 +14,7 @@ class AutomationEngine {
     this.dryRunLog = new Map(); // instance_id → recent dry-run commands
     this._lastSentState = new Map(); // "deviceId:ioKey" → { value, ts } — prevents flip-flop across all modules
     this._deviceReconnectTs = new Map(); // deviceId → ts of reconnect — 10s stabilization window
+    this._startupTs = Date.now();         // startup timestamp — onSensorUpdate blocked for 10s
 
     // Ensure automation_log table exists
     db.exec(`
@@ -661,6 +662,11 @@ class AutomationEngine {
 
   // ── Called on every MQTT update ───────────────────────────────────────
   onSensorUpdate(deviceId, key) {
+    // Block MQTT-triggered evaluations for 10s after startup — retained messages
+    // arrive immediately on subscribe and can carry stale/transitional relay states.
+    // evaluateAll() at 2s calls evaluate() directly and is not affected.
+    if (Date.now() - this._startupTs < 10000) return;
+
     const reconnectTs = this._deviceReconnectTs.get(deviceId);
     const inStabilization = reconnectTs && (Date.now() - reconnectTs) < 10000;
 
