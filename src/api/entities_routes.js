@@ -151,7 +151,7 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
       })();
 
       const deviceConfigSource = String(deviceRow?.config_source || '').trim().toLowerCase();
-      const allowProfileSeed = deviceConfigSource !== 'use_my_yaml_overlay';
+      const allowProfileSeed = deviceConfigSource !== 'use_my_yaml_overlay' && deviceConfigSource !== 'native_api';
 
       if (seedFromProfile && allowProfileSeed && deviceRow?.board_profile_id && typeof dbApi.seedPendingFromBoardProfile === 'function') {
         const before = Number(dbApi.db.prepare(`SELECT COUNT(*) AS c FROM pending_io WHERE device_id=?`).get(canonicalDeviceId)?.c || 0);

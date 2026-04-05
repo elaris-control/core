@@ -1,6 +1,5 @@
 var _nativeImportRows = [];
 var _nativeImportSites = [];
-var _nativeImportBoards = [];
 var _nativeImportLoaded = false;
 var _nativeSession = null;
 
@@ -84,7 +83,6 @@ function nativeAdoptSession(session, opts) {
     try {
       if (session.device_name && document.getElementById('nativeImportDeviceName')) document.getElementById('nativeImportDeviceName').value = session.device_name;
       if (session.friendly_name && document.getElementById('nativeImportFriendlyName')) document.getElementById('nativeImportFriendlyName').value = session.friendly_name;
-      if (session.board_profile_id && document.getElementById('nativeImportBoard')) document.getElementById('nativeImportBoard').value = session.board_profile_id;
       var payload = session.payload || {};
       var ip = payload.ip_address || payload.api_host || '';
       var host = payload.hostname || '';
@@ -174,15 +172,12 @@ async function loadNativeImportLookups() {
   try {
     var results = await Promise.allSettled([
       api('/sites'),
-      api('/esphome/catalog'),
       api('/integrations')
     ]);
     _nativeImportSites = results[0].status === 'fulfilled' ? (results[0].value.sites || []) : [];
-    _nativeImportBoards = results[1].status === 'fulfilled' ? (results[1].value.boards || []) : [];
-    var integrations = results[2].status === 'fulfilled' ? (results[2].value.integrations || []) : [];
+    var integrations = results[1].status === 'fulfilled' ? (results[1].value.integrations || []) : [];
     var supportsNative = integrations.some(function(x) { return x.key === 'esphome' && x.supportsNativeApi; });
     populateNativeImportSiteSelect();
-    populateNativeImportBoardSelect();
     nativeImportPrefillFromSelectedInstallerDevice();
     renderNativeImportCapability(supportsNative);
     _nativeImportLoaded = true;
@@ -206,17 +201,6 @@ function populateNativeImportSiteSelect() {
   if (current && Array.from(el.options).some(function(o) { return String(o.value) === current; })) el.value = current;
 }
 
-function populateNativeImportBoardSelect() {
-  var el = document.getElementById('nativeImportBoard');
-  if (!el) return;
-  var current = String(el.value || '');
-  var options = '<option value="">Generic external native</option>' + _nativeImportBoards.map(function(row) {
-    var label = (row.label || row.id || 'Board') + ' · ' + (row.id || '');
-    return '<option value="' + escHtml(row.id || '') + '">' + escHtml(label) + '</option>';
-  }).join('');
-  el.innerHTML = options;
-  if (current && Array.from(el.options).some(function(o) { return String(o.value) === current; })) el.value = current;
-}
 
 function renderNativeImportCapability(ok) {
   var el = document.getElementById('nativeImportCapability');
@@ -305,7 +289,6 @@ function nativeImportCollectPayload() {
     site_id: Number((document.getElementById('nativeImportSite') || {}).value || (selected && selected.site_id) || 1),
     device_name: deviceName,
     friendly_name: friendlyName || deviceName,
-    board_profile_id: String((document.getElementById('nativeImportBoard') || {}).value || (selected && selected.board_profile_id) || '').trim(),
     ip_address: String((document.getElementById('nativeImportIp') || {}).value || (selected && selected.ip_address) || '').trim(),
     hostname: String((document.getElementById('nativeImportHostname') || {}).value || (selected && selected.hostname) || '').trim(),
     api_host: String((document.getElementById('nativeImportApiHost') || {}).value || (selected && (selected.api_host || selected.ip_address)) || '').trim(),

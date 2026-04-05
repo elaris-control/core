@@ -513,11 +513,7 @@
             <select id="nativeImportSite"></select>
             <span class="form-hint">The imported card and pending IO rows will be attached to this site.</span>
           </div>
-          <div class="form-row">
-            <label>Board profile (optional)</label>
-            <select id="nativeImportBoard"></select>
-            <span class="form-hint">Pick a board profile if you want board-aware labels like HT1 / Y01 during approval.</span>
-          </div>
+
           <div class="form-row">
             <label>Device name</label>
             <input type="text" id="nativeImportDeviceName" placeholder="e.g. kc868-yard-external">
@@ -554,9 +550,9 @@
             <span class="form-hint">This step does not connect yet; it only marks that a key exists for the future native sync path.</span>
           </div>
           <div class="form-row">
-            <label>MQTT topic root (optional)</label>
-            <input type="text" id="nativeImportMqttRoot" placeholder="Optional">
-            <span class="form-hint">Optional identity hint if the device also talks MQTT.</span>
+            <label>MQTT topic root <strong>(required for relay / AO control)</strong></label>
+            <input type="text" id="nativeImportMqttRoot" placeholder="e.g. Game_re">
+            <span class="form-hint">The device MQTT prefix — used to send commands via MQTT when the native API session is not yet live. Must match the <code>topic</code> in the device ESPHome YAML.</span>
           </div>
           <div class="form-row">
             <label>Import mode</label>

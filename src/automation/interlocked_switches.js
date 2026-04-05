@@ -117,7 +117,9 @@ function interlockedSwitchesHandler(ctx, send) {
   const lastTs = lastEventTs.get(instId) || 0;
 
   // Long gap (>10 sec) → reconnect / ESP reboot → sync state only, don't toggle
-  if (lastTs > 0 && (now - lastTs) > 10000) {
+  // Button mode (push buttons) always report OFF on reconnect, so no false trigger is possible — skip guard.
+  // Switch mode (maintained switches) can report stale ON state on reconnect, so guard is needed.
+  if (controlType !== 'button' && lastTs > 0 && (now - lastTs) > 5000) {
     broadcastState(ctx, {
       source: 'idle',
       status: outputOn(ctx) ? 'on' : 'off',

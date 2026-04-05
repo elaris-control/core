@@ -74,7 +74,6 @@ function staircaseHandler(ctx, send) {
   let triggerSource = '';
 
   const lastActivity = lastSwitchActivity.get(instId) || 0;
-  const longGap = lastActivity > 0 && (now - lastActivity) > 10000;
 
   for (const key of switchKeys) {
     if (!ctx.io(key)) continue;
@@ -83,15 +82,14 @@ function staircaseHandler(ctx, send) {
     swMap[key] = cur;
     const curOn = isTruthyState(cur);
     const prevOn = isTruthyState(prev);
-    if (longGap) {
-      // Reconnect / ESP reboot — sync state only, don't trigger
-    } else if (curOn && prevOn !== undefined && !prevOn) {
+    // Rising edge only — prevOn !== undefined prevents false trigger on first init / reconnect
+    if (curOn && prevOn !== undefined && !prevOn) {
       switchTriggered = true;
       triggerSource = key;
     }
   }
   switchSeen.set(instId, swMap);
-  if (switchTriggered || longGap) {
+  if (switchTriggered) {
     lastSwitchActivity.set(instId, now);
   }
 

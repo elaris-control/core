@@ -100,9 +100,14 @@ function handleSwitch(ctx, send, instId, opts) {
   const now = Date.now();
   const last = lastSwitchChange.get(instId) || 0;
 
-  // Long gap (>10 sec) → reconnect / ESP reboot → sync state only, don't toggle
-  // SKIP this check if the switch is overridden — override is intentional, not a reconnect
-  if (!isSwitchOverridden && now - last > 10000) {
+  const switchType = ctx.settingStr('switch_type', 'toggle');
+  const isToggle = switchType === 'toggle' || switchType === '1';
+
+  // Long gap (>10 sec) → reconnect / ESP reboot → sync state only, don't trigger
+  // Follow mode only: rocker switches can report stale ON state on reconnect, causing false triggers.
+  // Toggle mode (push buttons) always report OFF on reconnect — no false trigger possible, so skip this guard.
+  // SKIP entirely if the switch is overridden — override is intentional, not a reconnect.
+  if (!isSwitchOverridden && !isToggle && now - last > 5000) {
     switchState.set(instId, sw);
     lastSwitchChange.set(instId, now);
     manualState.delete(instId); // Clear stale manual after reconnect
@@ -119,8 +124,6 @@ function handleSwitch(ctx, send, instId, opts) {
 
   const swOn = isTruthyState(sw);
   const prevOn = isTruthyState(prev);
-  const switchType = ctx.settingStr('switch_type', 'toggle');
-  const isToggle = switchType === 'toggle' || switchType === '1';
 
   if (isToggle) {
     const prevWasExplicitlyOff = !isTruthyState(prev);

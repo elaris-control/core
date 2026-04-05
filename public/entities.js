@@ -351,7 +351,7 @@ tr.appendChild(tdSite);
     if (e.source) sourceBits.push(String(e.source));
     if (e.bus_id && (!e.source || String(e.bus_id) !== String(e.source))) sourceBits.push('bus ' + String(e.bus_id));
     else if (e.port_id && (!e.source || String(e.port_id) !== String(e.source))) sourceBits.push('port ' + String(e.port_id));
-    if (e.board_profile_id) sourceBits.push(String(e.board_profile_id));
+    if (e.entity_type) sourceBits.push(String(e.entity_type));
     td2.innerHTML = `<div class="rowName">${escapeHTML(e.device_id || "")}</div><div class="mini">${escapeHTML((e.group_name||"")+"."+ (e.key||""))}</div>${sourceBits.length ? `<div class="mini">${escapeHTML(sourceBits.join(' • '))}</div>` : ''}`;
     tr.appendChild(td2);
 

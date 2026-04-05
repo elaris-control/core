@@ -151,7 +151,7 @@ function lightingHandler(ctx, send, siteInfo) {
 
     // Long gap (>10 sec) → reconnect / ESP reboot → sync state only, don't toggle
     const lastTap = switchTapTime.get(instId) || 0;
-    if (lastTap > 0 && (now - lastTap) > 10000) {
+    if (lastTap > 0 && (now - lastTap) > 5000) {
       switchState.set(instId, sw);
       switchFastLock.set(instId, now + switchRetriggerBlockMs);
     } else {
@@ -163,9 +163,9 @@ function lightingHandler(ctx, send, siteInfo) {
     let fastHandled = false;
 
     // Skip edge detection entirely if we just synced after a long gap
-    const justSynced = lastTap > 0 && (now - lastTap) > 10000;
+    const justSynced = lastTap > 0 && (now - lastTap) > 5000;
     if (justSynced) {
-      // State synced, no action needed
+      switchTapTime.set(instId, 0); // reset so next press is handled normally
     } else if (swOn && !prevOn) { // rising edge
       const lockUntil = switchFastLock.get(instId) || 0;
       if (switchRetriggerBlockMs > 0 && now < lockUntil) {

@@ -107,6 +107,7 @@ class AutomationEngine {
     this._deleteIORuntimeOverride = db.prepare(`DELETE FROM io_runtime_overrides WHERE io_id = ?`);
     this._loadIORuntimeOverrides = db.prepare(`SELECT * FROM io_runtime_overrides`);
 
+
     this._restorePersistedOverrides();
   }
 
@@ -469,15 +470,23 @@ class AutomationEngine {
       const sessions = this.nativeSessions.list ? this.nativeSessions.list('esphome') : [];
       const hasActive = sessions.some(s => {
         const name = String(s.device_name || '').trim().toLowerCase();
-        return name === deviceName.toLowerCase();
+        return name === deviceName.toLowerCase() && s.connected && s.live_stream;
       });
       if (hasActive) {
-        const action = normalized === true || normalized === 1 || normalized === 'on' || normalized === '1' ? 'on' : 'off';
-        const command = { entity_key: io.key, action };
+        const ioType = String(io.type || '').toLowerCase();
+        let command;
+        if (ioType === 'ao' || ioType === 'analog_out' || ioType === 'number' || ioType === 'dimmer') {
+          const numVal = parseFloat(normalized);
+          command = { entity_key: io.key, entity_type: 'number', action: 'set', value: Number.isFinite(numVal) ? numVal : 0 };
+        } else {
+          const action = String(normalized).toUpperCase() === 'ON' || normalized === true || normalized === 1 || normalized === '1' ? 'on' : 'off';
+          command = { entity_key: io.key, entity_type: 'switch', action };
+        }
         const payload = { device_name: deviceName };
-        // Fire-and-forget — consistent with MQTT which is also async
-        this.nativeSessions.execute(this.nativeAdapter, 'esphome', payload, command).catch(() => {});
-        return { ok: true, value: normalized, sent: { via: 'native', device: deviceName, key: io.key, action } };
+        // Fire-and-forget — fall through to MQTT regardless so commands always reach the device
+        this.nativeSessions.execute(this.nativeAdapter, 'esphome', payload, command).catch(err => {
+          console.warn(`[ENGINE] native command failed ${deviceName}/${io.key}: ${err?.code || err?.message || err}`);
+        });
       }
     }
 
