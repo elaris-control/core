@@ -13,45 +13,17 @@
 //
 // Schedule format: "HH:MM" | "sunrise+30" | "sunset-15" | "sunrise" | "sunset"
 
+const { getSun, calcSun, parseSunTime, sunCache: _sunCache } = require('./helpers/sun');
+const { localMinutes } = require('./time_utils');
+
 const lastMotionTime = new Map();
 const switchState    = new Map();
 const manualState    = new Map();
 const sunCache       = new Map();
-const switchTapTime  = new Map(); // instId → last tap ts (for double-tap)
-const lastModeSeen   = new Map(); // instId → previous mode to clear manual override on mode change
-const pirSeenState   = new Map(); // instId → previous PIR state for fast rising-edge response
-const switchFastLock = new Map(); // instId → ts until fast switch retrigger is ignored
-
-// ── Sunrise/sunset (NOAA, no deps) ────────────────────────────────────────────
-function calcSun(lat, lon) {
-  const D2R = Math.PI / 180;
-  const n   = Date.now() / 86400000 - 10957; // days since J2000
-  const L   = (280.460 + 0.9856474 * n) % 360;
-  const g   = (357.528 + 0.9856003 * n) % 360;
-  const lam = L + 1.915 * Math.sin(g * D2R) + 0.020 * Math.sin(2 * g * D2R);
-  const eps = 23.439 - 0.0000004 * n;
-  const sinDec = Math.sin(eps * D2R) * Math.sin(lam * D2R);
-  const dec    = Math.asin(sinDec) * (180 / Math.PI);
-  const cosH   = (Math.cos(90.833 * D2R) - Math.sin(lat * D2R) * Math.sin(dec * D2R))
-                 / (Math.cos(lat * D2R) * Math.cos(dec * D2R));
-  if (cosH > 1)  return { sunrise: null, sunset: null };
-  if (cosH < -1) return { sunrise: 0,    sunset: 1440  };
-  const H   = Math.acos(cosH) * (180 / Math.PI);
-  const RA  = (Math.atan2(Math.cos(eps*D2R)*Math.sin(lam*D2R), Math.cos(lam*D2R)) * (180/Math.PI) / 15 + 24) % 24;
-  const eot = (L / 15 - RA + 24) % 24;
-  const noon = 12 - eot - lon / 15;
-  return { sunrise: Math.round((noon - H/15)*60), sunset: Math.round((noon + H/15)*60) };
-}
-
-function getSun(lat, lon) {
-  if (!lat || !lon) return null;
-  const key = new Date().toISOString().slice(0,10) + '_' + lat + '_' + lon;
-  if (!sunCache.has(key)) {
-    sunCache.set(key, calcSun(Number(lat), Number(lon)));
-    if (sunCache.size > 10) sunCache.delete(sunCache.keys().next().value);
-  }
-  return sunCache.get(key);
-}
+const switchTapTime  = new Map();
+const lastModeSeen   = new Map();
+const pirSeenState   = new Map();
+const switchFastLock = new Map();
 
 function parseTime(str, sun) {
   if (!str || !str.trim()) return null;
@@ -66,21 +38,6 @@ function parseTime(str, sun) {
 function inRange(now, on, off) {
   if (on==null||off==null) return false;
   return on<off ? now>=on&&now<off : now>=on||now<off;
-}
-
-function localMinutes(siteInfo) {
-  try {
-    if (siteInfo?.timezone) {
-      const fmt = new Intl.DateTimeFormat('en-GB', {
-        timeZone: siteInfo.timezone,
-        hour: '2-digit', minute: '2-digit', hour12: false,
-      });
-      const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
-      return Number(parts.hour) * 60 + Number(parts.minute);
-    }
-  } catch {}
-  const d = new Date();
-  return d.getHours() * 60 + d.getMinutes();
 }
 
 function slugifyActionPart(input, fallback = 'Lighting') {

@@ -29,7 +29,7 @@ function thermostatSuggestedVisibleZones(currentMappings={}) {
 function setThermostatVisibleZones(nextCount) {
   thermostatVisibleZones = Math.max(1, Math.min(6, Number(nextCount) || 1));
   const wizard = document.getElementById("wizard");
-  if (wizard && wizard.classList.contains("show") && (selectedDef?.id === 'thermostat' || selectedDef?.id === 'zoned_thermostat')) {
+  if (wizard && wizard.classList.contains("show") && (selectedDef?.id === 'advanced_thermostat' || selectedDef?.id === 'zoned_thermostat')) {
     const currentMappings = captureDomMappings();
     renderWizardInputs(currentMappings);
   }
@@ -162,7 +162,7 @@ function updateThermostatCommissioningSummary(currentMappings=null) {
   box.innerHTML = renderThermostatCommissioningSummary(mappings);
 }
 
-registerModule('thermostat', {
+registerModule('advanced_thermostat', {
   hasAuto: true,
   updateCommissioningSummary(m) { updateThermostatCommissioningSummary(m); },
   renderSummary(inst, settings, live) { return ''; },

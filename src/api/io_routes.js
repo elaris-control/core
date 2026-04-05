@@ -226,6 +226,7 @@ function initIoRoutes({ db, engine, access, requireLogin, requireEngineerAccess 
         expires_at:       body.expires_at,
         permanent:        body.permanent,
         duration:         body.duration,
+        real:             !!body.real,
       });
       res.json({ ok: true, io_id, override });
     } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }

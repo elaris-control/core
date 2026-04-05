@@ -6,7 +6,7 @@
 (function(){
   'use strict';
 
-  var THERMO_FAMILY = new Set(['basic_thermostat','call_thermostat','zoned_thermostat','thermostat']);
+  var THERMO_FAMILY = new Set(['basic_thermostat','call_thermostat','zoned_thermostat','advanced_thermostat']);
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
@@ -15,7 +15,7 @@
       case 'basic_thermostat': return { label:'Basic Thermostat', hasSetpoint:true, isZoned:false };
       case 'call_thermostat':  return { label:'Call Thermostat',  hasSetpoint:false, isZoned:false };
       case 'zoned_thermostat': return { label:'Zoned Thermostat', hasSetpoint:true, isZoned:true };
-      case 'thermostat':       return { label:'Advanced Thermostat', hasSetpoint:true, isZoned:true };
+      case 'advanced_thermostat':       return { label:'Advanced Thermostat', hasSetpoint:true, isZoned:true };
       default:                 return { label:'Thermostat', hasSetpoint:true, isZoned:false };
     }
   }

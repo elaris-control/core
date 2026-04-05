@@ -9,7 +9,7 @@ function tryRequire(path) {
 }
 
 const { MODULE: SOLAR_MODULE            } = tryRequire('./solar')            || {};
-const { MODULE: THERMOSTAT_MODULE       } = tryRequire('./thermostat')       || {};
+  const { MODULE: ADVANCED_THERMOSTAT_MODULE } = tryRequire('./advanced_thermostat') || {};
 const { MODULE: BASIC_THERMOSTAT_MODULE } = tryRequire('./basic_thermostat') || {};
 const { MODULE: CALL_THERMOSTAT_MODULE  } = tryRequire('./call_thermostat')  || {};
 const { MODULE: ZONED_THERMOSTAT_MODULE } = tryRequire('./zoned_thermostat') || {};
@@ -62,7 +62,7 @@ function normalizeModule(def, ui) {
 
 const MODULES = [
   SOLAR_MODULE              && normalizeModule(SOLAR_MODULE,              { user_view: false, user_control: false }),
-  THERMOSTAT_MODULE         && normalizeModule(THERMOSTAT_MODULE,         { user_view: true,  user_control: true,  user_setpoints: ['setpoint', 'mode'] }),
+  ADVANCED_THERMOSTAT_MODULE  && normalizeModule(ADVANCED_THERMOSTAT_MODULE,  { user_view: true,  user_control: true,  user_setpoints: ['setpoint', 'mode'] }),
   BASIC_THERMOSTAT_MODULE   && normalizeModule(BASIC_THERMOSTAT_MODULE,   { user_view: true,  user_control: true,  user_setpoints: ['setpoint', 'mode'] }),
   CALL_THERMOSTAT_MODULE    && normalizeModule(CALL_THERMOSTAT_MODULE,    { user_view: true,  user_control: true,  user_setpoints: ['mode'] }),
   ZONED_THERMOSTAT_MODULE   && normalizeModule(ZONED_THERMOSTAT_MODULE,   { user_view: true,  user_control: true,  user_setpoints: ['setpoint', 'mode'] }),

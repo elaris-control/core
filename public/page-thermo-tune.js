@@ -1,8 +1,8 @@
 (function(){
-  var THERMO_FAMILY_IDS = new Set(['basic_thermostat','call_thermostat','zoned_thermostat','thermostat']);
+  var THERMO_FAMILY_IDS = new Set(['basic_thermostat','call_thermostat','zoned_thermostat','advanced_thermostat']);
   function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function badge(txt, color, border){ return '<span class="pill" style="display:inline-flex;align-items:center;white-space:nowrap;font-size:10px;padding:4px 10px;color:'+(color||'var(--muted2)')+';border-color:'+(border||'var(--line)')+'">'+esc(txt)+'</span>'; }
-  function thermoMeta(moduleId){ switch(String(moduleId||'')){ case 'basic_thermostat': return { label:'Basic Thermostat', hasSetpoint:true, isZoned:false }; case 'call_thermostat': return { label:'Call Thermostat', hasSetpoint:false, isZoned:false }; case 'zoned_thermostat': return { label:'Zoned Thermostat', hasSetpoint:true, isZoned:true }; case 'thermostat': return { label:'Advanced Thermostat', hasSetpoint:true, isZoned:true }; default: return { label:'Thermostat', hasSetpoint:true, isZoned:false }; } }
+  function thermoMeta(moduleId){ switch(String(moduleId||'')){ case 'basic_thermostat': return { label:'Basic Thermostat', hasSetpoint:true, isZoned:false }; case 'call_thermostat': return { label:'Call Thermostat', hasSetpoint:false, isZoned:false }; case 'zoned_thermostat': return { label:'Zoned Thermostat', hasSetpoint:true, isZoned:true }; case 'advanced_thermostat': return { label:'Advanced Thermostat', hasSetpoint:true, isZoned:true }; default: return { label:'Thermostat', hasSetpoint:true, isZoned:false }; } }
   function thermoControl(moduleId,id,payload){ return api('/automation/'+moduleId+'/'+id+'/control',{method:'POST',body:JSON.stringify(payload)}).catch(function(){ toast('Cannot control '+moduleId); }).finally(function(){ setTimeout(function(){ rerenderInstance(id); }, 220); }); }
   function computeThermoState(st){
     var v=st.values||{}, state=st.state||{}, sp=st.settings||{};
@@ -134,7 +134,7 @@
     inp.addEventListener('blur',save);
   };
   window.MODULE_ACCENT=window.MODULE_ACCENT||{}; window.MODULE_ICON=window.MODULE_ICON||{};
-  ['basic_thermostat','call_thermostat','zoned_thermostat','thermostat'].forEach(function(id){ window.MODULE_ACCENT[id]='#1d8cff'; window.MODULE_ICON[id]='🌡️'; });
+  ['basic_thermostat','call_thermostat','zoned_thermostat','advanced_thermostat'].forEach(function(id){ window.MODULE_ACCENT[id]='#1d8cff'; window.MODULE_ICON[id]='🌡️'; });
   var prevRender=window.renderInstance; if(typeof prevRender!=='function') return;
   window.renderInstance=async function(inst){ if(!inst||!THERMO_FAMILY_IDS.has(String(inst.module_id||''))) return prevRender(inst); var grid=document.getElementById('pageGrid'); if(!grid) return; var cardId='inst-card-'+inst.id, card=document.getElementById(cardId), isNew=!card; if(isNew){ card=document.createElement('div'); card.id=cardId; card.className='inst-card'; card.style.setProperty('--inst-accent','#1d8cff'); grid.appendChild(card); } card.classList.remove('wide-card'); card.classList.remove('thermo-card'); if(isNew){ card.innerHTML='<div class="inst-header"><div class="inst-name">🌡️ '+escapeHTML(inst.name||('Instance #'+inst.id))+'</div><div class="inst-id">#'+inst.id+'</div></div><div id="inst-body-'+inst.id+'"><div style="color:var(--muted);font-size:12px">Loading...</div></div>'; } var body=document.getElementById('inst-body-'+inst.id); if(body){ try{ body.innerHTML=await renderThermoFamily(inst); } catch(e){ body.innerHTML='<div style="color:var(--bad);font-size:12px">Error: '+escapeHTML(e.message)+'</div>'; } } };
   window.thermoControl=thermoControl;

@@ -13,13 +13,13 @@ function getSession(req, users, sessionCookie = 'elaris_session') {
 
 function buildMePayload({ req, users, auth, hasFeature, sessionCookie = 'elaris_session', csrfToken = null, includeTs = true }) {
   const sess = getSession(req, users, sessionCookie);
-  const engineerUnlocked = auth && typeof auth.getRole === 'function' && auth.getRole(req) === 'ENGINEER';
+  const engineerUnlocked = !!sess?.engineer_unlocked;
   const accountRole = String(sess?.role || 'USER').toUpperCase();
   const effectiveRole = sess
     ? ((accountRole === 'ENGINEER' || accountRole === 'ADMIN' || engineerUnlocked)
       ? (accountRole === 'ADMIN' ? 'ADMIN' : 'ENGINEER')
       : accountRole)
-    : (engineerUnlocked ? 'ENGINEER' : 'USER');
+    : 'USER';
 
   return {
     ok: !!sess,

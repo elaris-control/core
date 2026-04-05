@@ -34,10 +34,15 @@ function initUsers(db) {
       created_ts  INTEGER NOT NULL,
       expires_ts  INTEGER NOT NULL,
       ip          TEXT,
-      user_agent  TEXT
+      user_agent  TEXT,
+      engineer_unlocked INTEGER NOT NULL DEFAULT 0
     );
   `);
   try { db.exec(`CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_ts)`); } catch (_) {}
+  const _sessCols = db.prepare(`PRAGMA table_info(user_sessions)`).all().map(r => r.name);
+  if (!_sessCols.includes('engineer_unlocked')) {
+    db.exec(`ALTER TABLE user_sessions ADD COLUMN engineer_unlocked INTEGER NOT NULL DEFAULT 0`);
+  }
 
   // ── Helpers ──────────────────────────────────────────────────────────
   function hashPassword(password, salt) {
@@ -109,7 +114,7 @@ function initUsers(db) {
   `);
 
   const getSession = db.prepare(`
-    SELECT s.*, u.id as uid, u.email, u.name, u.role
+    SELECT s.*, u.id as uid, u.email, u.name, u.role, s.engineer_unlocked
     FROM user_sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token = ? AND s.expires_ts > ? AND u.active = 1
@@ -117,6 +122,8 @@ function initUsers(db) {
 
   const deleteSession    = db.prepare(`DELETE FROM user_sessions WHERE token = ?`);
   const cleanSessions    = db.prepare(`DELETE FROM user_sessions WHERE expires_ts < ?`);
+  const setEngineerUnlock = db.prepare(`UPDATE user_sessions SET engineer_unlocked = 1 WHERE token = ?`);
+  const clearEngineerUnlock = db.prepare(`UPDATE user_sessions SET engineer_unlocked = 0 WHERE token = ?`);
   const countUsers       = db.prepare(`SELECT COUNT(*) as c FROM users WHERE active = 1`);
 
   // ── Public API ────────────────────────────────────────────────────────
@@ -219,6 +226,25 @@ function initUsers(db) {
     updatePassword.run(h.hash, h.salt, userId);
   }
 
+  function resetPassword(userId, newPassword) {
+    const user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(userId);
+    if (!user) throw new Error('user_not_found');
+    if (!newPassword || newPassword.length < 6)
+      throw new Error('password_too_short');
+    const h = hashPassword(newPassword);
+    updatePassword.run(h.hash, h.salt, userId);
+  }
+
+  function unlockEngineer(token) {
+    const result = setEngineerUnlock.run(token);
+    return result.changes > 0;
+  }
+
+  function lockEngineer(token) {
+    const result = clearEngineerUnlock.run(token);
+    return result.changes > 0;
+  }
+
   return {
     createUser,
     loginLocal,
@@ -234,6 +260,9 @@ function initUsers(db) {
     deactivate,
     reactivate,
     changePassword,
+    resetPassword,
+    unlockEngineer,
+    lockEngineer,
   };
 }
 

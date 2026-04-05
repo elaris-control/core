@@ -336,7 +336,10 @@ option { background:#0d1221; color:var(--text); }
 
   <!-- Users table -->
   <div class="section">
-    <div class="section-title">Users</div>
+    <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Users</span>
+      <button class="btn" onclick="openCreateUser()" style="font-size:12px;padding:6px 14px">+ Create User</button>
+    </div>
     <div class="filters-bar">
       <div class="filters-left">
         <input id="userSearch" class="search-input" type="text" placeholder="Search by email or name..." oninput="renderUsers()">
@@ -394,6 +397,71 @@ option { background:#0d1221; color:var(--text); }
           <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">Loading...</td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- User create modal -->
+  <div class="modal-overlay" id="createUserModal" style="display:none">
+    <div class="modal" style="background:var(--card);border-color:var(--line2)">
+      <div class="modal-head" style="background:rgba(34,217,122,.07)">
+        <h3 style="color:var(--good)">Create New User</h3>
+        <button class="btn btn-sm" onclick="closeCreateUser()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="margin-bottom:14px">
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Email *</label>
+          <input id="cuEmail" class="search-input" style="width:100%" type="email" placeholder="user@example.com">
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Name</label>
+          <input id="cuName" class="search-input" style="width:100%" type="text" placeholder="Optional display name">
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Password *</label>
+          <input id="cuPassword" class="search-input" style="width:100%" type="password" placeholder="Min 6 characters">
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Role</label>
+          <select id="cuRole" class="search-input" style="width:100%">
+            <option value="USER">USER</option>
+            <option value="ENGINEER">ENGINEER</option>
+            <option value="ADMIN">ADMIN</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeCreateUser()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveNewUser()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset password modal -->
+  <div class="modal-overlay" id="resetPwModal" style="display:none">
+    <div class="modal" style="background:var(--card);border-color:var(--line2)">
+      <div class="modal-head" style="background:rgba(245,158,11,.07)">
+        <h3 style="color:var(--warn)">Reset Password</h3>
+        <button class="btn btn-sm" onclick="closeResetPassword()">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="rpwUserId">
+        <div style="margin-bottom:14px;font-size:13px;color:var(--muted)">
+          Resetting password for: <strong id="rpwEmail" style="color:var(--text)"></strong>
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">New Password *</label>
+          <input id="rpwPassword" class="search-input" style="width:100%" type="password" placeholder="Min 6 characters">
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Confirm Password *</label>
+          <input id="rpwConfirm" class="search-input" style="width:100%" type="password" placeholder="Repeat password">
+        </div>
+        <div id="rpwMsg" style="display:none;padding:8px 12px;border-radius:8px;font-size:12px;margin-bottom:10px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeResetPassword()">Cancel</button>
+        <button class="btn btn-primary" onclick="doResetPassword()">Reset</button>
+      </div>
     </div>
   </div>
 
@@ -667,7 +735,8 @@ let pendingAction = null;
 
 // ── API ───────────────────────────────────────────────────────────────────
 async function api(path, opts = {}) {
-  const r = await fetch(path, {
+  const finalPath = path.startsWith('/api') || path.startsWith('/auth') ? path : '/api' + path;
+  const r = await fetch(finalPath, {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     ...opts,
@@ -710,6 +779,9 @@ document.getElementById("confirmModal").addEventListener("click", e => {
 // ── Helpers ───────────────────────────────────────────────────────────────
 function escapeHTML(s){
   return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeJs(s){
+  return String(s ?? "").replace(/[\\'"]/g, c => '\\' + c);
 }
 
 function fmtDate(ts) {
@@ -779,6 +851,7 @@ function renderUsers() {
     const deactivateBtn = isMe ? "" : active
       ? `<button class="btn btn-sm btn-danger" onclick="confirmDeactivate(${u.id})">Deactivate</button>`
       : `<button class="btn btn-sm" onclick="reactivateUser(${u.id})">Reactivate</button>`;
+    const resetPwBtn = `<button class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="openResetPassword(${u.id},'${escapeJs(u.email)}')">🔑</button>`;
 
     return `
       <tr class="${active?"":"inactive"}">
@@ -791,7 +864,7 @@ function renderUsers() {
         <td class="td-mono">${fmtDate(u.last_login)}</td>
         <td class="td-mono">${fmtDate(u.created_ts)}</td>
         <td>
-          <div class="actions-cell">${deactivateBtn}</div>
+          <div class="actions-cell">${deactivateBtn} ${resetPwBtn}</div>
         </td>
       </tr>`;
   }).join("");
@@ -876,6 +949,89 @@ async function reactivateUser(userId){
     await api(`/api/admin/users/${userId}/reactivate`, { method: "POST" });
     toast(`✓ ${escapeHTML(email)} reactivated`);
     await loadUsers();
+  } catch (e) {
+    toast("Error: " + e.message, "err");
+  }
+}
+
+function openCreateUser() {
+  document.getElementById("cuEmail").value = "";
+  document.getElementById("cuName").value = "";
+  document.getElementById("cuPassword").value = "";
+  document.getElementById("cuRole").value = "USER";
+  document.getElementById("createUserModal").style.display = "flex";
+}
+
+function closeCreateUser() {
+  document.getElementById("createUserModal").style.display = "none";
+}
+
+async function saveNewUser() {
+  const email = document.getElementById("cuEmail").value.trim();
+  const name = document.getElementById("cuName").value.trim();
+  const password = document.getElementById("cuPassword").value;
+  const role = document.getElementById("cuRole").value;
+
+  if (!email) { toast("Email is required", "err"); return; }
+  if (!password || password.length < 6) { toast("Password must be at least 6 characters", "err"); return; }
+
+  try {
+    await api("/admin/users", {
+      method: "POST",
+      body: JSON.stringify({ email, name, password, role }),
+    });
+    toast(`✓ User ${escapeHTML(email)} created`);
+    closeCreateUser();
+    await loadUsers();
+  } catch (e) {
+    const msg = e.message === "email_taken"
+      ? "This email is already in use."
+      : "Error: " + e.message;
+    toast(msg, "err");
+  }
+}
+
+function openResetPassword(userId, email) {
+  document.getElementById("rpwUserId").value = userId;
+  document.getElementById("rpwEmail").textContent = email;
+  document.getElementById("rpwPassword").value = "";
+  document.getElementById("rpwConfirm").value = "";
+  document.getElementById("rpwMsg").style.display = "none";
+  document.getElementById("resetPwModal").style.display = "flex";
+}
+
+function closeResetPassword() {
+  document.getElementById("resetPwModal").style.display = "none";
+}
+
+async function doResetPassword() {
+  const userId = document.getElementById("rpwUserId").value;
+  const pw = document.getElementById("rpwPassword").value;
+  const confirm = document.getElementById("rpwConfirm").value;
+  const msgEl = document.getElementById("rpwMsg");
+
+  if (!pw || pw.length < 6) {
+    msgEl.style.display = "block";
+    msgEl.style.background = "rgba(239,68,68,.1)";
+    msgEl.style.color = "var(--bad)";
+    msgEl.textContent = "Password must be at least 6 characters";
+    return;
+  }
+  if (pw !== confirm) {
+    msgEl.style.display = "block";
+    msgEl.style.background = "rgba(239,68,68,.1)";
+    msgEl.style.color = "var(--bad)";
+    msgEl.textContent = "Passwords do not match";
+    return;
+  }
+
+  try {
+    await api(`/admin/users/${userId}/password`, {
+      method: "PATCH",
+      body: JSON.stringify({ password: pw }),
+    });
+    toast("✓ Password reset successfully");
+    closeResetPassword();
   } catch (e) {
     toast("Error: " + e.message, "err");
   }

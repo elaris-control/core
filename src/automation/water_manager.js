@@ -16,6 +16,8 @@
 
 'use strict';
 
+const { localMinutes } = require('./time_utils');
+
 const leakState   = new Map(); // instId → runtime state
 const flowHistory = new Map(); // instId → [{ v, ts }]
 const pressHist   = new Map(); // instId → [{ v, ts }]
@@ -52,21 +54,6 @@ function todayKey(siteInfo) {
     }
   } catch {}
   return new Date().toISOString().slice(0, 10);
-}
-
-function localMinutes(siteInfo) {
-  try {
-    if (siteInfo?.timezone) {
-      const fmt = new Intl.DateTimeFormat('en-GB', {
-        timeZone: siteInfo.timezone,
-        hour: '2-digit', minute: '2-digit', hour12: false,
-      });
-      const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
-      return Number(parts.hour) * 60 + Number(parts.minute);
-    }
-  } catch {}
-  const d = new Date();
-  return d.getHours() * 60 + d.getMinutes();
 }
 
 function loadRuntime(ctx) {
@@ -134,7 +121,7 @@ function getState(ctx, instId) {
   return st;
 }
 
-function waterManagerHandler(ctx, send) {
+function waterManagerHandler(ctx, send, siteInfo) {
   const instId = ctx.instance.id;
   const now    = Date.now();
 

@@ -1,6 +1,5 @@
 (function(){
   const PAGE_REQUIREMENTS = {
-    '/settings.html': 'ENGINEER',
     '/entities.html': 'ENGINEER',
     '/installer.html': 'ENGINEER',
     '/modules.html': 'ENGINEER',
@@ -35,40 +34,19 @@
     return Array.from(document.querySelectorAll(sel));
   }
 
-  function injectRoleNav(uiRole){
-    const existing = document.getElementById('roleNavBlock');
-    if (existing) existing.remove();
-    const sidebarNavAnchor = document.querySelector('#navContainer') || document.querySelector('.side .nav');
-    const systemTitle = Array.from(document.querySelectorAll('.groupTitle')).find(el => el.textContent && el.textContent.trim().toLowerCase() === 'system');
-    if (!sidebarNavAnchor || !systemTitle || uiRole !== 'USER') return;
-
-    const block = document.createElement('div');
-    block.id = 'roleNavBlock';
-    block.innerHTML = [
-      '<div class="groupTitle">Control</div>',
-      '<nav class="nav">',
-      '  <a href="/page.html?module=thermostat">🌡️ Climate</a>',
-      '  <a href="/page.html?module=lighting">💡 Lighting</a>',
-      '  <a href="/page.html?module=awning">🪟 Covers</a>',
-      '</nav>'
-    ].join('');
-    systemTitle.parentNode.insertBefore(block, systemTitle);
-  }
 
   function applyRoleVisibility(uiRole){
     document.documentElement.dataset.uiRole = uiRole;
     window.ELARIS_UI_ROLE = uiRole;
 
     const engineerOnly = [
-      ...qsAll('a[href="/settings.html"]'),
       ...qsAll('a[href="/entities.html"]'),
       ...qsAll('a[href="/installer.html"]'),
       ...qsAll('a[href="/modules.html"]'),
       ...qsAll('#installerLink'),
       ...qsAll('#modulesLink'),
       ...qsAll('#addSiteBtn'),
-      ...qsAll('[data-role="engineer"]'),
-      ...qsAll('button[onclick*="openPageManager"]')
+      ...qsAll('[data-role="engineer"]')
     ];
     setHidden(engineerOnly, !canAccess(uiRole, 'ENGINEER'));
 
@@ -190,7 +168,6 @@
       window.elarisComputeUiRole = computeUiRole;
       window.elarisCanAccess = function(needed){ return canAccess(uiRole, needed); };
       applyRoleVisibility(uiRole);
-      injectRoleNav(uiRole);
       injectTopbarControls(me, uiRole);
       if (!guardCurrentPage(uiRole)) return;
       document.dispatchEvent(new CustomEvent('elaris:role-ready', {

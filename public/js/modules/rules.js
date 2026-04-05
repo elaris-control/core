@@ -823,13 +823,16 @@ async function testRules() {
   let serverResults = [];
   let context = null;
   try {
-    const r = await apiPost(`/api/automation/custom/${ruleBuilderInstId}/test`, {
-      rules,
-      test_values: ruleTestValues,
-      test_context: {
-        time_hhmm: ruleTestClock || undefined,
-        weekday: ruleTestWeekday || undefined,
-      }
+    const r = await api(`/automation/custom/${ruleBuilderInstId}/test`, {
+      method: 'POST',
+      body: JSON.stringify({
+        rules,
+        test_values: ruleTestValues,
+        test_context: {
+          time_hhmm: ruleTestClock || undefined,
+          weekday: ruleTestWeekday || undefined,
+        }
+      })
     });
     liveValues = r.values || {};
     serverResults = Array.isArray(r.results) ? r.results : [];

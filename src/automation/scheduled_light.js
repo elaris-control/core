@@ -4,7 +4,7 @@
 const {
   setRelays, broadcastState, handleSwitch, relayKeys,
 } = require('./helpers/light_common');
-const { parseTime, inRange, getSun } = require('./lighting');
+const { parseTime, inRange, getSun, localMinutes } = require('./lighting');
 
 const switchState = new Map();
 const manualState = new Map();

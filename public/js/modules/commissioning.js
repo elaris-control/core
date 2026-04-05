@@ -23,7 +23,7 @@ const _origRegisterModule = window.registerModule;
 window.registerModule = function(id, def) {
   if (_origRegisterModule) _origRegisterModule(id, def);
   // If the module has an analyze function, auto-register commissioning
-  const analyzeFn = window['analyze' + id.replace(/_/g, '_').replace(/^./, c => c.toUpperCase()) + 'Mappings'];
+  const analyzeFn = window['analyze' + id.split('_').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('') + 'Mappings'];
   if (typeof analyzeFn === 'function') {
     const titleMap = {
       thermostat: 'Thermostat',

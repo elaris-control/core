@@ -361,25 +361,28 @@ tr.appendChild(tdSite);
     td3.style.textAlign="center";
     tr.appendChild(td3);
 
-    // Manual Override column
+    // Manual Override column (Engineer/Admin only)
     const tdOvr=document.createElement("td");
     tdOvr.style.textAlign='center';
-    const ovr=getActiveOverrideLocal(e.id);
-    if(ovr&&ovr.active){
-      const pill=document.createElement('span');
-      pill.className='pill';
-      pill.style.cssText='background:rgba(245,158,11,.2);color:#f59e0b;font-size:10px;font-weight:800;cursor:pointer;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-      pill.title='Click to edit override';
-      pill.textContent=describeOverride(ovr);
-      pill.addEventListener('click',()=>openOverride(e.id, e.name||e.key||'', e.type||''));
-      tdOvr.appendChild(pill);
-    } else {
-      const btnOvr=document.createElement('button');
-      btnOvr.className='btn';
-      btnOvr.style.cssText='font-size:10px;padding:3px 10px;color:var(--muted2)';
-      btnOvr.textContent='AUTO';
-      btnOvr.addEventListener('click',()=>openOverride(e.id, e.name||e.key||'', e.type||''));
-      tdOvr.appendChild(btnOvr);
+    const isEngineer = state.role === 'ENGINEER' || state.role === 'ADMIN';
+    if (isEngineer) {
+      const ovr=getActiveOverrideLocal(e.id);
+      if(ovr&&ovr.active){
+        const pill=document.createElement('span');
+        pill.className='pill';
+        pill.style.cssText='background:rgba(245,158,11,.2);color:#f59e0b;font-size:10px;font-weight:800;cursor:pointer;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+        pill.title='Click to edit override';
+        pill.textContent=describeOverride(ovr);
+        pill.addEventListener('click',()=>openOverride(e.id, e.name||'', e.type||'', e.key||''));
+        tdOvr.appendChild(pill);
+      } else {
+        const btnOvr=document.createElement('button');
+        btnOvr.className='btn';
+        btnOvr.style.cssText='font-size:10px;padding:3px 10px;border:1px solid var(--blue);color:var(--blue);background:rgba(11,99,206,.1);cursor:pointer;font-weight:800';
+        btnOvr.textContent='SET OVERRIDE';
+        btnOvr.addEventListener('click',()=>openOverride(e.id, e.name||'', e.type||'', e.key||''));
+        tdOvr.appendChild(btnOvr);
+      }
     }
     tr.appendChild(tdOvr);
 
@@ -866,45 +869,121 @@ function overrideDurationOptions(){
   ];
 }
 
-function openOverride(ioId, name, type) {
+function openOverride(ioId, name, type, key) {
   var m = document.getElementById('ovrModal');
   if (!m) {
     m = document.createElement('div');
     m.id = 'ovrModal';
     m.className = 'modal';
     m.style.display = 'none';
-    m.innerHTML = '<div class="modalCard" style="max-width:420px">'
-      + '<div class="modalHead"><div class="modalTitle" id="ovrTitle">Set Manual Value</div><button class="iconBtn" onclick="closeOverride()">✕</button></div>'
-      + '<div class="modalBody" style="display:flex;flex-direction:column;gap:14px">'
-      + '<div style="font-size:12px;color:var(--muted2)" id="ovrDesc"></div>'
-      + '<div style="padding:10px 12px;border:1px solid var(--line2);border-radius:12px;background:rgba(245,158,11,.08);font-size:12px;color:var(--text)" id="ovrBehavior"></div>'
-      + '<div><div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;margin-bottom:6px">Forced Value</div>'
-      + '<input class="txt" id="ovrVal" placeholder="e.g. 35, ON, OFF" style="font-size:18px;font-weight:700">'
-      + '<div style="font-size:10px;color:var(--muted2);margin-top:6px" id="ovrHint"></div></div>'
-      + '<div><div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;margin-bottom:6px">Duration</div>'
-      + '<select class="sel" id="ovrDuration"></select>'
-      + '<div style="font-size:10px;color:var(--muted2);margin-top:6px">Timed overrides auto-release. Permanent stays active until you clear it.</div></div>'
-      + '</div>'
-      + '<div class="modalActions">'
-      + '<button class="btn" style="color:var(--bad)" onclick="clearOverride(window._ovrId)">Clear (AUTO)</button>'
-      + '<button class="btn" onclick="closeOverride()">Cancel</button>'
-      + '<button class="btn primary" onclick="applyOverride()">Apply FORCE</button>'
-      + '</div></div>';
+  m.innerHTML = '<div class="modalCard" style="max-width:420px">'
+    + '<div class="modalHead"><div class="modalTitle" id="ovrTitle">Set Manual Value</div><button class="iconBtn" onclick="closeOverride()">✕</button></div>'
+    + '<div class="modalBody" style="display:flex;flex-direction:column;gap:14px">'
+    + '<div style="font-size:12px;color:var(--muted2)" id="ovrDesc"></div>'
+    + '<div style="padding:10px 12px;border:1px solid var(--line2);border-radius:12px;background:rgba(245,158,11,.08);font-size:12px;color:var(--text)" id="ovrBehavior"></div>'
+    + '<div><div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;margin-bottom:6px">Forced Value</div>'
+    + '<div id="ovrInputWrap"></div>'
+    + '<input type="hidden" id="ovrHiddenVal" value="'+(curVal||'')+'">'
+    + '<div id="ovrInfo"></div>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-top:6px" id="ovrRealWrap">'
+    + '<input type="checkbox" id="ovrRealCheck" checked style="width:16px;height:16px;cursor:pointer">'
+    + '<label for="ovrRealCheck" style="font-size:12px;font-weight:700;color:var(--text);cursor:pointer" id="ovrRealLabel">Send to Device (Real)</label>'
+    + '</div>'
+    + '<div style="font-size:10px;color:var(--muted2);margin-top:6px" id="ovrHint"></div></div>'
+    + '<div><div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;margin-bottom:6px">Duration</div>'
+    + '<select class="sel" id="ovrDuration"></select>'
+    + '<div style="font-size:10px;color:var(--muted2);margin-top:6px">Timed overrides auto-release. Permanent stays active until you clear it.</div></div>'
+    + '</div>'
+    + '<div class="modalActions">'
+    + '<button class="btn" style="color:var(--bad)" onclick="clearOverride(window._ovrId)">Clear (AUTO)</button>'
+    + '<button class="btn" onclick="closeOverride()">Cancel</button>'
+    + '<button class="btn primary" onclick="applyOverride()">Apply FORCE</button>'
+    + '</div></div>';
     m.addEventListener('click', function(e){ if(e.target===m) closeOverride(); });
     document.body.appendChild(m);
   }
   window._ovrId = ioId;
+  window._ovrType = type;
   document.getElementById('ovrTitle').textContent = 'Override: ' + (name || 'IO #'+ioId);
-  document.getElementById('ovrDesc').textContent = 'Type: ' + (type||'?');
   var typeName = String(type||'').toUpperCase();
+  
+  // Έλεγχος αν είναι DI βάσει του key (π.χ. tele.di_1)
+  var isDI = key && (key.includes('di_') || key.toUpperCase().includes('DI'));
+  
   var isOutput = typeName === 'DO' || typeName === 'AO' || typeName === 'RELAY' || typeName === 'DIMMER';
   document.getElementById('ovrBehavior').textContent = isOutput
     ? 'Forced OUTPUT hold: while active, automation and scenes will not overwrite this IO.'
     : 'Forced INPUT/STATE: the engine will use this value instead of the real sensor until the override ends.';
-  var hints = {AI:'Numeric (e.g. 35.5 for temperature)',AO:'Numeric (e.g. 50 for 50%)',DI:'ON or OFF',DO:'ON or OFF',RELAY:'ON or OFF',DIMMER:'Numeric (e.g. 50 for 50%)',relay:'ON or OFF',sensor:'Numeric'};
-  document.getElementById('ovrHint').textContent = hints[type] || hints[typeName] || 'Numeric or ON/OFF';
+
+  // Type-specific input
+  var wrap = document.getElementById('ovrInputWrap');
   var cur = getActiveOverrideLocal(ioId);
-  document.getElementById('ovrVal').value = cur && cur.active ? cur.value : '';
+  var curVal = cur && cur.active ? cur.value : '';
+  document.getElementById('ovrHiddenVal').value = curVal || '';
+
+  // Αν είναι DI (ακόμα και αν ο τύπος είναι sensor), το θεωρούμε Binary (ON/OFF)
+  var isBinary = typeName === 'DO' || typeName === 'RELAY' || typeName === 'DI' || isDI;
+  var isAnalog = typeName === 'AO' || typeName === 'DIMMER';
+  var isNumeric = typeName === 'AI' || typeName === 'SENSOR';
+  var isOutputIO = typeName === 'DO' || typeName === 'AO' || typeName === 'RELAY' || typeName === 'DIMMER';
+  var realWrap = document.getElementById('ovrRealWrap');
+
+  // Info box — explains what this override does
+  var infoBox = document.getElementById('ovrInfo');
+  if (isOutputIO) {
+    infoBox.innerHTML = '<div style="padding:8px 10px;border-radius:8px;background:rgba(34,217,122,.08);border:1px solid rgba(34,217,122,.2);font-size:11px;color:#22d97a;line-height:1.4">'
+      + '🟢 <strong>Real Mode:</strong> Sends MQTT command to device. The relay will click or AO voltage will change immediately.'
+      + '</div>';
+    if (realWrap) realWrap.style.display = 'flex';
+  } else {
+    infoBox.innerHTML = '<div style="padding:8px 10px;border-radius:8px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);font-size:11px;color:#f59e0b;line-height:1.4">'
+      + '🟡 <strong>Virtual Mode:</strong> Changes value in Elaris memory only. The Engine will use this value for automation rules, but the physical sensor state does not change.'
+      + '</div>';
+    if (realWrap) realWrap.style.display = 'none';
+  }
+
+  if (isBinary) {
+    document.getElementById('ovrHint').textContent = 'Toggle between ON and OFF';
+    wrap.innerHTML = '<div style="display:flex;gap:10px">'
+      + '<button id="ovrOn" style="flex:1;padding:14px;border-radius:12px;border:2px solid '+(curVal.toUpperCase()==='ON'?'#22d97a':'var(--line)')+';background:'+(curVal.toUpperCase()==='ON'?'rgba(34,217,122,.12)':'rgba(255,255,255,.03)')+';color:'+(curVal.toUpperCase()==='ON'?'#22d97a':'var(--muted2)')+';font-size:16px;font-weight:800;cursor:pointer">ON</button>'
+      + '<button id="ovrOff" style="flex:1;padding:14px;border-radius:12px;border:2px solid '+(curVal.toUpperCase()==='OFF'?'#ef4444':'var(--line)')+';background:'+(curVal.toUpperCase()==='OFF'?'rgba(239,68,68,.12)':'rgba(255,255,255,.03)')+';color:'+(curVal.toUpperCase()==='OFF'?'#ef4444':'var(--muted2)')+';font-size:16px;font-weight:800;cursor:pointer">OFF</button>'
+      + '</div>';
+    document.getElementById('ovrOn').addEventListener('click', function(){
+      this.style.borderColor='#22d97a'; this.style.background='rgba(34,217,122,.12)'; this.style.color='#22d97a';
+      var off=document.getElementById('ovrOff'); off.style.borderColor='var(--line)'; off.style.background='rgba(255,255,255,.03)'; off.style.color='var(--muted2)';
+      document.getElementById('ovrHiddenVal').value = 'ON';
+    });
+    document.getElementById('ovrOff').addEventListener('click', function(){
+      this.style.borderColor='#ef4444'; this.style.background='rgba(239,68,68,.12)'; this.style.color='#ef4444';
+      var on=document.getElementById('ovrOn'); on.style.borderColor='var(--line)'; on.style.background='rgba(255,255,255,.03)'; on.style.color='var(--muted2)';
+      document.getElementById('ovrHiddenVal').value = 'OFF';
+    });
+    window._ovrVal = curVal.toUpperCase() === 'OFF' ? 'OFF' : 'ON';
+
+  } else if (isAnalog) {
+    document.getElementById('ovrHint').textContent = '0-100% output level';
+    var pct = curVal ? Math.max(0, Math.min(100, Number(curVal))) : 0;
+    wrap.innerHTML = '<div style="display:flex;align-items:center;gap:12px">'
+      + '<input type="range" id="ovrSlider" min="0" max="100" step="1" value="'+pct+'" style="flex:1">'
+      + '<span id="ovrPct" style="font-size:22px;font-weight:900;color:#f5c842;min-width:50px;text-align:center">'+pct+'%</span>'
+      + '</div>';
+    document.getElementById('ovrSlider').addEventListener('input', function(){
+      document.getElementById('ovrPct').textContent = this.value + '%';
+      document.getElementById('ovrHiddenVal').value = this.value;
+    });
+    window._ovrVal = String(pct);
+
+  } else {
+    document.getElementById('ovrHint').textContent = 'Numeric value (e.g. 25.5 for temperature, 500 for lux)';
+    wrap.innerHTML = '<input class="txt" id="ovrVal" type="number" step="any" placeholder="e.g. 25.5" style="font-size:18px;font-weight:700" value="'+(curVal||'')+'">';
+    var numInput = document.getElementById('ovrVal');
+    numInput.addEventListener('input', function(){
+      document.getElementById('ovrHiddenVal').value = this.value;
+    });
+    window._ovrVal = curVal || '';
+    setTimeout(function(){ numInput.focus(); numInput.select(); }, 50);
+  }
+
   var sel = document.getElementById('ovrDuration');
   sel.innerHTML = overrideDurationOptions().map(function(opt){ return '<option value="'+opt.value+'">'+opt.label+'</option>'; }).join('');
   if(cur && cur.active){
@@ -919,7 +998,6 @@ function openOverride(ioId, name, type) {
     sel.value = '3600000';
   }
   m.style.display = 'flex';
-  setTimeout(function(){ document.getElementById('ovrVal').focus(); document.getElementById('ovrVal').select(); }, 50);
 }
 function closeOverride() {
   var m = document.getElementById('ovrModal');
@@ -927,17 +1005,22 @@ function closeOverride() {
 }
 async function applyOverride() {
   var id = window._ovrId;
-  var val = (document.getElementById('ovrVal').value || '').trim();
-  var durationRaw = document.getElementById('ovrDuration').value;
-  if (val === '') { toast('Enter a value', false); return; }
+  var hidden = document.getElementById('ovrHiddenVal');
+  var val = hidden ? hidden.value.trim() : (window._ovrVal || '').trim();
+  var durationRaw = document.getElementById('ovrDuration') ? document.getElementById('ovrDuration').value : '3600000';
+  var isReal = document.getElementById('ovrRealCheck') ? document.getElementById('ovrRealCheck').checked : true;
+  
+  if (!val && val !== 0) { toast('Enter a value', false); return; }
   try {
-    var payload = { value: val, active: true, permanent: durationRaw === 'PERM' };
+    var payload = { value: String(val), active: true, permanent: durationRaw === 'PERM', real: isReal };
     if (durationRaw !== 'PERM') payload.duration_ms = Number(durationRaw);
+    
     var out = await api('/io/' + id + '/override', {method:'PATCH', body: JSON.stringify(payload)});
     state.ioOverrides[id] = out.override || { value: val, active: true, ts: Date.now(), permanent: payload.permanent, expires_at: payload.permanent ? null : (Date.now() + Number(payload.duration_ms || 0)) };
+    
     closeOverride();
     applyFilterAndRender();
-    toast('✅ ' + describeOverride(state.ioOverrides[id]));
+    toast('✅ ' + (isReal ? 'Real command sent: ' : 'Virtual override: ') + val);
   } catch(e) { toast('Error: ' + e.message, false); }
 }
 async function clearOverride(id) {

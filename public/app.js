@@ -522,7 +522,7 @@ async function loadInstanceSparkline(inst){
       if(Array.isArray(hist.temp_boiler) && hist.temp_boiler.length>=2) return hist.temp_boiler.slice(-24).map(Number).filter(Number.isFinite);
     }
     let ioId=null;
-    if(moduleId==='thermostat') ioId=pickMappedIo(inst,['temp_room','zone_1_temp']);
+    if(moduleId==='advanced_thermostat') ioId=pickMappedIo(inst,['temp_room','zone_1_temp']);
     else if(moduleId==='energy') ioId=pickMappedIo(inst,['power_w','power','grid_power']);
     else if(moduleId==='water_manager') ioId=pickMappedIo(inst,['flow_sensor','pressure_sensor','tank_level']);
     else if(moduleId==='irrigation') ioId=pickMappedIo(inst,['flow_sensor','rain_sensor','soil_moisture_1']);
@@ -644,7 +644,7 @@ async function loadPinnedPagesWidget(){
 
 const MODULE_META=[
   {id:'solar',            icon:'☀️', label:'Solar',           color:'#ff9a3a'},
-  {id:'thermostat',       icon:'🌡️', label:'Heating',         color:'#1d8cff'},
+  {id:'advanced_thermostat',       icon:'🌡️', label:'Heating',         color:'#1d8cff'},
   {id:'lighting',         icon:'💡', label:'Lighting',        color:'#f5c842'},
   {id:'smart_lighting',   icon:'✨', label:'Smart Lighting',  color:'#f0c040'},
   {id:'energy',           icon:'⚡', label:'Energy',          color:'#f59e0b'},
@@ -715,7 +715,7 @@ function summarizeInstanceLive(inst, live){
   const vals=live&&live.values||{};
   const state=live&&live.state||live&&live.live||{};
   const settings=live&&live.settings||{};
-  if(moduleId==='thermostat'){
+  if(moduleId==='advanced_thermostat'){
     const room=extractLiveNumber(vals,['temp_room','zone_1_temp']);
     const sp=extractLiveNumber(settings,['setpoint']);
     if(room!=null && sp!=null) return { text:'Climate '+room.toFixed(1)+'° / '+sp.toFixed(1)+'°', tone:'info', metric:room, metricLabel:'Temperature', badgeLabel:'Climate' };

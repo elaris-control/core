@@ -26,6 +26,16 @@ function initAdminRoutes({ db, users, requireAdmin, historyRollups, mqttApi }) {
     res.json({ ok: true, users: users.listUsers.all() });
   });
 
+  router.post('/users', requireAdmin, (req, res) => {
+    try {
+      const { email, name, password, role } = req.body || {};
+      if (!email) return res.status(400).json({ ok: false, error: 'email_required' });
+      if (!password) return res.status(400).json({ ok: false, error: 'password_required' });
+      const user = users.createUser({ email, name: name || email.split('@')[0], password, role: role || 'USER' });
+      res.json({ ok: true, user });
+    } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
+  });
+
   router.patch('/users/:id/role', requireAdmin, (req, res) => {
     try {
       const targetId = Number(req.params.id);
@@ -60,6 +70,16 @@ function initAdminRoutes({ db, users, requireAdmin, historyRollups, mqttApi }) {
   router.post('/users/:id/reactivate', requireAdmin, (req, res) => {
     users.reactivate(Number(req.params.id));
     res.json({ ok: true });
+  });
+
+  router.patch('/users/:id/password', requireAdmin, (req, res) => {
+    try {
+      const targetId = Number(req.params.id);
+      const { password } = req.body || {};
+      if (!password) return res.status(400).json({ ok: false, error: 'password_required' });
+      users.resetPassword(targetId, password);
+      res.json({ ok: true });
+    } catch (e) { res.status(400).json({ ok: false, error: String(e?.message || e) }); }
   });
 
   // ── Runtime toggles ───────────────────────────────────────────────────

@@ -153,6 +153,7 @@ function runMigrations(db) {
       db.exec(`UPDATE sites SET created_ts = COALESCE(created_ts, strftime('%s','now') * 1000)`);
     }
   });
+
 }
 
 module.exports = { applyMigration, runMigrations };

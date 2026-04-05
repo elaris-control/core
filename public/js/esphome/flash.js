@@ -451,7 +451,12 @@ if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', function() {
     if (document.visibilityState === 'hidden') stopFlashPolling();
   });
-  window.addEventListener('beforeunload', function() {
+  window.addEventListener('beforeunload', function(e) {
+    if (flashing) {
+      e.preventDefault();
+      e.returnValue = 'A firmware flash is currently in progress. If you leave this page, the flash may be interrupted and the device could become unresponsive.';
+      return e.returnValue;
+    }
     stopFlashPolling();
   });
 }

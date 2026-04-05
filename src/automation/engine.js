@@ -814,10 +814,15 @@ class AutomationEngine {
 
     this.ioOverrides.set(ioId, entry);
 
-    if (this.isOutputIO(io)) {
+    // If it's an output (Relay/AO/DO) and "real" mode is enabled, send the MQTT command
+    const isReal = valueOrOptions && valueOrOptions.real;
+    console.log(`[DEBUG OVERRIDE] IO=${ioId} Type=${io.type} isOutput=${this.isOutputIO(io)} isReal=${isReal} Val=${normalizedValue} RealFromOpts=${valueOrOptions?.real}`);
+    if (this.isOutputIO(io) && isReal) {
+      console.log(`[DEBUG OVERRIDE] -> Calling sendIOCommand with allowWhenForced=true`);
       this.sendIOCommand(io, normalizedValue, {
+        reason: 'Manual Override (Real)',
+        skipLog: false,
         allowWhenForced: true,
-        reason: "IO override applied",
       });
     }
 

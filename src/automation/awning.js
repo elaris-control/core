@@ -19,6 +19,8 @@
 //   lux_retract      — retract below this lux (default: 20000)
 //   move_time        — seconds to fully open/close (default: 30)
 
+const { getSun: getSunTimes } = require('./helpers/sun');
+
 const awningState  = new Map(); // instance_id → "open"|"closed"|"unknown"
 const moveTimeout  = new Map(); // instance_id → timeout handle
 const windHistory  = new Map(); // instance_id → [{ wind, ts }] for gust detection
@@ -69,24 +71,6 @@ function doRetract(instId, send, ctx, moveTimeMs, reason) {
     positionState.set(instId, { pos: 0, startTs: null, startPos: 0, targetPos: 0, direction: null });
     try { ctx.setSetting('_position', '0'); } catch {}
   }, travelMs));
-}
-
-function getSunTimes(lat, lon) {
-  const D2R = Math.PI/180;
-  const n   = Date.now()/86400000 - 10957;
-  const L   = (280.460 + 0.9856474*n)%360;
-  const g   = (357.528 + 0.9856003*n)%360;
-  const lam = L + 1.915*Math.sin(g*D2R) + 0.020*Math.sin(2*g*D2R);
-  const eps = 23.439 - 0.0000004*n;
-  const sinDec = Math.sin(eps*D2R)*Math.sin(lam*D2R);
-  const dec  = Math.asin(sinDec)*(180/Math.PI);
-  const cosH = (Math.cos(90.833*D2R)-Math.sin(lat*D2R)*Math.sin(dec*D2R))/(Math.cos(lat*D2R)*Math.cos(dec*D2R));
-  if (Math.abs(cosH) > 1) return null;
-  const H    = Math.acos(cosH)*(180/Math.PI);
-  const RA   = (Math.atan2(Math.cos(eps*D2R)*Math.sin(lam*D2R),Math.cos(lam*D2R))*(180/Math.PI)/15+24)%24;
-  const eot  = (L/15-RA+24)%24;
-  const noon = 12-eot-lon/15;
-  return { sunrise: Math.round((noon-H/15)*60), sunset: Math.round((noon+H/15)*60) };
 }
 
 function awningHandler(ctx, send, siteInfo) {

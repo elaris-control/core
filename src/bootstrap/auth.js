@@ -9,8 +9,8 @@ const { makeRequireLogin } = require('../auth_routes');
 function initAuthContext({ db, users, hasFeature, appSecret, engineerCode, engineerSecret, appUrl, googleClientId, googleClientSecret, githubClientId, githubClientSecret }) {
   const auth = makeAuth({
     hasFeature,
-    engineerCode: engineerCode,
-    engineerSecret: engineerSecret,
+    engineerCode,
+    users,
   });
 
   const access = initAccess({ db, auth });

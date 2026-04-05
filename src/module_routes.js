@@ -16,7 +16,7 @@ function validateModuleMappings(def, mappings) {
     if (missing.length) return { ok: false, error: "missing_required_inputs", missing };
   }
 
-  if (def.id === 'thermostat') {
+  if (def.id === 'advanced_thermostat') {
     const zoneInputs = ['temp_room'];
     const zoneOutputs = ['ac_relay', 'central_pump'];
     for (let i = 1; i <= 6; i++) {

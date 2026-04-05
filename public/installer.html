@@ -308,13 +308,11 @@
     const accountRole = String((me && me.accountRole) || role || "USER").toUpperCase();
     const unlocked = engineerUnlocked || role === "ENGINEER" || accountRole === "ENGINEER";
     const locked = !unlocked;
-    const ls = $("lockState");
-    ls.textContent = locked ? "Locked." : `Unlocked${accountRole === "ADMIN" ? " (Admin)" : ""}.`;
-    ls.classList.remove("stateUnlocked","stateLocked","muted","ok","err");
-    ls.classList.add(locked ? "stateLocked" : "stateUnlocked");
-    $("zonesCard").style.display = locked ? "none" : "block";
-    $("importBoardCard").style.display = locked ? "none" : "block";
-    $("pendingCard").style.display = locked ? "none" : "block";
+    // Simple USER should never see pending/import/zones, even if engineer is unlocked
+    const isPrivileged = accountRole === "ADMIN" || accountRole === "ENGINEER";
+    $("zonesCard").style.display = (locked || !isPrivileged) ? "none" : "block";
+    $("importBoardCard").style.display = (locked || !isPrivileged) ? "none" : "block";
+    $("pendingCard").style.display = (locked || !isPrivileged) ? "none" : "block";
     updateContextPills();
     return !locked;
   }

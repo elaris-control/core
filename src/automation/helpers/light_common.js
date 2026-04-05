@@ -92,13 +92,17 @@ function handleSwitch(ctx, send, instId, opts) {
     return { handled: false, manualActive: !!manualState.get(instId) };
   }
 
+  // Check if switch state is from an override (bypass debounce for intentional overrides)
+  const switchIO = ctx.io('switch_di');
+  const isSwitchOverridden = switchIO && ctx._engine && ctx._engine.getActiveIOOverride(switchIO.id)?.active;
+
   // Debounce: Ignore rapid state changes (switch bounce + reconnect transients)
   const now = Date.now();
   const last = lastSwitchChange.get(instId) || 0;
 
   // Long gap (>10 sec) → reconnect / ESP reboot → sync state only, don't toggle
-  // Also clear any stale manual state — the physical relay state is the source of truth
-  if (now - last > 10000) {
+  // SKIP this check if the switch is overridden — override is intentional, not a reconnect
+  if (!isSwitchOverridden && now - last > 10000) {
     switchState.set(instId, sw);
     lastSwitchChange.set(instId, now);
     manualState.delete(instId); // Clear stale manual after reconnect

@@ -7,18 +7,15 @@
 <p align="center"><strong>Modular automation platform for homes, buildings, and light industrial control.</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.7.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.7.1-blue" alt="Version">
   <img src="https://img.shields.io/badge/node-20+-green" alt="Node">
   <img src="https://img.shields.io/badge/license-BSL--1.1-blue" alt="License">
   <img src="https://img.shields.io/badge/platform-Pi%20%7C%20Linux%20%7C%20Windows-red" alt="Platform">
   <img src="https://img.shields.io/badge/protocol-MQTT-purple" alt="MQTT">
-  <a href="https://discord.gg/UYJp7yby7H"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
 <p align="center">
   <a href="https://elariscontrol.online">🌐 elariscontrol.online</a>
-  &nbsp;·&nbsp;
-  <a href="https://discord.gg/UYJp7yby7H">💬 Discord</a>
 </p>
 
 <p align="center">
@@ -179,11 +176,3 @@ ELARIS uses a three-tier role system:
 | **Admin** | System management — users, sites, database |
 
 Engineer access is protected by a separate unlock layer, keeping commissioning controls away from daily users while preserving fast service access when needed.
-
----
-
-## Community
-
-Join the ELARIS Discord for questions, feedback, and sharing your setup:
-
-👉 **[discord.gg/UYJp7yby7H](https://discord.gg/UYJp7yby7H)**

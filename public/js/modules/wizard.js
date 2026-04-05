@@ -322,7 +322,7 @@ function renderWizardInputs(currentMappings = {}) {
     document.getElementById("wizardInputs").innerHTML = (modSummaryBox ? '<div id="' + modSummaryBox + '"></div>' : '') + html;
     if (modSummaryBox) ModuleRegistry[selectedDef?.id].updateCommissioningSummary(buildEffectiveMappings(currentMappings));
   } else {
-    if (selectedDef?.id === 'thermostat' || selectedDef?.id === 'zoned_thermostat') {
+    if (selectedDef?.id === 'advanced_thermostat' || selectedDef?.id === 'zoned_thermostat') {
       renderThermostatWizardIntoDom(currentMappings, makeRow);
     } else if (ModuleRegistry[selectedDef?.id]?.renderWizardInputs) {
       ModuleRegistry[selectedDef?.id].renderWizardInputs(currentMappings, makeRow);
@@ -477,7 +477,7 @@ async function loadInstances() {
 
 // ── Instance card rendering ───────────────────────────────────────────────
 function renderInstanceMapRows(inst, def, maps) {
-  if (inst?.module_id === 'thermostat' && def) {
+  if (inst?.module_id === 'advanced_thermostat' && def) {
     const byKey = (key) => maps.find(x => x.input_key === key);
     const compactValue = (key) => getMapDisplayValue(byKey(key));
     const compactParts = [];
@@ -576,7 +576,7 @@ function renderInstanceMapRows(inst, def, maps) {
 }
 
 function renderCompactBadge(label, value, extraClass = "") {
-  return `<span class="compact-badge ${escapeHTML(extraClass)}"><span class="k">${escapeHtml(label)}</span><span class="v">${escapeHtml(value)}</span></span>`;
+  return `<span class="compact-badge ${escapeHTML(extraClass)}"><span class="k">${escapeHTML(label)}</span><span class="v">${escapeHTML(value)}</span></span>`;
 }
 
 function renderMapItem(label, value, key, opts = {}) {
@@ -706,8 +706,8 @@ async function enrichCard(inst) {
         <div class="sp-title">\uD83D\uDCCB Recent Actions</div>
         ${log.map(l => `<div class="log-row">
           <span class="log-ts">${new Date(l.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-          <span class="log-action ${escapeHtml(l.action)}">${escapeHtml(l.action)}</span>
-          <span style="color:var(--muted2);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(l.reason)}</span>
+          <span class="log-action ${escapeHTML(l.action)}">${escapeHTML(l.action)}</span>
+          <span style="color:var(--muted2);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHTML(l.reason)}</span>
         </div>`).join("")}
       </div>`;
     }
