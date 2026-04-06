@@ -511,7 +511,7 @@ function createEspHomeNativeClient(ctx = {}, initialPayload = {}) {
       error: state.error,
       site_id: currentRuntime.site_id || null,
       device_id: currentRuntime.device_id || null,
-      device_name: currentRuntime.device_name || null,
+      device_name: state.device_info?.name || currentRuntime.device_name || null,
       friendly_name: currentRuntime.friendly_name || null,
       board_profile_id: currentRuntime.board_profile_id || null,
       ...(extra || {}),

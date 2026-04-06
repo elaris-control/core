@@ -80,6 +80,11 @@ class AutomationEngine {
       WHERE device_id = ? AND key = ?
       ORDER BY ts DESC LIMIT 1
     `);
+    this._getMqttTopicRoot = db.prepare(`
+      SELECT mqtt_topic_root FROM esphome_devices
+      WHERE name = ? AND deleted_at IS NULL
+      ORDER BY id DESC LIMIT 1
+    `);
     this._getSetting = db.prepare(`
       SELECT value FROM module_settings WHERE instance_id = ? AND key = ?
     `);
@@ -528,9 +533,11 @@ class AutomationEngine {
     }
 
     if (!this.mqttApi) return { ok: false, error: "mqtt_not_ready" };
+    const mqttRootRow = this._getMqttTopicRoot.get(io.device_id);
+    const mqttTopicRoot = String(mqttRootRow?.mqtt_topic_root || '').trim() || null;
     let sent = null;
     if (this.mqttApi.sendCommand) {
-      sent = this.mqttApi.sendCommand(io.device_id, io.key, normalized);
+      sent = this.mqttApi.sendCommand(io.device_id, io.key, normalized, mqttTopicRoot);
     } else if (this.mqttApi.publish) {
       this.mqttApi.publish(io.device_id, io.key, normalized);
       sent = { topic: `${io.device_id}/${io.key}`, payload: normalized };

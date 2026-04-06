@@ -383,9 +383,11 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  function sendCommand(deviceId, key, value) {
+  function sendCommand(deviceId, key, value, topicRoot = null) {
     const payload = typeof value === "string" ? value : JSON.stringify(value);
-    const topicCmnd = elarisCommandTopic(deviceId, key);
+    const topicCmnd = topicRoot
+      ? `${topicRoot}/cmnd/${key}`
+      : elarisCommandTopic(deviceId, key);
     client.publish(topicCmnd, payload, { qos: 0, retain: false });
     emit("command_sent", { deviceId, key, value: payload, topic: topicCmnd });
     console.log("[MQTT] publish", topicCmnd, payload);

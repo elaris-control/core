@@ -514,30 +514,15 @@
             <span class="form-hint">The imported card and pending IO rows will be attached to this site.</span>
           </div>
 
-          <div class="form-row">
-            <label>Device name</label>
-            <input type="text" id="nativeImportDeviceName" placeholder="e.g. kc868-yard-external">
-            <span class="form-hint">Used as the ELARIS device ID for pending/approved IO.</span>
-          </div>
-          <div class="form-row">
-            <label>Friendly name</label>
-            <input type="text" id="nativeImportFriendlyName" placeholder="Optional display label">
-            <span class="form-hint">Optional UI label for the installer card.</span>
-          </div>
+          <input type="hidden" id="nativeImportDeviceName">
+          <input type="hidden" id="nativeImportFriendlyName">
+          <input type="hidden" id="nativeImportHostname">
+          <input type="hidden" id="nativeImportApiHost">
+          <input type="hidden" id="nativeImportMqttRoot">
           <div class="form-row">
             <label>Device IP</label>
             <input type="text" id="nativeImportIp" placeholder="e.g. 192.168.1.70">
-            <span class="form-hint">Stored on the card for identity / future sync. No write/provisioning is done in this step.</span>
-          </div>
-          <div class="form-row">
-            <label>Hostname (optional)</label>
-            <input type="text" id="nativeImportHostname" placeholder="e.g. kc868-yard.local">
-            <span class="form-hint">Optional secondary identity key.</span>
-          </div>
-          <div class="form-row">
-            <label>Native API host</label>
-            <input type="text" id="nativeImportApiHost" placeholder="Defaults to Device IP">
-            <span class="form-hint">Saved as metadata for the future live native sync path.</span>
+            <span class="form-hint">The device IP address — used to connect and read device info.</span>
           </div>
           <div class="form-row">
             <label>Native API port</label>
@@ -545,14 +530,9 @@
             <span class="form-hint">Default ESPHome native API port is 6053.</span>
           </div>
           <div class="form-row">
-            <label>Encryption key / API secret (optional)</label>
-            <input type="text" id="nativeImportEncryption" placeholder="Stored only as metadata flag in this step">
-            <span class="form-hint">This step does not connect yet; it only marks that a key exists for the future native sync path.</span>
-          </div>
-          <div class="form-row">
-            <label>MQTT topic root <strong>(required for relay / AO control)</strong></label>
-            <input type="text" id="nativeImportMqttRoot" placeholder="e.g. Game_re">
-            <span class="form-hint">The device MQTT prefix — used to send commands via MQTT when the native API session is not yet live. Must match the <code>topic</code> in the device ESPHome YAML.</span>
+            <label>Encryption key (optional)</label>
+            <input type="text" id="nativeImportEncryption" placeholder="Leave empty if device has no encryption">
+            <span class="form-hint">Required only if the device has a native API encryption key set in its YAML.</span>
           </div>
           <div class="form-row">
             <label>Import mode</label>

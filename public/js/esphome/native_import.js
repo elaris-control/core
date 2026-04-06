@@ -291,7 +291,7 @@ function nativeImportCollectPayload() {
     friendly_name: friendlyName || deviceName,
     ip_address: String((document.getElementById('nativeImportIp') || {}).value || (selected && selected.ip_address) || '').trim(),
     hostname: String((document.getElementById('nativeImportHostname') || {}).value || (selected && selected.hostname) || '').trim(),
-    api_host: String((document.getElementById('nativeImportApiHost') || {}).value || (selected && (selected.api_host || selected.ip_address)) || '').trim(),
+    api_host: String((document.getElementById('nativeImportApiHost') || {}).value || (selected && (selected.api_host || selected.ip_address)) || (document.getElementById('nativeImportIp') || {}).value || '').trim(),
     api_port: Number((document.getElementById('nativeImportApiPort') || {}).value || 6053),
     encryption_key: String((document.getElementById('nativeImportEncryption') || {}).value || '').trim(),
     mqtt_topic_root: String((document.getElementById('nativeImportMqttRoot') || {}).value || '').trim(),
@@ -642,7 +642,7 @@ async function nativeRefreshSession() {
     if (msg) msg.textContent = 'Refreshing native session…';
     var out = await api('/integrations/esphome/native-refresh', { method: 'POST', body: JSON.stringify(payload) });
     var session = out.session || {};
-    nativeAdoptSession(session, { fillInputs: false });
+    nativeAdoptSession(session, { fillInputs: true });
     if (msg) msg.innerHTML = nativeSessionSummaryHtml(session);
   } catch (e) {
     if (msg) msg.innerHTML = '<span style="color:var(--bad)">Refresh failed:</span> ' + escHtml(e.message || String(e));
