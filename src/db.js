@@ -701,6 +701,16 @@ db.exec(`
       if (current.site_id == null && siteId != null) current.site_id = siteId;
     }
 
+    // If both state::key and tele::key exist for the same key, drop the tele entry
+    const stateKeys = new Set();
+    for (const [mapKey, row] of aggregated) {
+      if (row.group_name === 'state') stateKeys.add(row.key);
+    }
+    for (const mapKey of aggregated.keys()) {
+      const row = aggregated.get(mapKey);
+      if (row.group_name === 'tele' && stateKeys.has(row.key)) aggregated.delete(mapKey);
+    }
+
     db.transaction(() => {
       db.prepare(`DELETE FROM pending_io WHERE device_id=?`).run(id);
       for (const row of aggregated.values()) {
@@ -765,7 +775,7 @@ db.exec(`
     const reportedKeys = [];
     for (const e of entities) {
       if (!e?.key) continue;
-      const group = e.group || (e.type === 'relay' ? 'state' : 'tele');
+      const group = e.group || (['relay', 'analog_out', 'ao', 'dimmer'].includes(e.type) ? 'state' : 'tele');
       const canonical = canonicalizePendingIdentity({ deviceId, group, key: e.key, source: e.source || e.port_id || e.bus_id || e.pin || null, boardProfileId });
       reportedKeys.push({ group_name: canonical.group_name, key: canonical.key });
       if (isApprovedIO.get(deviceId, canonical.group_name, canonical.key)) continue;
@@ -865,7 +875,7 @@ db.exec(`
     const profile = getRuntimeBoardProfile(boardProfileId);
     const defaults = Array.isArray(profile?.entityDefaults) ? profile.entityDefaults : [];
     for (const e of defaults) {
-      const group = e.type === 'relay' ? 'state' : 'tele';
+      const group = ['relay', 'analog_out', 'ao', 'dimmer'].includes(e.type) ? 'state' : 'tele';
       const canonical = canonicalizePendingIdentity({ deviceId, group, key: e.key, source: e.source || e.port_id || e.bus_id || e.pin || null, boardProfileId });
       const alreadyApproved = isApprovedIO.get(deviceId, canonical.group_name, canonical.key)
         || (canonical.port_id && findApprovedIOByPath.get(deviceId, canonical.port_id, canonical.source || canonical.port_id, canonical.port_id));

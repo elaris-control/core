@@ -34,7 +34,7 @@ function buildManagedConfigJson({ deviceName, boardProfileId, boardLabel, entiti
     .filter((e) => e && e.key)
     .map((e) => ({
       key: String(e.key),
-      group: String(e.group || (String(e.type || '').toLowerCase() === 'relay' ? 'state' : 'tele')),
+      group: String(e.group || (['relay', 'analog_out', 'ao', 'dimmer'].includes(String(e.type || '').toLowerCase()) ? 'state' : 'tele')),
       type: String(e.type || 'sensor'),
       name: String(e.name || e.key),
     }));
@@ -515,7 +515,7 @@ function seedPendingFromManagedEntities(dbApi, deviceId, boardProfileId, entitie
       board_profile_id: boardProfileId || null,
       entities: entitiesMap.map((e) => ({
         key: e.key,
-        group: e.group || (String(e.type || '').toLowerCase() === 'relay' ? 'state' : 'tele'),
+        group: e.group || (['relay', 'analog_out', 'ao', 'dimmer'].includes(String(e.type || '').toLowerCase()) ? 'state' : 'tele'),
         type: e.type,
         name: e.name || e.key,
         yaml_id: e.yaml_id || null,
@@ -724,7 +724,7 @@ function mountFlashRoutes({ app, db, dbApi, wsApi, dataDir, cfgDir, venvDir, req
     const managedEntities = Array.isArray(parsed.entityDefaults) ? parsed.entityDefaults.map((e) => ({
       key: e.key,
       yaml_id: e.yaml_id || null,
-      group: e.group || (String(e.type || '').toLowerCase() === 'relay' ? 'state' : 'tele'),
+      group: e.group || (['relay', 'analog_out', 'ao', 'dimmer'].includes(String(e.type || '').toLowerCase()) ? 'state' : 'tele'),
       type: e.type,
       name: e.name || e.key,
       source: e.source || null,

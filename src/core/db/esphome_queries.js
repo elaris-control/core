@@ -201,7 +201,7 @@ function createEspHomeQueries(db, { getProfile, getCatalogProfile, findBoardPort
     const profile = getRuntimeBoardProfile(boardProfileId);
     const defaults = Array.isArray(profile?.entityDefaults) ? profile.entityDefaults : [];
     for (const e of defaults) {
-      const group = e.type === 'relay' ? 'state' : 'tele';
+      const group = ['relay', 'analog_out', 'ao', 'dimmer'].includes(e.type) ? 'state' : 'tele';
       const canonical = canonicalizePendingIdentity({ deviceId, group, key: e.key, source: e.source || e.port_id || e.bus_id || e.pin || null, boardProfileId });
       const alreadyApproved = isApprovedIO.get(deviceId, canonical.group_name, canonical.key)
         || (canonical.port_id && findApprovedIOByPath.get(deviceId, canonical.port_id, canonical.source || canonical.port_id, canonical.port_id));
@@ -241,7 +241,7 @@ function createEspHomeQueries(db, { getProfile, getCatalogProfile, findBoardPort
     const reportedKeys = [];
     for (const e of entities) {
       if (!e?.key) continue;
-      const group = e.group || (e.type === 'relay' ? 'state' : 'tele');
+      const group = e.group || (['relay', 'analog_out', 'ao', 'dimmer'].includes(e.type) ? 'state' : 'tele');
       const canonical = canonicalizePendingIdentity({ deviceId, group, key: e.key, source: e.source || e.port_id || e.bus_id || e.pin || null, boardProfileId });
       reportedKeys.push({ group_name: canonical.group_name, key: canonical.key });
       if (isApprovedIO.get(deviceId, canonical.group_name, canonical.key)) continue;

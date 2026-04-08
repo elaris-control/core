@@ -141,6 +141,18 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
           const finalGroup = String(canonical.group_name || group).trim();
           const finalKey = String(canonical.key || key).trim();
           if (!finalKey) { skipped++; continue; }
+
+          // Skip AO entries in 'tele' group if AO already exists in 'state' (approved or pending)
+          if (finalKey.startsWith('ao_') && finalGroup === 'tele') {
+            const stateApproved = dbApi.db.prepare(
+              `SELECT 1 FROM io WHERE device_id=? AND key=? AND group_name='state' AND (type='ao' OR hw_type='ao') LIMIT 1`
+            ).get(canonicalDeviceId, finalKey);
+            const statePending = dbApi.db.prepare(
+              `SELECT 1 FROM pending_io WHERE device_id=? AND key=? AND group_name='state' LIMIT 1`
+            ).get(canonicalDeviceId, finalKey);
+            if (stateApproved || statePending) { skipped++; continue; }
+          }
+
           if (isBlocked.get(canonicalDeviceId, finalGroup, finalKey)) { skipped++; continue; }
           if (isApproved.get(canonicalDeviceId, finalGroup, finalKey)) { skipped++; continue; }
           if (canonical.port_id && isApprovedByPath.get(canonicalDeviceId, canonical.port_id, canonical.source || canonical.port_id, canonical.port_id)) { skipped++; continue; }
@@ -172,7 +184,7 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
               for (const e of entities) {
                 const key = String(e?.key || '').trim();
                 if (!key) continue;
-                const group = (e.type === 'relay' || e.type === 'ao') ? 'state' : 'tele';
+                const group = ['relay', 'ao', 'analog_out', 'dimmer'].includes(e.type) ? 'state' : 'tele';
                 if (isBlocked.get(canonicalDeviceId, group, key)) continue;
                 if (isApproved.get(canonicalDeviceId, group, key)) continue;
                 const ts = Date.now();
@@ -323,6 +335,16 @@ function initEntitiesRoutes({ dbApi, requireEngineerAccess }) {
       else if (klass === 'DI') { finalType = 'sensor'; hw_type = 'di'; kind = 'digital_input'; }
       else if (klass === 'AI') { finalType = 'sensor'; hw_type = 'analog'; kind = 'analog_input'; }
       else if (klass === 'AO') { finalType = 'ao'; hw_type = 'ao'; kind = 'analog_output'; }
+
+      // Prevent approving AO in tele group if AO already exists in state group
+      if (finalType === 'ao' && pendingRow?.group_name === 'tele') {
+        const stateAOExists = dbApi.db.prepare(
+          `SELECT 1 FROM io WHERE device_id=? AND key=? AND group_name='state' AND (type='ao' OR hw_type='ao') LIMIT 1`
+        ).get(device_id, pendingRow.key);
+        if (stateAOExists) {
+          return res.status(400).json({ ok: false, error: 'AO already exists in state group, cannot approve in tele' });
+        }
+      }
 
       const out = dbApi.approvePending({
         pending_id,
