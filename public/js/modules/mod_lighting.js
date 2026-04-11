@@ -122,6 +122,7 @@ function renderLightingSummary(inst, settings, live) {
 
 registerModule('lighting', {
   hasAuto: true,
+  showAllOptionalInputsInEdit: true,
   summaryBoxId: 'lightingCommissioningSummary',
   updateCommissioningSummary(m) { updateLightingCommissioningSummary(m); },
   renderSummary(inst, s, live) { return renderLightingSummary(inst, s, live); },

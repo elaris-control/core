@@ -10,7 +10,14 @@ const switchPrev      = new Map();
 const switchDebounce  = new Map();
 const followTimers    = new Map();
 const adaptiveState   = new Map();
-const triggerHistory  = new Map();
+
+const SMART_LIGHTING_SETTING_KEYS = [
+  'test_mode',
+  'adaptive_brightness', 'adaptive_lux_dark', 'adaptive_lux_medium', 'adaptive_dark_level', 'adaptive_medium_level', 'adaptive_bright_level', 'adaptive_source_key', 'adaptive_output_key',
+  'follow_me', 'follow_me_timeout', 'follow_me_level', 'follow_me_pairs',
+  'sunrise_enabled', 'sunrise_start', 'sunrise_end', 'sunrise_output',
+  'sleep_enabled', 'sleep_start', 'sleep_end', 'sleep_output',
+];
 
 // ── Time helpers ────────────────────────────────────────────────────────────
 function siteNowParts(siteInfo) {
@@ -26,6 +33,42 @@ function siteNowParts(siteInfo) {
 function nowMin(siteInfo) { const p = siteNowParts(siteInfo); return p.hour * 60 + p.minute; }
 function siteDayKey(siteInfo) { const p = siteNowParts(siteInfo); return `${p.year}-${String(p.month).padStart(2,'0')}-${String(p.day).padStart(2,'0')}`; }
 function parseClockValue(str) { const m = String(str||'').match(/^(\d{1,2}):(\d{2})$/); return m ? Math.max(0,Math.min(23,Number(m[1])))*60+Math.max(0,Math.min(59,Number(m[2]))) : null; }
+
+function loadSmartLightingSettings(ctx) {
+  const settings = {};
+  try { Object.assign(settings, JSON.parse(ctx.settingStr('settings', '{}'))); } catch {}
+  for (const key of SMART_LIGHTING_SETTING_KEYS) {
+    const raw = ctx.settingStr(key, '');
+    if (raw !== '') settings[key] = raw;
+  }
+  return settings;
+}
+
+function parseFollowMePairs(raw) {
+  try {
+    const parsed = JSON.parse(String(raw || '[]'));
+    return Array.isArray(parsed) ? parsed.filter(p => p && p.input_key && p.output_key) : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseBinaryState(raw) {
+  return raw === 'ON' || raw === '1' || raw === 'true';
+}
+
+function getMappedInputKeys(ctx, prefix) {
+  return (ctx.mappings || []).filter(m => String(m.input_key || '').startsWith(prefix)).map(m => String(m.input_key));
+}
+
+function resolveScenarioInputKey(scenario, keys, fallbackKeys = []) {
+  const preferred = String(scenario?.trigger_input_key || '').trim();
+  if (preferred && keys.includes(preferred)) return preferred;
+  for (const key of fallbackKeys) {
+    if (keys.includes(key)) return key;
+  }
+  return keys[0] || '';
+}
 
 // ── Core: activate scenario ─────────────────────────────────────────────────
 function activateScenario(instId, scenario, ctx, send, reason) {
@@ -62,8 +105,14 @@ function sendOutput(send, ctx, ioKey, value, reason) { const io = ctx.io(ioKey);
 
 // ── FEATURE 1: Adaptive Brightness ──────────────────────────────────────────
 function evaluateAdaptiveBrightness(instId, ctx, send, settings) {
+  if (activeScenario.get(instId)?.manual === true) return;
   if (String(settings.adaptive_brightness||'0') !== '1') return;
-  const luxVals = (ctx.mappings||[]).filter(m=>m.input_key.startsWith('ai_')).map(m => { const v = parseFloat(ctx.state(m.input_key)); return isNaN(v)?null:{key:m.input_key,value:v}; }).filter(Boolean);
+  const sourceKey = String(settings.adaptive_source_key || '').trim();
+  const luxVals = (ctx.mappings||[])
+    .filter(m=>m.input_key.startsWith('ai_'))
+    .filter(m => !sourceKey || m.input_key === sourceKey)
+    .map(m => { const v = parseFloat(ctx.state(m.input_key)); return isNaN(v)?null:{key:m.input_key,value:v}; })
+    .filter(Boolean);
   if (!luxVals.length) return;
   const luxVal = luxVals[0].value;
   const darkT = Number(settings.adaptive_lux_dark||50);
@@ -80,7 +129,8 @@ function evaluateAdaptiveBrightness(instId, ctx, send, settings) {
   const prev = adaptiveState.get(instId);
   if (prev && Math.abs(prev.lastLevel-targetLevel) < 5) return;
 
-  (ctx.mappings||[]).filter(m=>m.input_key.startsWith('ao_')).forEach(m => {
+  const targetOutputKey = String(settings.adaptive_output_key || '').trim();
+  (ctx.mappings||[]).filter(m=>m.input_key.startsWith('ao_')).filter(m => !targetOutputKey || m.input_key === targetOutputKey).forEach(m => {
     const io = ctx.io(m.input_key);
     if (io && (io.type==='analog'||io.type==='ao'||io.type==='dimmer'))
       sendOutput(send, ctx, m.input_key, targetLevel, `Adaptive: ${luxVal.toFixed(0)} lux`);
@@ -96,23 +146,27 @@ function evaluateFollowMe(instId, ctx, send, settings) {
   const outputMappings = (ctx.mappings||[]).filter(m=>m.input_key.startsWith('do_')||m.input_key.startsWith('ao_'));
   if (!diMappings.length) return;
 
-  for (let i = 0; i < diMappings.length; i++) {
-    const dm = diMappings[i];
-    const raw = ctx.state(dm.input_key);
+  const explicitPairs = parseFollowMePairs(settings.follow_me_pairs);
+  const effectivePairs = explicitPairs.length
+    ? explicitPairs
+    : diMappings.map((dm, i) => ({ input_key: dm.input_key, output_key: outputMappings[i]?.input_key || '' })).filter(p => p.output_key);
+
+  for (let i = 0; i < effectivePairs.length; i++) {
+    const pair = effectivePairs[i];
+    const raw = ctx.state(pair.input_key);
     const isOn = raw==='ON'||raw==='1'||raw==='true';
-    const timerKey = `${instId}:${dm.input_key}`;
-    const outMapping = outputMappings[i];
-    if (!outMapping) continue;
+    const timerKey = `${instId}:${pair.input_key}`;
+    if (!pair.output_key) continue;
 
     if (isOn) {
       const t = followTimers.get(timerKey); if(t) clearTimeout(t); followTimers.delete(timerKey);
-      const io = ctx.io(outMapping.input_key);
+      const io = ctx.io(pair.output_key);
       const isAnalog = io && (io.type==='analog'||io.type==='ao'||io.type==='dimmer');
-      sendOutput(send, ctx, outMapping.input_key, isAnalog ? Number(settings.follow_me_level||100) : 'ON', `Follow-me: ${dm.input_key} ON`);
+      sendOutput(send, ctx, pair.output_key, isAnalog ? Number(settings.follow_me_level||100) : 'ON', `Follow-me: ${pair.input_key} ON`);
     } else {
       const t = followTimers.get(timerKey); if(t) clearTimeout(t);
       const timer = setTimeout(() => {
-        sendOutput(send, ctx, outMapping.input_key, 0, `Follow-me: ${dm.input_key} OFF`);
+        sendOutput(send, ctx, pair.output_key, 0, `Follow-me: ${pair.input_key} OFF`);
         followTimers.delete(timerKey);
       }, timeout);
       followTimers.set(timerKey, timer);
@@ -160,6 +214,11 @@ function startRoutine(instId, outputKey, startMin, endMin, fromLevel, toLevel, c
   const stepMs = durationMs/steps;
   let step = 0;
   const timer = setInterval(() => {
+    const current = activeScenario.get(instId);
+    if (current && current.manual) {
+      clearInterval(timer);
+      return;
+    }
     step++;
     const level = Math.round(fromLevel + (toLevel-fromLevel)*(step/steps));
     sendOutput(send, ctx, outputKey, level, `${label}: ${level}%`);
@@ -168,53 +227,55 @@ function startRoutine(instId, outputKey, startMin, endMin, fromLevel, toLevel, c
 }
 
 // ── Trigger evaluators ──────────────────────────────────────────────────────
-function shouldFireTrigger(instId, scenarioId, key) {
-  const mem = triggerHistory.get(instId) || {};
-  if (mem[scenarioId] === key) return false;
-  mem[scenarioId] = key;
-  triggerHistory.set(instId, mem);
-  return true;
-}
-
 function evaluatePirTrigger(instId, enabled, ctx) {
   const pirScenarios = enabled.filter(s => s.trigger === 'pir');
   if (!pirScenarios.length) return null;
-  const pir = ctx.state('pir_sensor');
-  if (pir !== 'ON' && pir !== '1' && pir !== 'true') return null;
-  const best = pirScenarios.sort((a,b)=>(b.priority||0)-(a.priority||0))[0];
-  const cur = activeScenario.get(instId);
-  if (!cur || cur.id !== best.id) return { action:'activate', scenario:best, reason:'PIR motion' };
-  return { action:'extend_timer', scenario:best };
+  const diKeys = getMappedInputKeys(ctx, 'di_');
+  if (!diKeys.length) return null;
+  const sorted = pirScenarios.sort((a,b)=>(b.priority||0)-(a.priority||0));
+  for (const scenario of sorted) {
+    const inputKey = resolveScenarioInputKey(scenario, diKeys);
+    if (!inputKey) continue;
+    const pir = ctx.state(inputKey);
+    if (!parseBinaryState(pir)) continue;
+    const cur = activeScenario.get(instId);
+    if (!cur || cur.id !== scenario.id) return { action:'activate', scenario, reason:`PIR ${inputKey}` };
+    return { action:'extend_timer', scenario, reason:`PIR ${inputKey}` };
+  }
+  return null;
 }
 
 function evaluateSwitchTrigger(instId, enabled, ctx) {
   const swScenarios = enabled.filter(s => s.trigger === 'switch');
   if (!swScenarios.length) return null;
-  const cur = activeScenario.get(instId);
-  if (cur && cur.manual) return null;
-
   const diMappings = (ctx.mappings||[]).filter(m=>m.input_key.startsWith('di_'));
   for (const dm of diMappings) {
     const sw = ctx.state(dm.input_key);
-    const swOn = sw==='ON'||sw==='1'||sw==='true';
+    const swOn = parseBinaryState(sw);
     const prevKey = `${instId}:${dm.input_key}`;
     const prevOn = switchPrev.get(prevKey) === true;
     const now = Date.now();
     const lastChange = switchDebounce.get(prevKey) || 0;
     if (now - lastChange < 400) continue;
     if (swOn !== prevOn) { switchDebounce.set(prevKey, now); switchPrev.set(prevKey, swOn); }
-    if (swOn && !prevOn) return evaluateSwitchCycle(instId, swScenarios);
+    if (swOn && !prevOn) {
+      const scoped = swScenarios.filter(s => {
+        const selected = String(s.trigger_input_key || '').trim();
+        return !selected || selected === dm.input_key;
+      });
+      if (scoped.length) return evaluateSwitchCycle(instId, scoped, `Wall switch ${dm.input_key}`);
+    }
   }
   return null;
 }
 
-function evaluateSwitchCycle(instId, swScenarios) {
+function evaluateSwitchCycle(instId, swScenarios, reason) {
   const cur = activeScenario.get(instId);
   const curIdx = swScenarios.findIndex(s => s.id === cur?.id);
   const nextIdx = (curIdx+1) % (swScenarios.length+1);
   const next = swScenarios[nextIdx];
   if (!next) return { action:'switch_off' };
-  return { action:'activate', scenario:next, reason:'Wall switch' };
+  return { action:'activate', scenario:next, reason:reason || 'Wall switch' };
 }
 
 function evaluateTimeSunTriggers(instId, enabled, ctx, siteInfo) {
@@ -233,19 +294,31 @@ function evaluateTimeSunTriggers(instId, enabled, ctx, siteInfo) {
       if (target !== null && oncePerMinute(instId, `smart_sun_${s.id}`, target, siteInfo, 2) && (!cur || cur.id !== s.id))
         return { action:'activate', scenario:s, reason:`Sun: ${s.trigger_sun}` };
     }
+    if ((s.trigger==='sunset'||s.trigger==='sunrise') && !s.trigger_sun) {
+      const offset = Number(s.trigger_offset || 0);
+      const expr = `${s.trigger}${offset > 0 ? `+${offset}` : offset < 0 ? `${offset}` : ''}`;
+      const target = parseSunTime(expr, sun);
+      const cur = activeScenario.get(instId);
+      if (target !== null && oncePerMinute(instId, `smart_sun_${s.id}`, target, siteInfo, 2) && (!cur || cur.id !== s.id))
+        return { action:'activate', scenario:s, reason:`Sun: ${expr}` };
+    }
   }
   return null;
 }
 
 function evaluateLuxTrigger(instId, enabled, ctx) {
-  const luxVal = ctx.value('ai_1') ?? ctx.value('lux_sensor') ?? null;
-  if (luxVal === null) return null;
+  const aiKeys = getMappedInputKeys(ctx, 'ai_');
+  if (!aiKeys.length) return null;
   const luxScenarios = enabled.filter(s => s.trigger==='lux' && s.trigger_lux_max != null);
   for (const s of luxScenarios.sort((a,b)=>(b.priority||0)-(a.priority||0))) {
+    const inputKey = resolveScenarioInputKey(s, aiKeys, ['ai_1', 'lux_sensor']);
+    if (!inputKey) continue;
+    const luxVal = ctx.value(inputKey) ?? Number(ctx.state(inputKey));
+    if (luxVal == null || Number.isNaN(Number(luxVal))) continue;
     const threshold = Number(s.trigger_lux_max);
     const isDark = luxVal < threshold;
     const cur = activeScenario.get(instId);
-    if (isDark && (!cur || cur.id !== s.id)) return { action:'activate', scenario:s, reason:`Lux: ${luxVal.toFixed(0)} < ${threshold}` };
+    if (isDark && (!cur || cur.id !== s.id)) return { action:'activate', scenario:s, reason:`Lux ${inputKey}: ${Number(luxVal).toFixed(0)} < ${threshold}` };
     if (!isDark && cur?.id === s.id) return { action:'lux_deactivate', scenario:s, luxVal };
   }
   return null;
@@ -267,20 +340,32 @@ function smartLightingHandler(ctx, send, siteInfo) {
   try { scenarios = JSON.parse(scenariosJson); } catch(e) { console.warn('[SMART_LIGHTING] Invalid scenarios:', e.message); return; }
   if (!Array.isArray(scenarios)) return;
 
-  const settings = {};
-  try { Object.assign(settings, JSON.parse(ctx.settingStr('settings','{}'))); } catch {}
+  const settings = loadSmartLightingSettings(ctx);
 
   // Features
   evaluateAdaptiveBrightness(instId, ctx, send, settings);
   evaluateFollowMe(instId, ctx, send, settings);
   evaluateSunriseSleep(instId, ctx, send, settings, siteInfo);
 
-  // Scenario triggers (only if no manual override)
+  // Scenario triggers
   const current = activeScenario.get(instId);
   const enabled = scenarios.filter(s => s.enabled !== false);
 
-  if (!current || !current.manual) {
-    if (enabled.length) {
+  if (enabled.length) {
+    // Wall switch always fires — even during manual override
+    const switchResult = evaluateSwitchTrigger(instId, enabled, ctx);
+    if (switchResult) {
+      if (switchResult.action === 'activate') { activateScenario(instId, switchResult.scenario, ctx, send, switchResult.reason); }
+      else if (switchResult.action === 'switch_off') {
+        activeScenario.delete(instId); clearOffTimer(instId); ctx.setSetting('_active_scenario','');
+        enabled.forEach(s => (s.outputs||[]).forEach(o => sendOutput(send, ctx, o.io_key, 0, 'Switch: OFF')));
+        ctx.broadcastState?.({ status:'idle', active_scene:null, active_scene_name:null, manual_override:true, motion_active:false, schedule_active:false, output_on: false, lux_value:ctx.value('ai_1')??ctx.value('lux_sensor')??null, last_reason:'Switch: OFF' });
+      }
+      return;
+    }
+
+    // Remaining triggers only fire when no manual override is active
+    if (!current || !current.manual) {
       const pirResult = evaluatePirTrigger(instId, enabled, ctx);
       if (pirResult) {
         if (pirResult.action === 'activate') { activateScenario(instId, pirResult.scenario, ctx, send, pirResult.reason); }
@@ -290,17 +375,6 @@ function smartLightingHandler(ctx, send, siteInfo) {
             const t = setTimeout(() => { activeScenario.delete(instId); (pirResult.scenario.outputs||[]).forEach(o => sendOutput(send, ctx, o.io_key, 0, `Auto-off: ${pirResult.scenario.name}`)); }, pirResult.scenario.off_after*60000);
             offTimers.set(instId, t);
           }
-        }
-        return;
-      }
-
-      const switchResult = evaluateSwitchTrigger(instId, enabled, ctx);
-      if (switchResult) {
-        if (switchResult.action === 'activate') { activateScenario(instId, switchResult.scenario, ctx, send, switchResult.reason); }
-        else if (switchResult.action === 'switch_off') {
-          activeScenario.delete(instId); clearOffTimer(instId); ctx.setSetting('_active_scenario','');
-          enabled.forEach(s => (s.outputs||[]).forEach(o => sendOutput(send, ctx, o.io_key, 0, 'Switch: OFF')));
-          ctx.broadcastState?.({ status:'idle', active_scene:null, active_scene_name:null, manual_override:true, motion_active:false, schedule_active:false, lux_value:ctx.value('ai_1')??ctx.value('lux_sensor')??null, last_reason:'Switch: OFF' });
         }
         return;
       }
@@ -364,4 +438,4 @@ const SMART_LIGHTING_MODULE = {
   ],
 };
 
-module.exports = { smartLightingHandler, SMART_LIGHTING_MODULE, activeScenario };
+module.exports = { smartLightingHandler, SMART_LIGHTING_MODULE, activeScenario, adaptiveState, switchPrev, switchDebounce };

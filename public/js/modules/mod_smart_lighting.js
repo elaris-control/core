@@ -86,6 +86,68 @@ function renderSmartLightingSummary(inst, scenarios, live) {
   return html;
 }
 
+function getSmartLightingDimmerOptions(inst) {
+  return (inst.mappings || [])
+    .filter(m => m.io_id && String(m.input_key).startsWith('ao_'))
+    .map(m => ({ value: String(m.input_key), label: `${m.input_key} - ${m.io_name || m.io_key || m.input_key}` }));
+}
+
+function getSmartLightingOutputOptions(inst) {
+  return (inst.mappings || [])
+    .filter(m => m.io_id && (String(m.input_key).startsWith('do_') || String(m.input_key).startsWith('ao_')))
+    .map(m => ({ value: String(m.input_key), label: `${m.input_key} - ${m.io_name || m.io_key || m.input_key}` }));
+}
+
+function getSmartLightingInputOptions(inst, prefix) {
+  return (inst.mappings || [])
+    .filter(m => m.io_id && String(m.input_key).startsWith(prefix))
+    .map(m => ({ value: String(m.input_key), label: `${m.input_key} - ${m.io_name || m.io_key || m.input_key}` }));
+}
+
+function parseSmartLightingPairs(raw) {
+  try {
+    const parsed = JSON.parse(String(raw || '[]'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function renderSmartLightingAdaptiveEditor(inst, settings) {
+  const aiOptions = [{ value: '', label: 'Auto select first AI input' }, ...getSmartLightingInputOptions(inst, 'ai_')];
+  const aoOptions = [{ value: '', label: 'All mapped AO outputs' }, ...getSmartLightingDimmerOptions(inst)];
+  if (aiOptions.length <= 1 && aoOptions.length <= 1) return '';
+  return `<details class="sp-group" style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">🎯 Adaptive Routing</summary>
+    <div class="sp-row"><span class="sp-label">Lux source AI</span><div class="sp-ctrl"><select class="sp-select" onchange="saveSP(${inst.id},'adaptive_source_key',this.value)">${aiOptions.map(o => `<option value="${escapeHTML(String(o.value))}" ${String(settings.adaptive_source_key || '') === String(o.value) ? 'selected' : ''}>${escapeHTML(o.label)}</option>`).join('')}</select></div><div class="sp-help" style="font-size:10px;color:var(--muted);margin-top:2px">Choose which AI input provides the lux value for adaptive dimming.</div></div>
+    <div class="sp-row"><span class="sp-label">Adaptive AO target</span><div class="sp-ctrl"><select class="sp-select" onchange="saveSP(${inst.id},'adaptive_output_key',this.value)">${aoOptions.map(o => `<option value="${escapeHTML(String(o.value))}" ${String(settings.adaptive_output_key || '') === String(o.value) ? 'selected' : ''}>${escapeHTML(o.label)}</option>`).join('')}</select></div><div class="sp-help" style="font-size:10px;color:var(--muted);margin-top:2px">Limit adaptive dimming to one AO output, or leave blank to drive all mapped AO outputs.</div></div>
+  </details>`;
+}
+
+function renderSmartLightingFollowMeEditor(inst, settings) {
+  const diOptions = getSmartLightingInputOptions(inst, 'di_');
+  const outOptions = getSmartLightingOutputOptions(inst);
+  if (!diOptions.length || !outOptions.length) return '';
+  const savedPairs = parseSmartLightingPairs(settings.follow_me_pairs);
+  const rows = diOptions.map(di => {
+    const saved = savedPairs.find(p => p.input_key === di.value);
+    return `<div class="sp-row"><span class="sp-label">${escapeHTML(di.value)}</span><div class="sp-ctrl"><select class="sp-select smart-follow-pair" data-input-key="${escapeHTML(di.value)}"><option value="">No target output</option>${outOptions.map(o => `<option value="${escapeHTML(String(o.value))}" ${String(saved?.output_key || '') === String(o.value) ? 'selected' : ''}>${escapeHTML(o.label)}</option>`).join('')}</select></div><div class="sp-help" style="font-size:10px;color:var(--muted);margin-top:2px">Pick the output this DI should control in Follow-me mode.</div></div>`;
+  }).join('');
+  return `<details class="sp-group" style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">🚶 Follow-Me Pairs</summary>
+    ${rows}
+    <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn btn-xs sp-btn" onclick="saveSmartLightingFollowPairs(${inst.id})">Save pairs</button></div>
+  </details>`;
+}
+
+async function saveSmartLightingFollowPairs(instId) {
+  const selects = Array.from(document.querySelectorAll('.smart-follow-pair'));
+  const pairs = selects
+    .map(sel => ({ input_key: String(sel.dataset.inputKey || ''), output_key: String(sel.value || '') }))
+    .filter(p => p.input_key && p.output_key);
+  await saveSP(instId, 'follow_me_pairs', JSON.stringify(pairs));
+}
+
+window.saveSmartLightingFollowPairs = saveSmartLightingFollowPairs;
+
 registerModule('smart_lighting', {
   hasAuto: true,
   summaryBoxId: 'smartLightingCommissioningSummary',
@@ -129,6 +191,7 @@ registerModule('smart_lighting', {
     const def = inst.definition;
     let setpointsHtml = '';
     if (def?.setpoints?.length) {
+      const dimmerOptions = getSmartLightingDimmerOptions(inst);
       setpointsHtml = '<details class="sp-group" style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">⚙️ Settings</summary>';
       def.setpoints.forEach(sp => {
         const val = settings[sp.key] ?? sp.default ?? '';
@@ -138,6 +201,9 @@ registerModule('smart_lighting', {
           setpointsHtml += `<div class="sp-row"><span class="sp-label">${escapeHTML(sp.label)}</span><div class="sp-ctrl"><select class="sp-select" id="sp_${inst.id}_${sp.key}" onchange="saveSP(${inst.id},'${sp.key}',this.value)">${options.map(o => `<option value="${escapeHTML(String(o.value))}" ${String(val) === String(o.value) ? 'selected' : ''}>${escapeHTML(o.label)}</option>`).join('')}</select></div>${help}</div>`;
         } else if (sp.type === 'time') {
           setpointsHtml += `<div class="sp-row"><span class="sp-label">${escapeHTML(sp.label)}</span><div class="sp-ctrl"><input type="time" class="sp-input" style="width:85px" id="sp_${inst.id}_${sp.key}" value="${escapeHTML(String(val))}" onchange="saveSP(${inst.id},'${sp.key}',this.value)"></div>${help}</div>`;
+        } else if (sp.type === 'text' && (sp.key === 'sunrise_output' || sp.key === 'sleep_output')) {
+          const options = [{ value: '', label: 'Select dimmer output' }, ...dimmerOptions];
+          setpointsHtml += `<div class="sp-row"><span class="sp-label">${escapeHTML(sp.label)}</span><div class="sp-ctrl"><select class="sp-select" id="sp_${inst.id}_${sp.key}" onchange="saveSP(${inst.id},'${sp.key}',this.value)">${options.map(o => `<option value="${escapeHTML(String(o.value))}" ${String(val) === String(o.value) ? 'selected' : ''}>${escapeHTML(o.label)}</option>`).join('')}</select></div>${help}</div>`;
         } else if (sp.type === 'text') {
           setpointsHtml += `<div class="sp-row"><span class="sp-label">${escapeHTML(sp.label)}</span><div class="sp-ctrl"><input class="sp-input" type="text" id="sp_${inst.id}_${sp.key}" value="${escapeHTML(String(val))}"><button class="btn btn-xs sp-btn" onclick="saveSP(${inst.id},'${sp.key}',document.getElementById('sp_${inst.id}_${sp.key}').value)">Save</button></div>${help}</div>`;
         } else {
@@ -145,6 +211,8 @@ registerModule('smart_lighting', {
         }
       });
       setpointsHtml += '</details>';
+      setpointsHtml += renderSmartLightingAdaptiveEditor(inst, settings);
+      setpointsHtml += renderSmartLightingFollowMeEditor(inst, settings);
     }
 
     spEl.innerHTML = `

@@ -31,6 +31,14 @@ function stateOn(v) {
   return v === true || v === 1 || v === "1" || String(v || "").toUpperCase() === "ON" || String(v || "").toUpperCase() === "TRUE";
 }
 
+function makeSafeClassToken(value, fallback = 'generic') {
+  const token = String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return token || fallback;
+}
+
 function ioLabelById(ioId) {
   const io = siteIO.find(x => Number(x.id) === Number(ioId));
   if (!io) return `IO ${Number(ioId)}`;
@@ -162,7 +170,7 @@ function thermostatZoneState(zoneNum, currentMappings) {
   const keys = [`zone_${zoneNum}_temp`, `zone_${zoneNum}_call`, `zone_${zoneNum}_output`, `zone_${zoneNum}_pump`];
   const zoneDefs = keys.map(k => (selectedDef?.inputs || []).find(i => i.key === k)).filter(Boolean);
   const mappedCount = keys.filter(k => currentMappings[k]).length;
-  return { defs: zoneDefs, active: mappedCount > 0, mappedCount };
+  return { defs: zoneDefs, active: zoneNum === 1 || mappedCount > 0, mappedCount };
 }
 
 function setThermostatVisibleZones(n) {
@@ -182,14 +190,21 @@ function renderThermostatWizardIntoDom(currentMappings, rowRenderer) {
   let html = `<div class="thermo-note"><strong>Thermostat mapping</strong><br>Use <strong>zones</strong> for the normal setup. Add only the zone sensors/outputs you need. <strong>Central Pump</strong> is optional. The <strong>Legacy</strong> section is for classic single-zone compatibility.</div>`;
   const summaryBoxId = ModuleRegistry[selectedDef?.id]?.summaryBoxId;
   if (summaryBoxId) html += `<div id="${summaryBoxId}"></div>`;
+  if (editingId) {
+    html += `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid rgba(29,140,255,.24);border-radius:12px;background:rgba(29,140,255,.07);font-size:12px;color:var(--muted2);line-height:1.5"><strong style="color:var(--text)">Edit mode:</strong> Thermostat zones stay expandable here so you can add shared outputs or extra zones later without rebuilding the module.</div>`;
+  }
 
-  html += `<details class="wizard-group" open>
-    <summary>Shared outputs</summary>
-    <div class="wizard-group-body">
-      <div class="wizard-group-hint">Optional outputs that apply to the whole thermostat instance.</div>
-      ${sharedDefs.map(inp => rowRenderer(inp, false, 'compact')).join('')}
-    </div>
-  </details>`;
+  // Shared outputs — filter null rows (unmapped optional in edit mode)
+  const sharedRows = sharedDefs.map(inp => rowRenderer(inp, false, 'compact')).filter(Boolean).join('');
+  if (sharedRows) {
+    html += `<details class="wizard-group" open>
+      <summary>Shared outputs</summary>
+      <div class="wizard-group-body">
+        <div class="wizard-group-hint">Optional outputs that apply to the whole thermostat instance.</div>
+        ${sharedRows}
+      </div>
+    </details>`;
+  }
 
   html += `<details class="wizard-group" open>
     <summary>Zones</summary>
@@ -206,6 +221,9 @@ function renderThermostatWizardIntoDom(currentMappings, rowRenderer) {
       <div class="zone-grid">`;
   for (let i = 1; i <= visibleCount; i++) {
     const { defs: zDefs, active, mappedCount } = thermostatZoneState(i, currentMappings);
+    const zoneRows = zDefs.map(inp => rowRenderer(inp, false, 'compact')).filter(Boolean).join('');
+    // In edit mode: skip zones with no visible rows and no existing mappings
+    if (editingId && !zoneRows && !mappedCount) continue;
     const badge = active ? `<span class="zone-badge active">active</span>` : `<span class="zone-badge">optional</span>`;
     html += `<div class="zone-card ${active ? 'active' : ''}">
       <div class="zone-head">
@@ -216,18 +234,22 @@ function renderThermostatWizardIntoDom(currentMappings, rowRenderer) {
         ${badge}
       </div>
       <div class="zone-hint">${mappedCount ? `${mappedCount} mapping${mappedCount === 1 ? '' : 's'} selected or suggested.` : 'Leave empty if this zone is not used.'}</div>
-      ${zDefs.map(inp => rowRenderer(inp, false, 'compact')).join('')}
+      ${zoneRows}
     </div>`;
   }
   html += `</div></div></details>`;
 
-  html += `<details class="wizard-group">
-    <summary>Legacy / single-zone compatibility</summary>
-    <div class="wizard-group-body">
-      <div class="wizard-group-hint">Keep these only for older single-zone thermostat setups. For new installs, prefer Zone 1 above.</div>
-      ${legacyDefs.map(inp => rowRenderer(inp, false, 'compact')).join('')}
-    </div>
-  </details>`;
+  // Legacy — filter null rows
+  const legacyRows = legacyDefs.map(inp => rowRenderer(inp, false, 'compact')).filter(Boolean).join('');
+  if (legacyRows) {
+    html += `<details class="wizard-group">
+      <summary>Legacy / single-zone compatibility</summary>
+      <div class="wizard-group-body">
+        <div class="wizard-group-hint">Keep these only for older single-zone thermostat setups. For new installs, prefer Zone 1 above.</div>
+        ${legacyRows}
+      </div>
+    </details>`;
+  }
 
   document.getElementById("wizardInputs").innerHTML = html;
   if (summaryBoxId) {
@@ -246,11 +268,17 @@ function renderWizardInputs(currentMappings = {}) {
   function pickList(t) {
     if (t === "relay") return { list: relays, label: "relay" };
     if (t === "sensor") return { list: sensors, label: "sensor" };
-    if (t === "analog") return { list: analog, label: "analog" };
+    if (t === "analog" || t === "analog_out") return { list: analog, label: "analog" };
     return { list: allIO, label: t || "io" };
   }
 
   function makeRow(input, isDynamic = false, rowClass = "") {
+    const keepOptionalVisibleInEdit = !!ModuleRegistry[selectedDef?.id]?.showAllOptionalInputsInEdit;
+    // In edit mode: hide optional inputs that have no mapped IO
+    if (editingId && !keepOptionalVisibleInEdit && !input.required && !isDynamic && !currentMappings[input.key]) {
+      return null;
+    }
+
     const p = pickList(input.type);
     const opts = p.list;
     const suggestedValue = !editingId ? suggestions[input.key] : null;
@@ -292,26 +320,37 @@ function renderWizardInputs(currentMappings = {}) {
     const outputTmpl = templates.filter(t => t.group === 'outputs');
     const inputTmpl = templates.filter(t => t.group === 'inputs');
 
+    function renderDynamicAddBar(title, subtitle, templatesForGroup) {
+      if (!templatesForGroup.length) return '';
+      return '<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.03)">' +
+        '<div style="font-size:11px;font-weight:800;color:var(--text);margin-bottom:4px">' + title + '</div>' +
+        '<div style="font-size:11px;color:var(--muted2);line-height:1.45;margin-bottom:8px">' + subtitle + '</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        templatesForGroup.map(t =>
+          '<button data-prefix="' + t.prefix + '" onclick="addDynSlot(this.dataset.prefix)" style="font-size:11px;padding:7px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:var(--text);cursor:pointer;font-weight:700">+ ' + t.label + '</button>'
+        ).join('') +
+        '</div>' +
+      '</div>';
+    }
+
     let html = '';
+
+    if (editingId) {
+      html += '<div style="margin:0 0 12px;padding:10px 12px;border:1px solid rgba(29,140,255,.24);border-radius:12px;background:rgba(29,140,255,.07);font-size:12px;color:var(--muted2);line-height:1.5">' +
+        '<strong style="color:var(--text)">Edit mode:</strong> You can keep the current mappings and add more inputs or outputs before saving. New I/O slots will appear below as soon as you click one of the add buttons.' +
+      '</div>';
+    }
 
     if (outputTmpl.length) {
       html += '<div style="font-size:10px;font-weight:800;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin:8px 0 4px">Outputs</div>';
+      html += renderDynamicAddBar('Add outputs', 'Add relay or dimmer outputs at any time, even while editing an existing module.', outputTmpl);
       (groups['outputs'] || []).forEach(s => { html += makeRow({ key: s.key, label: s.label, type: s.type, required: false }, true); });
-      html += '<div style="display:flex;gap:6px;margin:6px 0 12px;flex-wrap:wrap">';
-      outputTmpl.forEach(t => {
-        html += '<button data-prefix="' + t.prefix + '" onclick="addDynSlot(this.dataset.prefix)" style="font-size:11px;padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.05);color:var(--muted2);cursor:pointer">+ ' + t.label + '</button>';
-      });
-      html += '</div>';
     }
 
     if (inputTmpl.length) {
       html += '<div style="font-size:10px;font-weight:800;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin:8px 0 4px">Inputs / Sensors</div>';
+      html += renderDynamicAddBar('Add inputs / sensors', 'Add digital or analog inputs later without recreating the module.', inputTmpl);
       (groups['inputs'] || []).forEach(s => { html += makeRow({ key: s.key, label: s.label, type: s.type, required: false }, true); });
-      html += '<div style="display:flex;gap:6px;margin:6px 0 12px;flex-wrap:wrap">';
-      inputTmpl.forEach(t => {
-        html += '<button data-prefix="' + t.prefix + '" onclick="addDynSlot(this.dataset.prefix)" style="font-size:11px;padding:5px 12px;border-radius:7px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.05);color:var(--muted2);cursor:pointer">+ ' + t.label + '</button>';
-      });
-      html += '</div>';
     }
 
     if (!dynSlots.length) {
@@ -328,8 +367,11 @@ function renderWizardInputs(currentMappings = {}) {
       ModuleRegistry[selectedDef?.id].renderWizardInputs(currentMappings, makeRow);
     } else {
       const modSummaryBox = ModuleRegistry[selectedDef?.id]?.summaryBoxId;
-      const rows = (selectedDef?.inputs || []).map(input => makeRow(input, false)).join("");
-      document.getElementById("wizardInputs").innerHTML = (modSummaryBox ? '<div id="' + modSummaryBox + '"></div>' : '') + rows;
+      const editHint = editingId && ModuleRegistry[selectedDef?.id]?.showAllOptionalInputsInEdit
+        ? '<div style="margin:0 0 12px;padding:10px 12px;border:1px solid rgba(29,140,255,.24);border-radius:12px;background:rgba(29,140,255,.07);font-size:12px;color:var(--muted2);line-height:1.5"><strong style="color:var(--text)">Edit mode:</strong> Optional inputs and outputs stay visible here so you can expand this module later without recreating it.</div>'
+        : '';
+      const rows = (selectedDef?.inputs || []).map(input => makeRow(input, false)).filter(Boolean).join("");
+      document.getElementById("wizardInputs").innerHTML = (modSummaryBox ? '<div id="' + modSummaryBox + '"></div>' : '') + editHint + rows;
       if (modSummaryBox) ModuleRegistry[selectedDef?.id].updateCommissioningSummary(buildEffectiveMappings(currentMappings));
     }
   }
@@ -477,7 +519,7 @@ async function loadInstances() {
 
 // ── Instance card rendering ───────────────────────────────────────────────
 function renderInstanceMapRows(inst, def, maps) {
-  if (inst?.module_id === 'advanced_thermostat' && def) {
+  if ((inst?.module_id === 'advanced_thermostat' || inst?.module_id === 'zoned_thermostat') && def) {
     const byKey = (key) => maps.find(x => x.input_key === key);
     const compactValue = (key) => getMapDisplayValue(byKey(key));
     const compactParts = [];
@@ -571,8 +613,9 @@ function renderInstanceMapRows(inst, def, maps) {
   return mapInputs.map(input => {
     const m = maps.find(x => x.input_key === input.key);
     const val = getMapDisplayValue(m);
+    if (!val && !input.required) return '';
     return renderMapItem(input.label || input.key, val, input.key);
-  }).join("");
+  }).filter(Boolean).join("");
 }
 
 function renderCompactBadge(label, value, extraClass = "") {
@@ -672,8 +715,24 @@ async function enrichCard(inst) {
     if (groups?.length) {
       innerHTML = groups.map(grp => {
         if (grp.requires && !mappedKeys.has(grp.requires)) return "";
+        if (Array.isArray(grp.requiresAny) && grp.requiresAny.length && !grp.requiresAny.some(k => mappedKeys.has(k))) return "";
         if (grp.requires_absent && mappedKeys.has(grp.requires_absent)) return "";
-        const sps = def.setpoints.filter(sp => (sp.group || "basic") === grp.id);
+        const zoneMatch = grp.id.match(/^zone_(\d+)$/);
+        if (zoneMatch) {
+          const zn = zoneMatch[1];
+          const zoneKeys = [`zone_${zn}_temp`, `zone_${zn}_call`, `zone_${zn}_output`, `zone_${zn}_pump`];
+          if (!zoneKeys.some(k => mappedKeys.has(k))) return "";
+        }
+        const sps = def.setpoints.filter(sp => {
+          if ((sp.group || "basic") !== grp.id) return false;
+          const spZoneMatch = sp.key.match(/^zone_(\d+)_/);
+          if (spZoneMatch) {
+            const zn = spZoneMatch[1];
+            const zoneKeys = [`zone_${zn}_temp`, `zone_${zn}_call`, `zone_${zn}_output`, `zone_${zn}_pump`];
+            if (!zoneKeys.some(k => mappedKeys.has(k))) return false;
+          }
+          return true;
+        });
         if (!sps.length) return "";
         const rows = sps.map(sp => renderSetpointRow(inst.id, sp, settings)).join("");
         return `
@@ -681,9 +740,18 @@ async function enrichCard(inst) {
             <summary>${escapeHTML(grp.label || grp.id || 'Group')}</summary>
             ${rows}
           </details>`;
-      }).join("");
+      }).filter(Boolean).join("");
     } else {
-      innerHTML = def.setpoints.map(sp => renderSetpointRow(inst.id, sp, settings)).join("");
+      const visibleSetpoints = def.setpoints.filter(sp => {
+        const spZoneMatch = sp.key.match(/^zone_(\d+)_/);
+        if (spZoneMatch) {
+          const zn = spZoneMatch[1];
+          const zoneKeys = [`zone_${zn}_temp`, `zone_${zn}_call`, `zone_${zn}_output`, `zone_${zn}_pump`];
+          return zoneKeys.some(k => mappedKeys.has(k));
+        }
+        return true;
+      });
+      innerHTML = visibleSetpoints.map(sp => renderSetpointRow(inst.id, sp, settings)).join("");
     }
 
     const summaryHtml = ModuleRegistry[inst.module_id]?.renderSummary?.(inst, settings, inst._liveStatus) || '';
@@ -703,12 +771,24 @@ async function enrichCard(inst) {
     const logEl = document.getElementById(`log_${inst.id}`);
     if (logEl && log.length) {
       logEl.innerHTML = `<div class="sp-panel" style="margin-top:8px">
-        <div class="sp-title">\uD83D\uDCCB Recent Actions</div>
-        ${log.map(l => `<div class="log-row">
-          <span class="log-ts">${new Date(l.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-          <span class="log-action ${escapeHTML(l.action)}">${escapeHTML(l.action)}</span>
-          <span style="color:var(--muted2);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHTML(l.reason)}</span>
-        </div>`).join("")}
+        <details class="sp-log">
+          <summary><span>\uD83D\uDCCB Recent Events</span><span class="sp-log-count">${log.length}</span></summary>
+          <div class="sp-log-body">
+        ${log.map(l => {
+          const actionText = String(l.action || '');
+          const actionClass = makeSafeClassToken(actionText, 'generic');
+          const actionLabel = typeof formatActionLabel === 'function' ? formatActionLabel(actionText) : actionText;
+          const reasonLabel = typeof formatReasonLabel === 'function' ? formatReasonLabel(l.reason) : String(l.reason || '');
+          return `<div class="log-row">
+            <span class="log-ts">${new Date(l.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+            <div class="log-main">
+              <span class="log-action action-${actionClass}" title="${escapeHTML(actionText)}">${escapeHTML(actionLabel)}</span>
+              <span class="log-reason" title="${escapeHTML(String(l.reason || ''))}">${escapeHTML(reasonLabel)}</span>
+            </div>
+          </div>`;
+        }).join("")}
+          </div>
+        </details>
       </div>`;
     }
   } catch {}

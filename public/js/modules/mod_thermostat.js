@@ -164,6 +164,8 @@ function updateThermostatCommissioningSummary(currentMappings=null) {
 
 registerModule('advanced_thermostat', {
   hasAuto: true,
+  showAllOptionalInputsInEdit: true,
+  summaryBoxId: 'thermoCommissioningSummary',
   updateCommissioningSummary(m) { updateThermostatCommissioningSummary(m); },
   renderSummary(inst, settings, live) { return ''; },
   renderWizardInputs(currentMappings, makeRow) {
@@ -174,6 +176,8 @@ registerModule('advanced_thermostat', {
 
 registerModule('zoned_thermostat', {
   hasAuto: true,
+  showAllOptionalInputsInEdit: true,
+  summaryBoxId: 'thermoCommissioningSummary',
   updateCommissioningSummary(m) { updateThermostatCommissioningSummary(m); },
   renderSummary(inst, settings, live) { return ''; },
   renderWizardInputs(currentMappings, makeRow) {

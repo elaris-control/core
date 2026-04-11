@@ -63,7 +63,14 @@ body { margin:0; }
 .log-ts   { color:#7183a5; font-size:10px; flex-shrink:0; user-select:none; }
 .log-lvl  { font-size:10px; font-weight:800; flex-shrink:0; width:40px; text-align:center;
             border-radius:999px; padding:1px 6px; border:1px solid transparent; }
-.log-text { color:#dfe7f3; word-break:break-word; flex:1; }
+.log-text { color:#dfe7f3; word-break:break-word; flex:1; min-width:0; line-height:1.5; }
+.log-text.pretty { font-family:inherit; }
+.log-text.actionish { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.log-chip {
+  display:inline-flex; align-items:center; gap:6px;
+  padding:3px 8px; border-radius:999px; border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.04); font-size:11px; font-weight:800; color:inherit;
+}
 .log-repeat { font-size:10px; color:#8fa4c7; flex-shrink:0; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.03); border-radius:999px; padding:1px 6px; }
 
 .log-line.info  .log-lvl  { color:#8fc7ff; background:rgba(29,140,255,.08); border-color:rgba(29,140,255,.16); }
@@ -233,6 +240,75 @@ function escHtml(s){
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+function formatActionLabel(action) {
+  var raw = String(action || '').trim();
+  if (!raw) return 'Action';
+  var tokens = raw.split('_').filter(Boolean);
+  var pretty = [];
+
+  function formatToken(token) {
+    var upper = String(token || '').toUpperCase();
+    if (['PIR', 'DI', 'DO', 'AI', 'AO', 'HVAC'].includes(upper)) return upper;
+    if (upper === 'ON') return 'On';
+    if (upper === 'OFF') return 'Off';
+    if (/^Z\d+$/i.test(token)) return upper;
+    return String(token || '').replace(/-/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+
+  for (var i = 0; i < tokens.length; i++) {
+    var cur = tokens[i];
+    var upper = String(cur || '').toUpperCase();
+    var next = tokens[i + 1] ? String(tokens[i + 1]).toUpperCase() : '';
+    if (/^\d+$/.test(cur) && pretty.length) {
+      pretty[pretty.length - 1] += ' ' + cur;
+      continue;
+    }
+    if (upper === 'CALLING' && (next === 'ON' || next === 'OFF')) {
+      pretty.push('Calling ' + formatToken(next));
+      i += 1;
+      continue;
+    }
+    if ((upper === 'ON' || upper === 'OFF') && pretty.length) {
+      pretty[pretty.length - 1] += ' ' + formatToken(cur);
+      continue;
+    }
+    pretty.push(formatToken(cur));
+  }
+
+  return pretty.length <= 2 ? pretty.join(' ') : pretty.join(' • ');
+}
+
+function formatReasonLabel(reason) {
+  var raw = String(reason || '').trim();
+  if (!raw) return 'No details';
+  var text = raw.replace(/\s+/g, ' ');
+  if (!text.includes(' ') && text.includes('_')) text = text.replace(/_/g, ' ');
+  text = text
+    .replace(/\bAI=(?=[^\s])/g, 'AI ')
+    .replace(/\blux=(?=[^\s])/gi, 'lux ')
+    .replace(/\btemp=(?=[^\s])/gi, 'temp ')
+    .replace(/\s*:\s*/g, ': ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function looksLikeActionToken(text) {
+  var raw = String(text || '').trim();
+  return !!raw && !raw.includes(' ') && raw.includes('_') && /[A-Za-z]/.test(raw);
+}
+
+function formatLogMessage(text) {
+  var raw = String(text || '').trim();
+  if (!raw) return { html: '', pretty: '', actionish: false };
+  if (looksLikeActionToken(raw)) {
+    var label = formatActionLabel(raw);
+    return { html: '<span class="log-chip">' + escHtml(label) + '</span>', pretty: label, actionish: true };
+  }
+  var pretty = formatReasonLabel(raw);
+  return { html: escHtml(pretty), pretty: pretty, actionish: pretty !== raw };
+}
+
 function normalizeText(s){ return String(s || '').toLowerCase(); }
 
 function buildVisibleEntries(){
@@ -271,10 +347,12 @@ function levelLabel(l){
 function renderLine(entry){
   var div = document.createElement('div');
   div.className = 'log-line ' + (entry.level || 'info');
+  var formatted = formatLogMessage(entry.text || '');
+  var textClass = 'log-text' + (formatted.actionish ? ' pretty actionish' : (formatted.pretty !== String(entry.text || '').trim() ? ' pretty' : ''));
   div.innerHTML =
     '<span class="log-ts">'  + fmtTs(entry.ts) + '</span>' +
     '<span class="log-lvl">' + levelLabel(entry.level) + '</span>' +
-    '<span class="log-text">'+ escHtml(entry.text) + '</span>' +
+    '<span class="' + textClass + '" title="' + escHtml(entry.text || '') + '">' + formatted.html + '</span>' +
     (entry.repeat > 1 ? '<span class="log-repeat">×' + entry.repeat + '</span>' : '');
   return div;
 }

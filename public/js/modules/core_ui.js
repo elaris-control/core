@@ -242,12 +242,13 @@ async function enrichCard(inst) {
     const groups = def.groups;
     let innerHTML = "";
 
-    if (groups?.length) {
-      innerHTML = groups.map(grp => {
-        if (grp.requires && !mappedKeys.has(grp.requires)) return "";
-        if (grp.requires_absent && mappedKeys.has(grp.requires_absent)) return "";
+      if (groups?.length) {
+        innerHTML = groups.map(grp => {
+          if (grp.requires && !mappedKeys.has(grp.requires)) return "";
+          if (Array.isArray(grp.requiresAny) && grp.requiresAny.length && !grp.requiresAny.some(k => mappedKeys.has(k))) return "";
+          if (grp.requires_absent && mappedKeys.has(grp.requires_absent)) return "";
 
-        const sps = def.setpoints.filter(sp => (sp.group || "basic") === grp.id);
+          const sps = def.setpoints.filter(sp => (sp.group || "basic") === grp.id);
         if (!sps.length) return "";
 
         const rows = sps.map(sp => renderSetpointRow(inst.id, sp, settings)).join("");
@@ -278,16 +279,24 @@ async function enrichCard(inst) {
     const logEl = document.getElementById(`log_${inst.id}`);
     if (logEl && log.length) {
       logEl.innerHTML = `<div class="sp-panel" style="margin-top:8px">
-        <div class="sp-title">📋 Recent Actions</div>
+        <details class="sp-log">
+          <summary><span>📋 Recent Events</span><span class="sp-log-count">${log.length}</span></summary>
+          <div class="sp-log-body">
         ${log.map(l => {
           const actionText = String(l.action || '');
           const actionClass = makeSafeClassToken(actionText, 'generic');
+          const actionLabel = typeof formatActionLabel === 'function' ? formatActionLabel(actionText) : actionText;
+          const reasonLabel = typeof formatReasonLabel === 'function' ? formatReasonLabel(l.reason) : String(l.reason || '');
           return `<div class="log-row">
             <span class="log-ts">${new Date(l.ts).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</span>
-            <span class="log-action action-${actionClass}">${escapeHtml(actionText)}</span>
-            <span style="color:var(--muted2);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(l.reason)}</span>
+            <div class="log-main">
+              <span class="log-action action-${actionClass}" title="${escapeHtml(actionText)}">${escapeHtml(actionLabel)}</span>
+              <span class="log-reason" title="${escapeHtml(String(l.reason || ''))}">${escapeHtml(reasonLabel)}</span>
+            </div>
           </div>`;
         }).join("")}
+          </div>
+        </details>
       </div>`;
     }
   } catch {}

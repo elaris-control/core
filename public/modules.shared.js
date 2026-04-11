@@ -64,3 +64,66 @@ async function resetCustomLock(instId) {
     toast('Lock reset', true);
   } catch (e) { toast('Error: ' + e.message, false); }
 }
+
+function formatActionLabel(action) {
+  const raw = String(action || '').trim();
+  if (!raw) return 'Action';
+
+  const tokens = raw.split('_').filter(Boolean);
+  const pretty = [];
+
+  function formatToken(token) {
+    const upper = String(token || '').toUpperCase();
+    if (['PIR', 'DI', 'DO', 'AI', 'AO', 'HVAC'].includes(upper)) return upper;
+    if (upper === 'ON') return 'On';
+    if (upper === 'OFF') return 'Off';
+    if (/^Z\d+$/i.test(token)) return upper;
+    return String(token || '')
+      .replace(/-/g, ' ')
+      .replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+
+  for (let i = 0; i < tokens.length; i++) {
+    const cur = tokens[i];
+    const upper = String(cur || '').toUpperCase();
+    const next = tokens[i + 1] ? String(tokens[i + 1]).toUpperCase() : '';
+    if (/^\d+$/.test(cur) && pretty.length) {
+      pretty[pretty.length - 1] += ' ' + cur;
+      continue;
+    }
+    if (upper === 'CALLING' && (next === 'ON' || next === 'OFF')) {
+      pretty.push('Calling ' + formatToken(next));
+      i += 1;
+      continue;
+    }
+    if ((upper === 'ON' || upper === 'OFF') && pretty.length) {
+      pretty[pretty.length - 1] += ' ' + formatToken(cur);
+      continue;
+    }
+    pretty.push(formatToken(cur));
+  }
+
+  if (pretty.length <= 2) return pretty.join(' ');
+  return pretty.join(' • ');
+}
+
+function formatReasonLabel(reason) {
+  const raw = String(reason || '').trim();
+  if (!raw) return 'No details';
+
+  let text = raw.replace(/\s+/g, ' ');
+
+  if (!text.includes(' ') && text.includes('_')) {
+    text = text.replace(/_/g, ' ');
+  }
+
+  text = text
+    .replace(/\bAI=(?=[^\s])/g, 'AI ')
+    .replace(/\blux=(?=[^\s])/gi, 'lux ')
+    .replace(/\btemp=(?=[^\s])/gi, 'temp ')
+    .replace(/\s*:\s*/g, ': ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}

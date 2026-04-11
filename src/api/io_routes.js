@@ -149,7 +149,8 @@ function initIoRoutes({ db, engine, access, requireLogin, requireEngineerAccess 
       if (!io) return res.status(404).json({ ok: false, error: 'IO not found' });
       const siteRef = access.getIoSiteRef(io_id);
       if (!siteRef || !access.canAccessSiteRef(req, siteRef)) return res.status(403).json({ ok: false, error: 'forbidden' });
-      const isNumeric = ['sensor', 'analog', 'ai'].includes(io.type) && io.group_name !== 'tele';
+      const ioType = String(io.type || '').toLowerCase();
+      const isNumeric = ['sensor', 'analog', 'ai', 'ao', 'analog_out', 'dimmer', 'pwm', 'number'].includes(ioType) && io.group_name !== 'tele';
       let points = [];
       let source = 'raw';
 

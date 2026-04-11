@@ -38,6 +38,15 @@
 .chart-card::before { content:""; position:absolute; top:0; left:0; right:0; height:2px; background:var(--chart-color, var(--blue)); }
 .chart-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; flex-wrap:wrap; gap:8px; }
 .chart-title { font-size:13px; font-weight:800; }
+.chart-title-wrap { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.chart-title-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.chart-subtitle { font-size:11px; color:var(--muted2); display:flex; gap:8px; flex-wrap:wrap; }
+.chart-type-badge {
+  display:inline-flex; align-items:center; gap:6px;
+  padding:3px 9px; border-radius:999px;
+  border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04);
+  font-size:10px; font-weight:800; color:var(--text); letter-spacing:.03em;
+}
 .chart-meta { font-size:11px; color:var(--muted2); }
 .chart-stats { display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
 .chart-stat { font-size:11px; color:var(--muted2); }
@@ -58,6 +67,7 @@
 /* Add IO panel */
 .add-panel { background:var(--card2); border:1px solid var(--line); border-radius:var(--radius); padding:16px; }
 .add-panel h3 { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:12px; }
+.add-panel-sub { font-size:12px; color:var(--muted2); margin:-4px 0 14px; line-height:1.5; }
 .io-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:6px; }
 .io-add-btn {
   display:flex; align-items:center; gap:8px;
@@ -91,6 +101,27 @@
 .chart-tooltip .ct-time { font-size:10px; color:var(--muted); font-family:'Geist Mono',monospace; margin-bottom:3px; }
 .chart-tooltip .ct-val  { font-size:16px; font-weight:900; font-family:'Geist Mono',monospace; }
 .chart-wrap { cursor:crosshair; }
+
+.history-strip {
+  display:flex; flex-direction:column; gap:10px;
+  background:var(--card2); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px;
+}
+.history-strip-head { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.history-strip-title { font-size:12px; font-weight:800; color:var(--text); }
+.history-strip-sub { font-size:11px; color:var(--muted2); }
+.history-strip-grid { display:flex; flex-wrap:wrap; gap:8px; }
+.history-io-chip {
+  display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap;
+  padding:8px 10px; border-radius:10px; border:1px solid var(--line);
+  background:rgba(255,255,255,.03);
+}
+.history-io-chip .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.history-io-chip .meta { display:flex; align-items:center; gap:6px; color:var(--muted2); font-size:10px; }
+.history-io-chip .name { font-size:11px; font-weight:800; color:var(--text); }
+.history-io-chip .remove {
+  background:none; border:1px solid var(--line); border-radius:7px; color:var(--muted2);
+  cursor:pointer; font-size:12px; line-height:1; padding:3px 7px;
+}
 
 .no-data-banner { text-align:center; padding:60px 20px; color:var(--muted); }
 .no-data-banner .icon { font-size:40px; margin-bottom:12px; }
@@ -159,7 +190,78 @@ var activeIOs = [];   // [{ id, key, name, type, unit, color }]
 var allIOs    = [];   // all IOs for site
 
 var COLORS = ['#3ab8ff','#ff9a3a','#22d97a','#f0c040','#a855f7','#ff6b6b','#00d4c8','#f97316'];
-var TYPE_ICONS = { sensor:'🌡️', relay:'🔌', analog:'〰️', dimmer:'💡', ao:'〰️', ai:'🌡️' };
+var TYPE_ICONS = { sensor:'🌡️', relay:'🔌', analog:'〰️', analog_out:'〰️', dimmer:'💡', ao:'〰️', ai:'🌡️', di:'🔘', do:'🔌', pwm:'〰️', number:'〰️' };
+
+function normalizeIoType(value){
+  return String(value || '').trim().toLowerCase();
+}
+
+function isBinaryHistoryIo(io){
+  var type = normalizeIoType(io && io.type);
+  var key = String(io && io.key || '').toLowerCase();
+  var name = String(io && io.name || '').toLowerCase();
+  if (['relay','di','do','switch','binary_sensor','bool','boolean','digital_input','digital_output'].includes(type)) return true;
+  if (type === 'sensor') {
+    return key.includes('di_') || key.startsWith('di') || key.includes('_call') || key.includes('switch') || key.includes('button') || key.includes('pir') ||
+      name.includes('switch') || name.includes('button') || name.includes('call') || name.includes('pir');
+  }
+  return false;
+}
+
+function historyTypeLabel(type){
+  var t = normalizeIoType(type);
+  if (t === 'analog_out') return 'analog';
+  return t || 'other';
+}
+
+function historyIoMeta(io){
+  var type = normalizeIoType(io && io.type);
+  var binary = isBinaryHistoryIo(io);
+  if (binary) {
+    if (['relay', 'do', 'digital_output'].includes(type)) return { icon:'🔌', label:'Relay output', group:'relay_outputs' };
+    return { icon:'🔘', label:'Digital input', group:'digital_inputs' };
+  }
+  if (['ao', 'analog_out', 'dimmer', 'pwm', 'number'].includes(type)) return { icon:type === 'dimmer' ? '💡' : '〰️', label:'Analog output', group:'analog_outputs' };
+  if (['ai', 'analog'].includes(type)) return { icon:'📈', label:'Analog input', group:'analog_inputs' };
+  return { icon:'🌡️', label:'Sensor', group:'sensors' };
+}
+
+function historyGroupMeta(group){
+  switch (String(group || '')) {
+    case 'digital_inputs': return { icon:'🔘', label:'Digital Inputs' };
+    case 'relay_outputs': return { icon:'🔌', label:'Relay Outputs' };
+    case 'analog_outputs': return { icon:'〰️', label:'Analog Outputs' };
+    case 'analog_inputs': return { icon:'📈', label:'Analog Inputs' };
+    case 'sensors': return { icon:'🌡️', label:'Sensors' };
+    default: return { icon:'📡', label:'Other IO' };
+  }
+}
+
+function renderActiveStrip(){
+  if (!activeIOs.length) return '';
+  return '<div class="history-strip">' +
+    '<div class="history-strip-head">' +
+      '<div>' +
+        '<div class="history-strip-title">Selected history charts</div>' +
+        '<div class="history-strip-sub">Keep only the IO you care about so the page stays simple for the end user.</div>' +
+      '</div>' +
+      '<div class="history-strip-sub">' + activeIOs.length + ' selected</div>' +
+    '</div>' +
+    '<div class="history-strip-grid">' +
+      activeIOs.map(function(io){
+        var meta = historyIoMeta(io);
+        return '<div class="history-io-chip">' +
+          '<span class="dot" style="background:'+io.color+'"></span>' +
+          '<div style="display:flex;flex-direction:column;gap:3px;min-width:0">' +
+            '<div class="name">'+escHtml(io.name || io.key)+'</div>' +
+            '<div class="meta"><span>'+meta.icon+' '+meta.label+'</span><span>'+escHtml(io.device_id)+'.'+escHtml(io.key)+'</span></div>' +
+          '</div>' +
+          '<button class="remove" data-io-id="'+io.id+'" title="Remove from history">✕</button>' +
+        '</div>';
+      }).join('') +
+    '</div>' +
+  '</div>';
+}
 
 async function api(path, opts){
   var r = await fetch('/api'+path, { credentials:'include', headers:{'Content-Type':'application/json'}, ...(opts||{}) });
@@ -248,14 +350,24 @@ function renderAll(){
   var body = document.getElementById('hbody');
   body.innerHTML = '';
 
+  if (activeIOs.length) {
+    body.innerHTML += renderActiveStrip();
+  } else {
+    body.innerHTML += '<div class="history-strip"><div class="history-strip-title">No charts selected yet</div><div class="history-strip-sub">Start by adding the IO that matters most to the user, like a switch, PIR, dimmer output, lux sensor, or thermostat call.</div></div>';
+  }
+
   // Charts for active IOs
   activeIOs.forEach(function(io, idx){
+    var meta = historyIoMeta(io);
     var card = document.createElement('div');
     card.className = 'chart-card';
     card.style.setProperty('--chart-color', io.color);
     card.id = 'chart-card-'+io.id;
     card.innerHTML = '<div class="chart-header">' +
-      '<div class="chart-title">'+escHtml(io.name||io.key)+'<span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:6px">'+escHtml(io.device_id)+'.'+escHtml(io.key)+'</span></div>' +
+      '<div class="chart-title-wrap">' +
+        '<div class="chart-title-row"><div class="chart-title">'+escHtml(io.name||io.key)+'</div><span class="chart-type-badge">'+meta.icon+' '+meta.label+'</span></div>' +
+        '<div class="chart-subtitle"><span>'+escHtml(io.device_id)+'.'+escHtml(io.key)+'</span>' + (io.unit ? '<span>Unit: '+escHtml(io.unit)+'</span>' : '') + '</div>' +
+      '</div>' +
       '<div style="display:flex;align-items:center;gap:8px"><div class="chart-meta"><span class="spinner"></span></div>' +
       '<button class="remove-io-btn" data-io-id="'+io.id+'" title="Remove from chart" style="background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);cursor:pointer;font-size:14px;padding:2px 8px;line-height:1;transition:.15s">✕</button></div>' +
       '</div>' +
@@ -267,14 +379,25 @@ function renderAll(){
   });
 
   // Delete IO buttons
-  body.addEventListener('click', function(e){
-    var btn = e.target.closest('.remove-io-btn');
-    if (!btn) return;
-    var ioId = Number(btn.dataset.ioId);
-    activeIOs = activeIOs.filter(function(a){ return a.id !== ioId; });
-    saveSelection();
-    renderAll();
-  });
+  if (!body._historyClicksBound) {
+    body.addEventListener('click', function(e){
+      var stripBtn = e.target.closest('.history-io-chip .remove');
+      if (stripBtn) {
+        var stripIoId = Number(stripBtn.dataset.ioId);
+        activeIOs = activeIOs.filter(function(a){ return a.id !== stripIoId; });
+        saveSelection();
+        renderAll();
+        return;
+      }
+      var btn = e.target.closest('.remove-io-btn');
+      if (!btn) return;
+      var ioId = Number(btn.dataset.ioId);
+      activeIOs = activeIOs.filter(function(a){ return a.id !== ioId; });
+      saveSelection();
+      renderAll();
+    });
+    body._historyClicksBound = true;
+  }
 
   // IO picker panel
   var panel = document.createElement('div');
@@ -304,10 +427,18 @@ async function loadChart(io){
       var avg=(vals.reduce(function(a,b){return a+b;},0)/vals.length);
       var last=vals[vals.length-1];
       var unit = io.unit ? ' '+io.unit : '';
-      var isRelay = io.type==='relay'||io.type==='di';
-      if (isRelay){
+      var isBinary = isBinaryHistoryIo(io);
+      if (isBinary){
+        var activeRatio = vals.length ? Math.round((vals.filter(function(v){ return !!v; }).length / vals.length) * 100) : 0;
+        var transitions = 0;
+        for (var x = 1; x < vals.length; x++) {
+          if (vals[x] !== vals[x - 1]) transitions += 1;
+        }
         statsEl.innerHTML =
-          '<span class="chart-stat">Current: <strong>'+(last?'ON':'OFF')+'</strong></span>';
+          '<span class="chart-stat">Current: <strong>'+(last?'ON':'OFF')+'</strong></span>' +
+          '<span class="chart-stat">Active: <strong>'+activeRatio+'%</strong></span>' +
+          '<span class="chart-stat">Transitions: <strong>'+transitions+'</strong></span>' +
+          '<span class="chart-stat">Source: <strong>'+(data.source === 'rollup' ? 'Hourly rollup' : 'Raw events')+'</strong></span>';
       } else {
         statsEl.innerHTML =
           '<span class="chart-stat">Now: <strong>'+last.toFixed(1)+unit+'</strong></span>' +
@@ -326,9 +457,9 @@ async function loadChart(io){
       return;
     }
 
-    var isRelay = io.type==='relay'||io.type==='di';
-    wrapEl.innerHTML = drawSVG(points, io.color, isRelay);
-    attachChartHover(wrapEl, io, points, isRelay);
+    var isBinary = isBinaryHistoryIo(io);
+    wrapEl.innerHTML = drawSVG(points, io.color, isBinary);
+    attachChartHover(wrapEl, io, points, isBinary);
 
     // Time labels
     var tStart = points[0].ts, tEnd = points[points.length-1].ts;
@@ -531,13 +662,17 @@ function drawSVG(points, color, isStep){
 function renderPicker(panel){
   panel.innerHTML = '';
   var h3 = document.createElement('h3');
-  h3.textContent = '+ Add sensor / IO to chart';
+  h3.textContent = '+ Add IO to history';
   panel.appendChild(h3);
+  var sub = document.createElement('div');
+  sub.className = 'add-panel-sub';
+  sub.textContent = 'Pick the inputs and outputs that matter most to the end user. Digital inputs show ON/OFF history, while analog outputs keep their numeric trend.';
+  panel.appendChild(sub);
 
   // Group by type
   var groups = {};
   allIOs.forEach(function(io){
-    var t = io.type||'other';
+    var t = historyIoMeta(io).group;
     if (!groups[t]) groups[t]=[];
     groups[t].push(io);
   });
@@ -547,22 +682,27 @@ function renderPicker(panel){
     return;
   }
 
-  Object.keys(groups).sort().forEach(function(type){
+  ['digital_inputs','relay_outputs','analog_outputs','analog_inputs','sensors','other'].filter(function(type){ return !!groups[type]; }).forEach(function(type){
+    var meta = historyGroupMeta(type);
     var label = document.createElement('div');
     label.style.cssText='font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:10px 0 6px;font-weight:700';
-    label.textContent = (TYPE_ICONS[type]||'📡')+' '+type;
+    label.textContent = meta.icon+' '+meta.label;
     panel.appendChild(label);
 
     var grid = document.createElement('div');
     grid.className = 'io-grid';
     groups[type].forEach(function(io){
+      var ioMeta = historyIoMeta(io);
       var alreadyActive = activeIOs.find(function(a){ return a.id===io.id; });
       var btn = document.createElement('button');
       btn.className = 'io-add-btn';
       btn.disabled = !!alreadyActive;
       btn.style.opacity = alreadyActive ? '0.4' : '1';
       btn.innerHTML =
-        '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(io.name||io.key)+'</span>' +
+        '<span style="display:flex;align-items:center;gap:8px;flex:1;overflow:hidden">' +
+          '<span style="font-size:14px">'+ioMeta.icon+'</span>' +
+          '<span style="display:flex;flex-direction:column;min-width:0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(io.name||io.key)+'</span><span style="font-size:10px;color:var(--muted)">'+escHtml(ioMeta.label)+'</span></span>' +
+        '</span>' +
         '<span class="type-badge">'+escHtml(io.device_id)+'</span>' +
         (alreadyActive ? '<span style="color:var(--good);font-size:10px">✓</span>' : '<span style="color:var(--blue);font-size:14px">+</span>');
       if (!alreadyActive){

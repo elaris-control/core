@@ -1,6 +1,6 @@
 // page.js v32 - generic module page renderer
 // Shared utilities ($, escapeHTML, api, toast) are in /js/core.js
-var pstate = { siteId:null, deviceId:null, deviceState:new Map(), ws:null, _instances:[], uiRole:'USER' };
+var pstate = { siteId:null, deviceId:null, deviceState:new Map(), ws:null, _instances:[], uiRole:'USER', _reRenderT:{} };
 function applyTheme(t){ document.documentElement.dataset.theme=t; var b=$('themeBtn'); if(b)b.textContent=t==='dark'?'\u2600\ufe0f':'\ud83c\udf19'; }
 function toggleTheme(){ var c=document.documentElement.dataset.theme||'dark'; var n=c==='dark'?'light':'dark'; document.documentElement.dataset.theme=n; localStorage.setItem('elaris_theme',n); applyTheme(n); }
 
@@ -24,7 +24,7 @@ async function loadSites(){
 
 function updateWsBadge(s){ var el=$('wsPill'); if(!el)return; el.className='pill ws-badge'; if(s==='online'){el.className+=' online';el.textContent='Online';}else if(s==='offline'){el.className+=' offline';el.textContent='Offline';}else{el.className+=' connecting';el.textContent='Connecting...';} }
 function sendWsScope(){ try{ var ws=pstate.ws; if(!ws||ws.readyState!==WebSocket.OPEN)return; ws.send(JSON.stringify({ type:'register_client', siteId:pstate.siteId||null, deviceId:pstate.deviceId||null })); }catch(e){} }
-function connectWS(){ updateWsBadge('connecting'); try{ var proto=location.protocol==='https:'?'wss':'ws'; var ws=new WebSocket(proto+'://'+location.host+'/ws'); pstate.ws=ws; ws.onopen=function(){updateWsBadge('online');sendWsScope();}; ws.onclose=function(){updateWsBadge('offline');setTimeout(connectWS,5000);}; ws.onmessage=function(ev){var msg;try{msg=JSON.parse(ev.data);}catch(e){return;} if(msg.type==='mqtt'&&msg.deviceId===pstate.deviceId&&msg.key)pstate.deviceState.set(msg.key,msg.payload); }; }catch(e){} }
+function connectWS(){ updateWsBadge('connecting'); try{ var proto=location.protocol==='https:'?'wss':'ws'; var ws=new WebSocket(proto+'://'+location.host+'/ws'); pstate.ws=ws; ws.onopen=function(){updateWsBadge('online');sendWsScope();}; ws.onclose=function(){updateWsBadge('offline');setTimeout(connectWS,5000);}; ws.onmessage=function(ev){var msg;try{msg=JSON.parse(ev.data);}catch(e){return;} if(msg.type==='mqtt'&&msg.deviceId===pstate.deviceId&&msg.key)pstate.deviceState.set(msg.key,msg.payload); if(msg.type==='automation'&&msg.instance){clearTimeout(pstate._reRenderT[msg.instance]);pstate._reRenderT[msg.instance]=setTimeout(function(){rerenderInstance(msg.instance);},150);} }; }catch(e){} }
 
 async function loadNav(){ try{
   var d=await fetch('/api/nav/pages').then(function(r){return r.json();}).catch(function(){return{pages:[]};});

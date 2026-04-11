@@ -289,6 +289,16 @@ const ZONED_THERMOSTAT_MODULE = {
     { key: 'central_pump', label: 'Central Pump (DO)', type: 'relay', required: false,
       description: 'Shared circulation pump. ON when any zone has active demand.' },
   ],
+  groups: [
+    { id: 'Basic', label: '⚙️ Basic', open: true, requires: null },
+    { id: 'Timers', label: '⏱️ Timers', open: false, requires: null },
+    { id: 'zone_1', label: '🏠 Zone 1 Setpoints', open: false, requires: null },
+    { id: 'zone_2', label: '🏠 Zone 2 Setpoints', open: false, requires: null },
+    { id: 'zone_3', label: '🏠 Zone 3 Setpoints', open: false, requires: null },
+    { id: 'zone_4', label: '🏠 Zone 4 Setpoints', open: false, requires: null },
+    { id: 'zone_5', label: '🏠 Zone 5 Setpoints', open: false, requires: null },
+    { id: 'zone_6', label: '🏠 Zone 6 Setpoints', open: false, requires: null },
+  ],
   setpoints: [
     { group: 'Basic', key: 'mode',          label: 'Mode',        type: 'select', options: ['heating','cooling','off'], default: 'heating',
       help: 'All zones follow the same heating/cooling direction.' },

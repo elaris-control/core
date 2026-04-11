@@ -99,12 +99,22 @@
 .sp-group:first-child summary { border-top: none; }
 
 /* Log */
-.log-row{display:flex;gap:8px;align-items:center;padding:4px 0;border-top:1px solid var(--line);font-size:10px;font-family:'Geist Mono',monospace}
+.log-row{display:grid;grid-template-columns:52px minmax(0,1fr);gap:4px 10px;align-items:start;padding:8px 0;border-top:1px solid var(--line);font-size:10px}
 .log-row:first-child{border-top:none}
-.log-ts{color:var(--muted);white-space:nowrap}
-.log-action{font-weight:700}
+.log-ts{color:var(--muted);white-space:nowrap;font-family:'Geist Mono',monospace;padding-top:2px}
+.log-main{min-width:0;display:flex;flex-direction:column;gap:4px}
+.log-action{font-weight:800;display:inline-flex;align-items:center;gap:6px;max-width:max-content;padding:3px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04)}
+.log-reason{color:var(--muted2);font-size:11px;line-height:1.45;word-break:break-word}
 .log-action.pump_ON,.log-action.ac_relay_ON,.log-action.output_1_ON,.log-action.relay_open_ON{color:#22d97a}
 .log-action.pump_OFF,.log-action.ac_relay_OFF,.log-action.output_1_OFF,.log-action.relay_close_ON{color:#ff4545}
+.sp-log summary{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;list-style:none;padding:10px 0;font-size:11px;font-weight:800;color:var(--muted2);text-transform:uppercase;letter-spacing:.04em;border-top:1px solid var(--line)}
+.sp-log summary::-webkit-details-marker{display:none}
+.sp-log summary::before{content:"▶";font-size:8px;transition:transform .15s;display:inline-block;color:var(--muted)}
+.sp-log[open] summary::before{transform:rotate(90deg)}
+.sp-log summary:hover{color:var(--text)}
+.sp-log:first-child summary{border-top:none}
+.sp-log-body{padding-top:2px}
+.sp-log-count{font-size:10px;color:var(--muted);font-weight:700;text-transform:none;letter-spacing:0}
 
 /* Wizard */
 .wizard{display:none}

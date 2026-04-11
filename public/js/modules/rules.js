@@ -321,6 +321,42 @@ function renderAction(a, ri, ai) {
   const warnHtml = warnings.length
     ? `<div style="width:100%;margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">${renderWarningPills(warnings)}</div>`
     : '';
+  const detail = kind === "AO" ? `
+ <select class="cond-sel" style="flex:1" onchange="actionIOChange(${ri},${ai},this.value)">
+   ${ioOptions(analogOutIO(), a.io_id, "— analog output (AO) —", {query:ruleIOQuery, zone:ruleZoneFilter})}
+ </select>
+ <span style="font-size:11px;color:var(--muted);white-space:nowrap">AUTO DT</span>
+ <span style="font-size:11px;color:var(--muted);margin-left:10px">min</span>
+ <input class="cond-input" type="number" min="0" max="100" step="0.5" value="${minPct}" style="width:72px"
+        oninput="ra(${ri},${ai},'min_pct',this.value)" placeholder="0">
+ <span style="font-size:11px;color:var(--muted);margin-left:6px">max</span>
+ <input class="cond-input" type="number" min="0" max="100" step="0.5" value="${maxPct}" style="width:72px"
+        oninput="ra(${ri},${ai},'max_pct',this.value)" placeholder="100">
+     ` : kind === "notify" ? `
+ <input class="cond-input" style="flex:1;min-width:120px" placeholder="Title" value="${a.notify_title||''}"
+        oninput="ra(${ri},${ai},'notify_title',this.value)">
+ <input class="cond-input" style="flex:1;min-width:120px" placeholder="Body message" value="${a.notify_body||''}"
+        oninput="ra(${ri},${ai},'notify_body',this.value)">
+ <select class="cond-sel" onchange="ra(${ri},${ai},'notify_level',this.value)">
+   <option value="info"    ${(a.notify_level||'info')==='info'   ?'selected':''}>ℹ️ Info</option>
+   <option value="warning" ${a.notify_level==='warning'          ?'selected':''}>⚠️ Warning</option>
+   <option value="error"   ${a.notify_level==='error'            ?'selected':''}>🔴 Error</option>
+ </select>
+     ` : kind === "scene" ? `
+ <select class="cond-sel" style="flex:1" onchange="ra(${ri},${ai},'scene_id',this.value)">
+   <option value="">— select scene —</option>
+   ${(window._scenesCache||[]).map(s=>'<option value="'+s.id+'" '+(String(a.scene_id)===String(s.id)?'selected':'')+'>'+(escapeHTML(s.icon||'⚙️'))+' '+escapeHTML(s.name)+'</option>').join('')}
+ </select>
+     ` : `
+       <select class="cond-sel" style="flex:1" onchange="actionIOChange(${ri},${ai},this.value)">
+         ${ioOptions(relaysIO(), a.io_id, "— relay output (DO) —", {query:ruleIOQuery, zone:ruleZoneFilter})}
+       </select>
+       <span style="font-size:11px;color:var(--muted);white-space:nowrap">ON/OFF</span>
+       <span style="font-size:11px;color:var(--muted);margin-left:8px;white-space:nowrap">OFF delay</span>
+       <input class="cond-input" type="number" min="0" step="1" value="${offDelay}" style="width:74px"
+              oninput="ra(${ri},${ai},'off_delay_s',this.value)" placeholder="sec">
+       <span style="font-size:11px;color:var(--muted)">s</span>
+     `;
   return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;padding:6px;background:rgba(255,255,255,.02);border-radius:6px;border:1px solid var(--line)">
     <span style="font-size:11px;color:var(--muted);white-space:nowrap">SET</span>
     <select class="cond-sel" style="width:170px" onchange="actionKindChange(${ri},${ai},this.value)">
@@ -329,46 +365,8 @@ function renderAction(a, ri, ai) {
       <option value="notify" ${kind==="notify"?"selected":""}>🔔 Notify</option>
       <option value="scene"  ${kind==="scene" ?"selected":""}>🎬 Activate Scene</option>
     </select>
-    <select class="cond-sel" style="flex:1" onchange="actionIOChange(${ri},${ai},this.value)">
-      ${kind==="AO" ? ioOptions(analogOutIO(), a.io_id, "— analog output (AO) —", {query:ruleIOQuery, zone:ruleZoneFilter}) : ioOptions(relaysIO(), a.io_id, "— relay output (DO) —", {query:ruleIOQuery, zone:ruleZoneFilter})}
-    </select>
-    <span style="font-size:11px;color:var(--muted)">→</span>
-    ${kind === "AO" ? `
-<select class="cond-sel" style="flex:1" onchange="actionIOChange(${ri},${ai},this.value)">
-  ${ioOptions(analogOutIO(), a.io_id, "— analog output (AO) —", {query:ruleIOQuery, zone:ruleZoneFilter})}
-</select>
-<span style="font-size:11px;color:var(--muted);white-space:nowrap">AUTO DT</span>
-<span style="font-size:11px;color:var(--muted);margin-left:10px">min</span>
-<input class="cond-input" type="number" min="0" max="100" step="0.5" value="${minPct}" style="width:72px"
-       oninput="ra(${ri},${ai},'min_pct',this.value)" placeholder="0">
-<span style="font-size:11px;color:var(--muted);margin-left:6px">max</span>
-<input class="cond-input" type="number" min="0" max="100" step="0.5" value="${maxPct}" style="width:72px"
-       oninput="ra(${ri},${ai},'max_pct',this.value)" placeholder="100">
-    ` : kind === "notify" ? `
-<input class="cond-input" style="flex:1;min-width:120px" placeholder="Title" value="${a.notify_title||''}"
-       oninput="ra(${ri},${ai},'notify_title',this.value)">
-<input class="cond-input" style="flex:1;min-width:120px" placeholder="Body message" value="${a.notify_body||''}"
-       oninput="ra(${ri},${ai},'notify_body',this.value)">
-<select class="cond-sel" onchange="ra(${ri},${ai},'notify_level',this.value)">
-  <option value="info"    ${(a.notify_level||'info')==='info'   ?'selected':''}>ℹ️ Info</option>
-  <option value="warning" ${a.notify_level==='warning'          ?'selected':''}>⚠️ Warning</option>
-  <option value="error"   ${a.notify_level==='error'            ?'selected':''}>🔴 Error</option>
-</select>
-    ` : kind === "scene" ? `
-<select class="cond-sel" style="flex:1" onchange="ra(${ri},${ai},'scene_id',this.value)">
-  <option value="">— select scene —</option>
-  ${(window._scenesCache||[]).map(s=>'<option value="'+s.id+'" '+(String(a.scene_id)===String(s.id)?'selected':'')+'>'+(escapeHTML(s.icon||'\u2699\ufe0f'))+' '+escapeHTML(s.name)+'</option>').join('')}
-</select>
-    ` : `
-      <select class="cond-sel" style="flex:1" onchange="actionIOChange(${ri},${ai},this.value)">
-        ${ioOptions(relaysIO(), a.io_id, "— relay output (DO) —", {query:ruleIOQuery, zone:ruleZoneFilter})}
-      </select>
-      <span style="font-size:11px;color:var(--muted);white-space:nowrap">ON/OFF</span>
-      <span style="font-size:11px;color:var(--muted);margin-left:8px;white-space:nowrap">OFF delay</span>
-      <input class="cond-input" type="number" min="0" step="1" value="${offDelay}" style="width:74px"
-             oninput="ra(${ri},${ai},'off_delay_s',this.value)" placeholder="sec">
-      <span style="font-size:11px;color:var(--muted)">s</span>
-    `}
+    ${kind === "notify" ? '' : '<span style="font-size:11px;color:var(--muted)">→</span>'}
+    ${detail}
     <button class="btn btn-xs btn-danger" onclick="removeAction(${ri},${ai})">✕</button>
     ${warnHtml}
   </div>`;
@@ -396,6 +394,13 @@ function renderRuleCard(rule, ri) {
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       <input class="rule-name-input" placeholder="Rule name" value="${rule.name||""}"
              style="flex:1;min-width:120px" oninput="rules[${ri}].name=this.value">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted2);white-space:nowrap">
+        <span>Mode</span>
+        <select class="cond-sel" style="width:120px" onchange="rules[${ri}].mode=this.value">
+          <option value="stateful" ${(rule.mode||'stateful')==='stateful' ? 'selected' : ''}>Stateful</option>
+          <option value="trigger" ${rule.mode==='trigger' ? 'selected' : ''}>Trigger</option>
+        </select>
+      </label>
       <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted2);cursor:pointer;white-space:nowrap">
         <input type="checkbox" ${rule.enabled?"checked":""} onchange="rules[${ri}].enabled=this.checked"> Enabled
       </label>
