@@ -267,7 +267,7 @@ class AutomationEngine {
 
   isOutputIO(io) {
     const type = this._typeName(io);
-    return new Set(["DO", "AO", "RELAY", "DIMMER", "OUTPUT", "DIGITAL_OUTPUT", "ANALOG_OUTPUT"]).has(type);
+    return new Set(["DO", "AO", "RELAY", "DIMMER", "OUTPUT", "DIGITAL_OUTPUT", "ANALOG_OUTPUT", "ANALOG_OUT"]).has(type);
   }
 
   _normalizeOverrideValue(io, value) {
@@ -279,7 +279,7 @@ class AutomationEngine {
       if (["0", "OFF", "FALSE", "CLOSE", "CLOSED"].includes(up)) return "OFF";
       return up || "OFF";
     }
-    if (new Set(["AI", "AO", "DIMMER", "ANALOG", "ANALOGOUT", "ANALOGIN", "ANALOG_INPUT", "ANALOG_OUTPUT"]).has(type)) {
+    if (new Set(["AI", "AO", "DIMMER", "ANALOG", "ANALOGOUT", "ANALOGIN", "ANALOG_INPUT", "ANALOG_OUTPUT", "ANALOG_OUT"]).has(type)) {
       const n = Number(raw);
       if (Number.isFinite(n)) return String(n);
     }
@@ -502,32 +502,43 @@ class AutomationEngine {
       const lastSent = this._lastSentState.get(sentKey);
       const now = Date.now();
 
-      // Skip if same value sent within last 5 seconds (flip-flop prevention)
-      if (lastSent && lastSent.value === normalized && (now - lastSent.ts) < 5000) {
-        return { ok: true, value: normalized, skipped: true, reason: 'recently_sent' };
-      }
+      // AO outputs: skip only if exact same numeric value was sent recently
+      const ioType = String(io.type || '').toLowerCase();
+      const isAO = ioType === 'ao' || ioType === 'analog_out' || ioType === 'dimmer';
 
-      // Also check current MQTT state
-      const stateKey = io.group_name ? `${io.group_name}.${io.key}` : io.key;
-      const row = this._getLatestState.get(io.device_id, stateKey) || this._getLatestState.get(io.device_id, io.key);
-      if (row) {
-        const cu = String(row.value).toUpperCase();
-        const currentOn = cu === 'ON' || cu === '1' || cu === 'TRUE' || cu === 'YES';
-        const nv = String(normalized).toUpperCase();
-        const desiredOn = nv === 'ON' || nv === '1' || nv === 'TRUE' || nv === 'YES';
-        if (currentOn === desiredOn) {
-          // Update last-sent-state so the 5s cooldown is refreshed
-          this._lastSentState.set(sentKey, { value: normalized, ts: now });
-          return { ok: true, value: normalized, skipped: true, reason: 'already_in_state' };
+      if (isAO) {
+        // For AO: only check last-sent numeric value, skip MQTT state comparison
+        if (lastSent && String(lastSent.value) === String(normalized) && (now - lastSent.ts) < 5000) {
+          return { ok: true, value: normalized, skipped: true, reason: 'recently_sent' };
         }
-      } else if (lastSent) {
-        // MQTT state unknown — check last-sent-state as fallback
-        const lu = String(lastSent.value).toUpperCase();
-        const lastOn = lu === 'ON' || lu === '1' || lu === 'TRUE' || lu === 'YES';
-        const nv = String(normalized).toUpperCase();
-        const desiredOn = nv === 'ON' || nv === '1' || nv === 'TRUE' || nv === 'YES';
-        if (lastOn === desiredOn) {
-          return { ok: true, value: normalized, skipped: true, reason: 'last_sent_matches' };
+      } else {
+        // Skip if same value sent within last 5 seconds (flip-flop prevention)
+        if (lastSent && lastSent.value === normalized && (now - lastSent.ts) < 5000) {
+          return { ok: true, value: normalized, skipped: true, reason: 'recently_sent' };
+        }
+
+        // Also check current MQTT state
+        const stateKey = io.group_name ? `${io.group_name}.${io.key}` : io.key;
+        const row = this._getLatestState.get(io.device_id, stateKey) || this._getLatestState.get(io.device_id, io.key);
+        if (row) {
+          const cu = String(row.value).toUpperCase();
+          const currentOn = cu === 'ON' || cu === '1' || cu === 'TRUE' || cu === 'YES';
+          const nv = String(normalized).toUpperCase();
+          const desiredOn = nv === 'ON' || nv === '1' || nv === 'TRUE' || nv === 'YES';
+          if (currentOn === desiredOn) {
+            // Update last-sent-state so the 5s cooldown is refreshed
+            this._lastSentState.set(sentKey, { value: normalized, ts: now });
+            return { ok: true, value: normalized, skipped: true, reason: 'already_in_state' };
+          }
+        } else if (lastSent) {
+          // MQTT state unknown — check last-sent-state as fallback
+          const lu = String(lastSent.value).toUpperCase();
+          const lastOn = lu === 'ON' || lu === '1' || lu === 'TRUE' || lu === 'YES';
+          const nv = String(normalized).toUpperCase();
+          const desiredOn = nv === 'ON' || nv === '1' || nv === 'TRUE' || nv === 'YES';
+          if (lastOn === desiredOn) {
+            return { ok: true, value: normalized, skipped: true, reason: 'last_sent_matches' };
+          }
         }
       }
     }
@@ -636,19 +647,26 @@ class AutomationEngine {
 
       // Skip evaluation if any mapped relay/DO output has unknown state
       // (common after MQTT reconnect / ESP reboot — prevents false flip-flop)
+      // Exception: when dimmer_output (AO) is mapped, treat unknown relay state as OFF
+      // so AO commands can still fire — relay acts as power-enable mirror only.
       const relayOutputKeys = ['light_relay', 'light_relay_2', 'light_relay_3', 'light_relay_4',
         'filter_pump', 'pump', 'heater', 'backup', 'ac_relay',
         'central_pump', 'solar_pump', 'spa_jets', 'lights', 'hp_defrost',
         'ph_minus_pump', 'ph_plus_pump', 'cl_pump', 'heat_source_1', 'heat_source_2',
-        'humidity_relay', 'tv_relay', 'radio_relay', 'awning_relay', 'presence_sensor',
-        'dimmer_output'];
+        'humidity_relay', 'tv_relay', 'radio_relay', 'awning_relay', 'presence_sensor'];
       const callOutputKeys = ['zone_1_output', 'zone_2_output', 'zone_3_output', 'zone_4_output', 'zone_5_output', 'zone_6_output'];
+      const hasDimmerOutput = !!ctx.io('dimmer_output');
       for (const key of relayOutputKeys) {
         const io = ctx.io(key);
         if (!io) continue;
         const raw = ctx.state(key);
         if (raw === null || raw === undefined) {
-          return; // Unknown output state — skip to avoid false decisions
+          if (hasDimmerOutput) {
+            ctx._stateOverrides = ctx._stateOverrides || {};
+            ctx._stateOverrides[key] = 'OFF';
+          } else {
+            return; // Unknown output state — skip to avoid false decisions
+          }
         }
       }
       // Call-thermostat outputs: treat unknown as OFF so the handler can engage the relay

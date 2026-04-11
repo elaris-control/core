@@ -62,10 +62,26 @@ function lightingActionName(ctx, source, on) {
   return `${base}_${src}_Calling_${on ? 'ON' : 'OFF'}`;
 }
 
+function sendRelayOutputs(send, ctx, on, reason, action) {
+  for (let i = 1; i <= 4; i++) {
+    const key = i === 1 ? 'light_relay' : `light_relay_${i}`;
+    if (!ctx.io(key)) continue;
+    send(key, on ? 'ON' : 'OFF', reason, { action, skipLog: true });
+  }
+}
+
 function setOut(send, ctx, hasDimmer, on, dimOn, dimOff, reason, source = 'Auto') {
   const action = lightingActionName(ctx, source, !!on);
   if (hasDimmer) {
-    send('dimmer_output', on ? dimOn : dimOff, reason, { action });
+    if (on) {
+      // Turn ON: relay first (power-enable), then AO to target level
+      sendRelayOutputs(send, ctx, true, reason, action);
+      send('dimmer_output', dimOn, reason, { action });
+    } else {
+      // Turn OFF: AO to off-level first, then relay (safe dim-down before power cut)
+      send('dimmer_output', dimOff, reason, { action });
+      sendRelayOutputs(send, ctx, false, reason, action);
+    }
   } else {
     let loggedPrimary = false;
     for (let i = 1; i <= 4; i++) {
@@ -85,7 +101,9 @@ function broadcastLightingState(ctx, extra) {
     const dimOffLevel = Number(ctx.setting('dim_off_level', 0));
     const dimVal = ctx.value('dimmer_output');
     const relayOn = ctx.isOn('light_relay');
-    const on = dimVal != null ? Number(dimVal) > (dimOffLevel + 5) : relayOn;
+    const dimKnown = dimVal != null && dimVal !== '';
+    const dimOn = dimKnown ? Number(dimVal) > (dimOffLevel + 5) : false;
+    const on = dimKnown ? (dimOn || !!relayOn) : !!relayOn;
     ctx.broadcastState?.(Object.assign({
       mode: ctx.settingStr('mode', 'auto'),
       status: on ? 'on' : 'off',
@@ -106,6 +124,43 @@ function broadcastLightingState(ctx, extra) {
       last_reason: null
     }, extra || {}));
   } catch {}
+}
+
+function applyLuxDimming(send, ctx, options) {
+  const {
+    hasDimmer,
+    hasLux,
+    isActive,
+    lux,
+    luxDimTarget,
+    luxDimMaxLevel,
+    dimOnLevel,
+    dimOffLevel,
+  } = options;
+
+  if (!hasDimmer || !hasLux || !isActive) return false;
+
+  const targetLux = Number(luxDimTarget);
+  const currentLux = Number(lux);
+  if (!Number.isFinite(targetLux) || targetLux <= 0 || !Number.isFinite(currentLux)) return false;
+
+  const currentLevelRaw = Number(ctx.value('dimmer_output'));
+  const fallbackLevel = Number.isFinite(Number(dimOnLevel)) ? Number(dimOnLevel) : 100;
+  const offLevel = Number.isFinite(Number(dimOffLevel)) ? Number(dimOffLevel) : 0;
+  const currentLevel = Number.isFinite(currentLevelRaw) && currentLevelRaw > (offLevel + 5)
+    ? currentLevelRaw
+    : fallbackLevel;
+
+  const error = currentLux - targetLux;
+  const step = Math.round(error / 15);
+  const minLevel = Math.max(5, offLevel);
+  const maxLevel = Math.max(minLevel, Number.isFinite(Number(luxDimMaxLevel)) ? Number(luxDimMaxLevel) : 100);
+  const newLevel = Math.max(minLevel, Math.min(maxLevel, currentLevel - step));
+
+  if (Math.abs(newLevel - currentLevel) < 2) return false;
+
+  send('dimmer_output', newLevel, `Lux dim: lux=${currentLux.toFixed(0)} target=${targetLux} to ${newLevel}%`);
+  return true;
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -139,10 +194,16 @@ function lightingHandler(ctx, send, siteInfo) {
   const hasMotionAI= !!ctx.io('motion_ai');
   const hasLux     = !!ctx.io('lux_sensor');
 
+  const mappedRelays = ['light_relay', 'light_relay_2', 'light_relay_3', 'light_relay_4'].filter(k => !!ctx.io(k));
+  const anyRelayMapped = mappedRelays.length > 0;
+  const dimVal = ctx.value('dimmer_output');
+  const dimKnown = dimVal != null && dimVal !== '';
+  const relayAnyOn = mappedRelays.some(k => ctx.isOn(k) === true);
   const isOn = hasDimmer
-    ? (ctx.value('dimmer_output') ?? 0) > (dimOffLevel + 5)
-    : ctx.isOn('light_relay');
-  const relayStateUnknown = !hasDimmer && isOn === undefined;
+    ? ((dimKnown ? Number(dimVal) > (dimOffLevel + 5) : false) || relayAnyOn)
+    : relayAnyOn;
+  const allRelaysUnknown = anyRelayMapped && mappedRelays.every(k => ctx.isOn(k) === undefined);
+  const relayStateUnknown = !hasDimmer && allRelaysUnknown;
 
   // ── Wall switch (DI) — fast path for immediate light response ───────
   if (hasSwitch) {
@@ -168,21 +229,24 @@ function lightingHandler(ctx, send, siteInfo) {
       switchTapTime.set(instId, 0); // reset so next press is handled normally
     } else if (swOn && !prevOn) { // rising edge
       const lockUntil = switchFastLock.get(instId) || 0;
-      if (switchRetriggerBlockMs > 0 && now < lockUntil) {
-        // skip switch logic only, continue to PIR/schedule/lux
+      const dt = now - lastTap;
+      const isDoubleTap = dt > 50 && dt < 500;
+      // Allow double-tap through even if debounce lock is active —
+      // the second tap must not be blocked or double-tap can never fire.
+      if (switchRetriggerBlockMs > 0 && now < lockUntil && !isDoubleTap) {
+        // bounce — skip switch logic only, continue to PIR/schedule/lux
       } else {
-        const dt = now - lastTap;
         switchTapTime.set(instId, now);
-        if (dt > 50 && dt < 500) { // double-tap detected
+        if (isDoubleTap) {
           const doubleTapLevel = ctx.setting('double_tap_level', 100);
           if (hasDimmer) {
-            send('dimmer_output', doubleTapLevel, 'Double-tap: full brightness', { action: lightingActionName(ctx, 'Switch', true) });
+            send('dimmer_output', doubleTapLevel, `Double-tap: ${doubleTapLevel}%`, { action: lightingActionName(ctx, 'Switch', true) });
           } else {
             setOut(send, ctx, hasDimmer, true, dimOnLevel, dimOffLevel, 'Double-tap: ON', 'Switch');
           }
           manualState.set(instId, { on: true, ts: now });
           if (switchRetriggerBlockMs > 0) switchFastLock.set(instId, now + switchRetriggerBlockMs);
-          broadcastLightingState(ctx, { manual_active: true, source: 'manual', schedule_active: false, motion_active: false, dark: null, last_reason: 'Double-tap: ON', status: 'on', output_on: true });
+          broadcastLightingState(ctx, { manual_active: true, source: 'manual', schedule_active: false, motion_active: false, dark: null, last_reason: hasDimmer ? `Double-tap: ${doubleTapLevel}%` : 'Double-tap: ON', status: 'on', output_on: true });
           return;
         }
         if (relayStateUnknown) return;
@@ -253,7 +317,7 @@ function lightingHandler(ctx, send, siteInfo) {
       return;
     }
     if ((mode === 'combined' || mode === 'auto') && isDark && !isOn) {
-      const reason = mode === 'combined' ? `Motion+dark lux=${lux??'?'}` : 'Auto: motion';
+      const reason = mode === 'combined' ? (hasLux ? `Motion+dark lux=${lux??'?'}` : 'Motion') : 'Auto: motion';
       setOut(send, ctx, hasDimmer, true, dimOnLevel, dimOffLevel, reason, 'PIR');
       broadcastLightingState(ctx, { source: mode === 'combined' ? 'combined' : 'auto_motion', schedule_active: inSched, motion_active: true, dark: !!isDark, last_reason: reason, status: 'on', output_on: true });
       return;
@@ -269,6 +333,7 @@ function lightingHandler(ctx, send, siteInfo) {
   if (mode === 'schedule') {
     if (inSched  && !isOn) setOut(send, ctx, hasDimmer, true,  dimOnLevel, dimOffLevel, `Schedule ON (${schedOnStr || schedOn})`, 'Schedule');
     if (!inSched && isOn)  setOut(send, ctx, hasDimmer, false, dimOnLevel, dimOffLevel, `Schedule OFF (${schedOffStr || schedOff})`, 'Schedule');
+    applyLuxDimming(send, ctx, { hasDimmer, hasLux, isActive: inSched, lux, luxDimTarget, luxDimMaxLevel, dimOnLevel, dimOffLevel });
     broadcastLightingState(ctx, { source: 'schedule', schedule_active: inSched, motion_active: !!motion, dark: !!isDark, last_reason: inSched ? `In schedule window` : `Outside schedule` });
     return;
   }
@@ -276,9 +341,10 @@ function lightingHandler(ctx, send, siteInfo) {
   // ── LUX mode ────────────────────────────────────────────────────────
   if (mode === 'lux') {
     if (!hasLux) { broadcastLightingState(ctx, { source: 'lux', schedule_active: inSched, motion_active: !!motion, dark: null, last_reason: 'Lux sensor not mapped' }); return; }
-    if (!isOn && isDark)                   setOut(send, ctx, hasDimmer, true,  dimOnLevel, dimOffLevel, `Dark: lux=${lux} < ${luxThreshold}`, 'Lux');
+    if (!isOn && isDark)                   setOut(send, ctx, hasDimmer, true,  dimOnLevel, dimOffLevel, lux != null ? `Dark: lux=${lux} < ${luxThreshold}` : 'Dark: lux unknown', 'Lux');
     else if (isOn && lux >= luxThresholdOff) setOut(send, ctx, hasDimmer, false, dimOnLevel, dimOffLevel, `Bright: lux=${lux?.toFixed(0)}`, 'Lux');
-    broadcastLightingState(ctx, { source: 'lux', schedule_active: inSched, motion_active: !!motion, dark: !!isDark, last_reason: isDark ? `Dark: lux=${lux}` : `Bright: lux=${lux}` });
+    applyLuxDimming(send, ctx, { hasDimmer, hasLux, isActive: isDark, lux, luxDimTarget, luxDimMaxLevel, dimOnLevel, dimOffLevel });
+    broadcastLightingState(ctx, { source: 'lux', schedule_active: inSched, motion_active: !!motion, dark: !!isDark, last_reason: isDark ? (lux != null ? `Dark: lux=${lux}` : 'Dark: lux unknown') : `Bright: lux=${lux?.toFixed(0)}` });
     return;
   }
 
@@ -290,6 +356,7 @@ function lightingHandler(ctx, send, siteInfo) {
       lastMotionTime.delete(instId);
       setOut(send, ctx, hasDimmer, false, dimOnLevel, dimOffLevel, `No motion ${Math.round(timeSince/1000)}s`, 'PIR');
     }
+    applyLuxDimming(send, ctx, { hasDimmer, hasLux, isActive: !!motion, lux, luxDimTarget, luxDimMaxLevel, dimOnLevel, dimOffLevel });
     broadcastLightingState(ctx, { source: 'pir', schedule_active: inSched, motion_active: !!motion, dark: !!isDark, last_reason: motion ? (motionVal!=null ? `Motion AI=${motionVal}` : 'Motion') : `No motion` });
     return;
   }
@@ -297,12 +364,13 @@ function lightingHandler(ctx, send, siteInfo) {
   // ── COMBINED mode: PIR only when dark ───────────────────────────────
   if (mode === 'combined') {
     if (motion && isDark && !isOn)
-      setOut(send, ctx, hasDimmer, true, dimOnLevel, dimOffLevel, `Motion+dark lux=${lux??'?'}`, 'PIR');
+      setOut(send, ctx, hasDimmer, true, dimOnLevel, dimOffLevel, hasLux ? `Motion+dark lux=${lux??'?'}` : 'Motion', 'PIR');
     else if (isOn && (!motion||!isDark) && timeSince > pirTimeout) {
       lastMotionTime.delete(instId);
       setOut(send, ctx, hasDimmer, false, dimOnLevel, dimOffLevel, `Timeout/bright`, 'PIR');
     }
-    broadcastLightingState(ctx, { source: 'combined', schedule_active: inSched, motion_active: !!motion, dark: !!isDark, last_reason: motion && isDark ? `Motion + dark` : (!isDark ? 'Bright enough' : 'No motion') });
+    applyLuxDimming(send, ctx, { hasDimmer, hasLux, isActive: !!motion && !!isDark, lux, luxDimTarget, luxDimMaxLevel, dimOnLevel, dimOffLevel });
+    broadcastLightingState(ctx, { source: 'combined', schedule_active: inSched, motion_active: !!motion, dark: hasLux ? !!isDark : null, last_reason: motion && isDark ? (hasLux ? 'Motion + dark' : 'Motion') : (!isDark ? 'Bright enough' : 'No motion') });
     return;
   }
 
@@ -328,31 +396,22 @@ function lightingHandler(ctx, send, siteInfo) {
         lastMotionTime.delete(instId);
         setOut(send, ctx, hasDimmer, false, dimOnLevel, dimOffLevel, `Auto: no motion ${Math.round(timeSince/1000)}s`, 'PIR');
       }
+      applyLuxDimming(send, ctx, { hasDimmer, hasLux, isActive: !!motion && !!isDark, lux, luxDimTarget, luxDimMaxLevel, dimOnLevel, dimOffLevel });
       broadcastLightingState(ctx, { source: 'auto_motion', schedule_active: inSched, motion_active: !!motion, dark: !!isDark, last_reason: motion && isDark ? (motionVal!=null ? `Auto: motion AI=${motionVal}` : 'Auto: motion') : (isDark ? 'Auto: no motion' : 'Bright enough') });
       return;
     }
     // Lux-only (no motion sensor)
     if (hasLux) {
-      if (!isOn && isDark)  setOut(send, ctx, hasDimmer, true,  dimOnLevel, dimOffLevel, `Auto: dark lux=${lux}`, 'Lux');
-      broadcastLightingState(ctx, { source: 'auto_lux_only', schedule_active: inSched, motion_active: !!motion, dark: !!isDark, last_reason: isDark ? `Auto: dark lux=${lux}` : `Auto: bright lux=${lux}` });
+      if (!isOn && isDark)  setOut(send, ctx, hasDimmer, true,  dimOnLevel, dimOffLevel, lux != null ? `Auto: dark lux=${lux}` : 'Auto: lux unknown', 'Lux');
+      applyLuxDimming(send, ctx, { hasDimmer, hasLux, isActive: !!isDark, lux, luxDimTarget, luxDimMaxLevel, dimOnLevel, dimOffLevel });
+      broadcastLightingState(ctx, { source: 'auto_lux_only', schedule_active: inSched, motion_active: !!motion, dark: !!isDark, last_reason: isDark ? (lux != null ? `Auto: dark lux=${lux}` : 'Auto: lux unknown') : `Auto: bright lux=${lux?.toFixed(0)}` });
       return;
     }
     // Schedule only
     if (inSched && !isOn) setOut(send, ctx, hasDimmer, true,  dimOnLevel, dimOffLevel, `Auto: schedule`, 'Schedule');
+    applyLuxDimming(send, ctx, { hasDimmer, hasLux, isActive: inSched, lux, luxDimTarget, luxDimMaxLevel, dimOnLevel, dimOffLevel });
     broadcastLightingState(ctx, { source: 'auto_schedule', schedule_active: inSched, motion_active: !!motion, dark: !!isDark, last_reason: inSched ? 'Auto: schedule window' : 'Auto idle' });
     return;
-  }
-
-  // Lux-based dimming: maintain target lux by adjusting dimmer level
-  // (applies after all mode logic, only for dimmer outputs)
-  if (hasDimmer && hasLux && luxDimTarget > 0 && lux != null) {
-    const curLevel = ctx.value('dimmer_output') ?? dimOnLevel;
-    const error = lux - luxDimTarget;
-    const step  = Math.round(error / 15); // 15 lux per 1% step
-    const newLevel = Math.max(5, Math.min(luxDimMaxLevel, curLevel - step));
-    if (Math.abs(newLevel - curLevel) >= 2) {
-      send('dimmer_output', newLevel, `Lux dim: lux=${lux?.toFixed(0)} target=${luxDimTarget} → ${newLevel}%`);
-    }
   }
 }
 
@@ -393,6 +452,16 @@ const LIGHTING_MODULE = {
       description: "Third relay output controlled in parallel." },
     { key: 'light_relay_4', label: 'Light Relay 4 (DO)', type: 'relay', required: false,
       description: "Fourth relay output controlled in parallel." },
+  ],
+
+  groups: [
+    { id: 'General',  label: '⚙️ General',  open: true,  requires: null },
+    { id: 'Motion',   label: '🏃 Motion',   open: false, requiresAny: ['pir_sensor', 'motion_ai'] },
+    { id: 'Lux',      label: '☀️ Lux',      open: false, requires: 'lux_sensor' },
+    { id: 'Dimmer',   label: '🎚️ Dimmer',   open: false, requires: 'dimmer_output' },
+    { id: 'Schedule', label: '📅 Schedule', open: false, requires: null },
+    { id: 'Switch',   label: '🔘 Switch',   open: false, requires: 'switch_di' },
+    { id: 'Lux Dimming', label: '🎯 Lux Dimming', open: false, requires: 'dimmer_output' },
   ],
 
   setpoints: [

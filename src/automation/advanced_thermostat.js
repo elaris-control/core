@@ -735,7 +735,12 @@ const THERMOSTAT_MODULE = {
     { id: "zoning",   label: "🏠 Zones & Pumps",        open: true,  requires: null },
     { id: "window",   label: "🪟 Window Detection",     open: false, requires: null },
     { id: "pre",      label: "⏰ Pre-heat / Pre-cool",  open: false, requires: "temp_outdoor" },
-    { id: "per_zone", label: "🏠 Per-Zone Setpoints",   open: false, requires: null },
+    { id: "zone_1",   label: "🏠 Zone 1 Setpoints",     open: false, requires: null },
+    { id: "zone_2",   label: "🏠 Zone 2 Setpoints",     open: false, requires: null },
+    { id: "zone_3",   label: "🏠 Zone 3 Setpoints",     open: false, requires: null },
+    { id: "zone_4",   label: "🏠 Zone 4 Setpoints",     open: false, requires: null },
+    { id: "zone_5",   label: "🏠 Zone 5 Setpoints",     open: false, requires: null },
+    { id: "zone_6",   label: "🏠 Zone 6 Setpoints",     open: false, requires: null },
     { id: "holiday",  label: "🏖️ Holiday Mode",         open: false, requires: null },
     { id: "humidity", label: "💧 Humidity Control",      open: false, requires: "humidity" },
   ],
@@ -760,36 +765,44 @@ const THERMOSTAT_MODULE = {
     { group: "pre",    key: "pre_target_time", label: "Target ready time", type: "text", default: "07:00",
       help: "Legacy single-zone feature. Time (HH:MM) when the room should be ready." },
 
-    // ── Per-Zone Names ────────────────────────────────────────────────
-    { group: "per_zone", key: "zone_1_name", label: "Zone 1 Name", type: "text", default: "", help: "Custom display name for zone 1 (e.g. 'Living Room')." },
-    { group: "per_zone", key: "zone_2_name", label: "Zone 2 Name", type: "text", default: "", help: "Custom display name for zone 2." },
-    { group: "per_zone", key: "zone_3_name", label: "Zone 3 Name", type: "text", default: "", help: "Custom display name for zone 3." },
-    { group: "per_zone", key: "zone_4_name", label: "Zone 4 Name", type: "text", default: "", help: "Custom display name for zone 4." },
-    { group: "per_zone", key: "zone_5_name", label: "Zone 5 Name", type: "text", default: "", help: "Custom display name for zone 5." },
-    { group: "per_zone", key: "zone_6_name", label: "Zone 6 Name", type: "text", default: "", help: "Custom display name for zone 6." },
-
-    // ── Per-Zone Setpoints ────────────────────────────────────────────
-    { group: "per_zone", key: "zone_1_setpoint",   label: "Zone 1 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null,
+    // ── Zone 1 ────────────────────────────────────────────────────────
+    { group: "zone_1", key: "zone_1_name", label: "Zone 1 Name", type: "text", default: "", help: "Custom display name for zone 1 (e.g. 'Living Room')." },
+    { group: "zone_1", key: "zone_1_setpoint",   label: "Zone 1 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null,
       help: "Override the global setpoint for zone 1 only. Leave empty to use the global setpoint." },
-    { group: "per_zone", key: "zone_1_hysteresis", label: "Zone 1 Hysteresis", type: "number", unit: "°C", step: 0.1, default: null,
+    { group: "zone_1", key: "zone_1_hysteresis", label: "Zone 1 Hysteresis", type: "number", unit: "°C", step: 0.1, default: null,
       help: "Override hysteresis for zone 1 only." },
-    { group: "per_zone", key: "zone_1_schedule",   label: "Zone 1 Schedule (JSON)", type: "text", default: "",
+    { group: "zone_1", key: "zone_1_schedule",   label: "Zone 1 Schedule (JSON)", type: "text", default: "",
       help: 'JSON array of time slots, e.g. [{"days":"weekday","start":"06:00","end":"22:00","setpoint":21},{"days":"all","start":"22:00","end":"06:00","setpoint":18}]' },
-    { group: "per_zone", key: "zone_2_setpoint",   label: "Zone 2 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null, help: "Override the global setpoint for zone 2 only." },
-    { group: "per_zone", key: "zone_2_hysteresis", label: "Zone 2 Hysteresis", type: "number", unit: "°C", step: 0.1, default: null, help: "Override hysteresis for zone 2 only." },
-    { group: "per_zone", key: "zone_2_schedule",   label: "Zone 2 Schedule (JSON)", type: "text", default: "", help: "JSON schedule for zone 2." },
-    { group: "per_zone", key: "zone_3_setpoint",   label: "Zone 3 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null, help: "Override the global setpoint for zone 3 only." },
-    { group: "per_zone", key: "zone_3_hysteresis", label: "Zone 3 Hysteresis", type: "number", unit: "°C", step: 0.1, default: null, help: "Override hysteresis for zone 3 only." },
-    { group: "per_zone", key: "zone_3_schedule",   label: "Zone 3 Schedule (JSON)", type: "text", default: "", help: "JSON schedule for zone 3." },
-    { group: "per_zone", key: "zone_4_setpoint",   label: "Zone 4 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null, help: "Override the global setpoint for zone 4 only." },
-    { group: "per_zone", key: "zone_4_hysteresis", label: "Zone 4 Hysteresis", type: "number", unit: "°C", step: 0.1, default: null, help: "Override hysteresis for zone 4 only." },
-    { group: "per_zone", key: "zone_4_schedule",   label: "Zone 4 Schedule (JSON)", type: "text", default: "", help: "JSON schedule for zone 4." },
-    { group: "per_zone", key: "zone_5_setpoint",   label: "Zone 5 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null, help: "Override the global setpoint for zone 5 only." },
-    { group: "per_zone", key: "zone_5_hysteresis", label: "Zone 5 Hysteresis", type: "number", unit: "°C", step: 0.1, default: null, help: "Override hysteresis for zone 5 only." },
-    { group: "per_zone", key: "zone_5_schedule",   label: "Zone 5 Schedule (JSON)", type: "text", default: "", help: "JSON schedule for zone 5." },
-    { group: "per_zone", key: "zone_6_setpoint",   label: "Zone 6 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null, help: "Override the global setpoint for zone 6 only." },
-    { group: "per_zone", key: "zone_6_hysteresis", label: "Zone 6 Hysteresis", type: "number", unit: "°C", step: 0.1, default: null, help: "Override hysteresis for zone 6 only." },
-    { group: "per_zone", key: "zone_6_schedule",   label: "Zone 6 Schedule (JSON)", type: "text", default: "", help: "JSON schedule for zone 6." },
+
+    // ── Zone 2 ────────────────────────────────────────────────────────
+    { group: "zone_2", key: "zone_2_name", label: "Zone 2 Name", type: "text", default: "", help: "Custom display name for zone 2." },
+    { group: "zone_2", key: "zone_2_setpoint",   label: "Zone 2 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null, help: "Override the global setpoint for zone 2 only." },
+    { group: "zone_2", key: "zone_2_hysteresis", label: "Zone 2 Hysteresis", type: "number", unit: "°C", step: 0.1, default: null, help: "Override hysteresis for zone 2 only." },
+    { group: "zone_2", key: "zone_2_schedule",   label: "Zone 2 Schedule (JSON)", type: "text", default: "", help: "JSON schedule for zone 2." },
+
+    // ── Zone 3 ────────────────────────────────────────────────────────
+    { group: "zone_3", key: "zone_3_name", label: "Zone 3 Name", type: "text", default: "", help: "Custom display name for zone 3." },
+    { group: "zone_3", key: "zone_3_setpoint",   label: "Zone 3 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null, help: "Override the global setpoint for zone 3 only." },
+    { group: "zone_3", key: "zone_3_hysteresis", label: "Zone 3 Hysteresis", type: "number", unit: "°C", step: 0.1, default: null, help: "Override hysteresis for zone 3 only." },
+    { group: "zone_3", key: "zone_3_schedule",   label: "Zone 3 Schedule (JSON)", type: "text", default: "", help: "JSON schedule for zone 3." },
+
+    // ── Zone 4 ────────────────────────────────────────────────────────
+    { group: "zone_4", key: "zone_4_name", label: "Zone 4 Name", type: "text", default: "", help: "Custom display name for zone 4." },
+    { group: "zone_4", key: "zone_4_setpoint",   label: "Zone 4 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null, help: "Override the global setpoint for zone 4 only." },
+    { group: "zone_4", key: "zone_4_hysteresis", label: "Zone 4 Hysteresis", type: "number", unit: "°C", step: 0.1, default: null, help: "Override hysteresis for zone 4 only." },
+    { group: "zone_4", key: "zone_4_schedule",   label: "Zone 4 Schedule (JSON)", type: "text", default: "", help: "JSON schedule for zone 4." },
+
+    // ── Zone 5 ────────────────────────────────────────────────────────
+    { group: "zone_5", key: "zone_5_name", label: "Zone 5 Name", type: "text", default: "", help: "Custom display name for zone 5." },
+    { group: "zone_5", key: "zone_5_setpoint",   label: "Zone 5 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null, help: "Override the global setpoint for zone 5 only." },
+    { group: "zone_5", key: "zone_5_hysteresis", label: "Zone 5 Hysteresis", type: "number", unit: "°C", step: 0.1, default: null, help: "Override hysteresis for zone 5 only." },
+    { group: "zone_5", key: "zone_5_schedule",   label: "Zone 5 Schedule (JSON)", type: "text", default: "", help: "JSON schedule for zone 5." },
+
+    // ── Zone 6 ────────────────────────────────────────────────────────
+    { group: "zone_6", key: "zone_6_name", label: "Zone 6 Name", type: "text", default: "", help: "Custom display name for zone 6." },
+    { group: "zone_6", key: "zone_6_setpoint",   label: "Zone 6 Setpoint",   type: "number", unit: "°C", step: 0.5, default: null, help: "Override the global setpoint for zone 6 only." },
+    { group: "zone_6", key: "zone_6_hysteresis", label: "Zone 6 Hysteresis", type: "number", unit: "°C", step: 0.1, default: null, help: "Override hysteresis for zone 6 only." },
+    { group: "zone_6", key: "zone_6_schedule",   label: "Zone 6 Schedule (JSON)", type: "text", default: "", help: "JSON schedule for zone 6." },
 
     // ── Holiday Mode ──────────────────────────────────────────────────
     { group: "holiday", key: "holiday_mode",     label: "Holiday Mode",         type: "select", options: ["off","on"], default: "off",
