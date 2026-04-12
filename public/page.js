@@ -820,6 +820,7 @@ async function renderInstance(inst){
     else if(typeof window.isSmartLightingModule==='function' && window.isSmartLightingModule(inst.module_id))content=await window.renderSmartLightingModule(inst);
     else if(inst.module_id==='awning')content=await renderAwning(inst);
     else if(inst.module_id==='smart_lighting')content=await renderSmartLighting(inst);
+    else if(inst.module_id==='dimming_lighting')content=await renderDimmingLighting(inst);
     else if(inst.module_id==='irrigation')content=await renderIrrigation(inst);
     else if(inst.module_id==='pool_spa')content=await renderPoolSpa(inst);
     else if(inst.module_id==='water_manager')content=await renderWaterManager(inst);

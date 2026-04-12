@@ -308,6 +308,19 @@ option{background:#0d1221;color:var(--text)}
 <script src="/js/modules/rules.js?v=1"></script>
 <script src="/js/modules/scenarios.js?v=1"></script>
 <script src="/js/modules/wizard.js?v=2"></script>
+<script>
+// Override window.toast to use the toastWrap system on this page
+window.toast = function(msg, okOrMs) {
+  var wrap = document.getElementById('toastWrap');
+  if (!wrap) return;
+  var el = document.createElement('div');
+  el.className = 'toast' + (okOrMs === true ? ' ok' : okOrMs === false ? ' err' : '');
+  el.textContent = msg || '';
+  wrap.appendChild(el);
+  var ms = (okOrMs === true || okOrMs === false) ? 2600 : (typeof okOrMs === 'number' ? okOrMs : 3000);
+  setTimeout(function() { el.remove(); }, ms);
+};
+</script>
 <script>document.addEventListener('DOMContentLoaded', initModulesPage);</script>
 <script src="/theme.js?v=1"></script>
 <script src="/mobile-nav.js"></script>

@@ -33,6 +33,7 @@ const { MODULE: SCHEDULED_LIGHT_MODULE  } = tryRequire('./scheduled_light')  || 
 const { MODULE: MOTION_DAYLIGHT_MODULE  } = tryRequire('./motion_daylight')  || {};
 const { MODULE: SCHEDULED_MOTION_MODULE      } = tryRequire('./scheduled_motion')      || {};
 const { MODULE: INTERLOCKED_SWITCHES_MODULE } = tryRequire('./interlocked_switches') || {};
+const { MODULE: DIMMING_LIGHTING_MODULE     } = tryRequire('./dimming_lighting')     || {};
 
 function withUi(def, ui) {
   return Object.assign({}, def, {
@@ -86,6 +87,7 @@ const MODULES = [
   SCHEDULED_LIGHT_MODULE      && normalizeModule(SCHEDULED_LIGHT_MODULE,      { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
   MOTION_DAYLIGHT_MODULE      && normalizeModule(MOTION_DAYLIGHT_MODULE,      { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
   SCHEDULED_MOTION_MODULE     && normalizeModule(SCHEDULED_MOTION_MODULE,     { user_view: true,  user_control: true,  user_commands: ['toggle'] }),
+  DIMMING_LIGHTING_MODULE     && normalizeModule(DIMMING_LIGHTING_MODULE,     { user_view: true,  user_control: true }),
 ].filter(Boolean);
 
 function getModule(id)    { return MODULES.find(m => m.id === id) || null; }
