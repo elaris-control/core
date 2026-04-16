@@ -647,6 +647,7 @@ const MODULE_META=[
   {id:'advanced_thermostat',       icon:'🌡️', label:'Heating',         color:'#1d8cff'},
   {id:'lighting',         icon:'💡', label:'Lighting',        color:'#f5c842'},
   {id:'smart_lighting',   icon:'✨', label:'Smart Lighting',  color:'#f0c040'},
+  {id:'dimming_lighting', icon:'💡', label:'Dimming',         color:'#f5c842'},
   {id:'energy',           icon:'⚡', label:'Energy',          color:'#f59e0b'},
   {id:'custom',           icon:'⚙️', label:'Automation',      color:'#a855f7'},
   {id:'awning',           icon:'🪟', label:'Shutters',        color:'#22d97a'},

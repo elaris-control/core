@@ -544,10 +544,13 @@ class AutomationEngine {
     }
 
     if (!this.mqttApi) return { ok: false, error: "mqtt_not_ready" };
-    const mqttRootRow = this._getMqttTopicRoot.get(io.device_id);
-    const mqttTopicRoot = String(mqttRootRow?.mqtt_topic_root || '').trim() || null;
     let sent = null;
-    if (this.mqttApi.sendCommand) {
+    // HA-discovered IOs carry their own command_topic — use it directly
+    if (io.command_topic && this.mqttApi.sendCommandDirect) {
+      sent = this.mqttApi.sendCommandDirect(io.command_topic, normalized, { deviceId: io.device_id, key: io.key });
+    } else if (this.mqttApi.sendCommand) {
+      const mqttRootRow = this._getMqttTopicRoot.get(io.device_id);
+      const mqttTopicRoot = String(mqttRootRow?.mqtt_topic_root || '').trim() || null;
       sent = this.mqttApi.sendCommand(io.device_id, io.key, normalized, mqttTopicRoot);
     } else if (this.mqttApi.publish) {
       this.mqttApi.publish(io.device_id, io.key, normalized);

@@ -17,7 +17,28 @@ const ESPHOME_STANDARD_SUBSCRIPTIONS = [
   '+/text_sensor/+/state',
 ];
 
-const ALL_SUBSCRIPTIONS = [...ELARIS_SUBSCRIPTIONS, ...ESPHOME_STANDARD_SUBSCRIPTIONS];
+const HA_DISCOVERY_PREFIX = 'homeassistant';
+const HA_DISCOVERY_SUBSCRIPTION = 'homeassistant/#';
+
+// MVP scope: components that map cleanly to ELARIS IO semantics.
+// light, fan, cover, climate need richer command models and are out of scope for now.
+const HA_SUPPORTED_COMPONENTS = new Set(['sensor', 'binary_sensor', 'switch', 'number']);
+
+// Maps HA component type -> io group_name (only supported components listed)
+const HA_COMPONENT_GROUP = {
+  sensor: 'tele', binary_sensor: 'tele',
+  switch: 'state', number: 'state',
+};
+
+// Maps HA component type -> ELARIS io type (only supported components listed)
+const HA_COMPONENT_TYPE = {
+  sensor: 'sensor',
+  binary_sensor: 'di',
+  switch: 'relay',
+  number: 'ao',     // numeric output → analog output
+};
+
+const ALL_SUBSCRIPTIONS = [...ELARIS_SUBSCRIPTIONS, ...ESPHOME_STANDARD_SUBSCRIPTIONS, HA_DISCOVERY_SUBSCRIPTION];
 
 const ESPHOME_COMPONENT_TYPES = ['switch', 'binary_sensor', 'sensor', 'text_sensor'];
 
@@ -57,6 +78,11 @@ module.exports = {
   ELARIS_PREFIX,
   ELARIS_SUBSCRIPTIONS,
   ESPHOME_STANDARD_SUBSCRIPTIONS,
+  HA_DISCOVERY_PREFIX,
+  HA_DISCOVERY_SUBSCRIPTION,
+  HA_SUPPORTED_COMPONENTS,
+  HA_COMPONENT_GROUP,
+  HA_COMPONENT_TYPE,
   ALL_SUBSCRIPTIONS,
   ESPHOME_COMPONENT_TYPES,
   IDENTITY_SENSOR_KEYS,

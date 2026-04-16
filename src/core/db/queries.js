@@ -1,6 +1,8 @@
 // src/core/db/queries.js
 // Prepared statements + CRUD functions for core platform operations.
 
+const { HA_COMPONENT_TYPE } = require('../../mqtt_topics');
+
 function createQueries(db) {
   // ── Device state ──────────────────────────────────────────────────────────
   const insertEvent = db.prepare(`INSERT INTO events (device_id, topic, payload, ts) VALUES (@device_id, @topic, @payload, @ts)`);
@@ -143,15 +145,20 @@ function createQueries(db) {
     const row = db.prepare(`SELECT * FROM pending_io WHERE id=?`).get(pending_id);
     if (!row) return { ok: false, error: 'not_found' };
     const ts = Date.now();
+    const resolvedType = type || (row.ha_component && HA_COMPONENT_TYPE[row.ha_component]) || 'sensor';
     const info = db.prepare(`
-      INSERT INTO io (device_id, key, group_name, type, name, zone_id, created_ts, hw_type, kind, unit, source, port_id, bus_id, board_profile_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      INSERT INTO io (device_id, key, group_name, type, name, zone_id, created_ts, hw_type, kind, unit, source, port_id, bus_id, board_profile_id, command_topic, state_topic, ha_config, ha_discovery_topic)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(device_id, group_name, key) DO UPDATE SET
         name=excluded.name, type=excluded.type, zone_id=excluded.zone_id,
         hw_type=excluded.hw_type, kind=excluded.kind, unit=excluded.unit,
         source=excluded.source, port_id=excluded.port_id, bus_id=excluded.bus_id,
-        board_profile_id=excluded.board_profile_id
-    `).run(row.device_id, row.key, row.group_name, type || 'sensor', name, zone_id || null, ts, hw_type || null, kind || null, unit || null, source || null, port_id || null, bus_id || null, board_profile_id || null);
+        board_profile_id=excluded.board_profile_id,
+        command_topic=COALESCE(excluded.command_topic, io.command_topic),
+        state_topic=COALESCE(excluded.state_topic, io.state_topic),
+        ha_config=COALESCE(excluded.ha_config, io.ha_config),
+        ha_discovery_topic=COALESCE(excluded.ha_discovery_topic, io.ha_discovery_topic)
+    `).run(row.device_id, row.key, row.group_name, resolvedType, name, zone_id || null, ts, hw_type || null, kind || null, unit || null, source || null, port_id || null, bus_id || null, board_profile_id || null, row.command_topic || null, row.state_topic || null, row.ha_config || null, row.ha_discovery_topic || null);
     db.prepare(`DELETE FROM pending_io WHERE id=?`).run(pending_id);
     return { ok: true, io_id: info.lastInsertRowid };
   }

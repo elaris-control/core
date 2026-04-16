@@ -239,6 +239,10 @@ function ensureOptionalColumns(db) {
   ensureIoCol("bus_id", `ALTER TABLE io ADD COLUMN bus_id TEXT;`);
   ensureIoCol("board_profile_id", `ALTER TABLE io ADD COLUMN board_profile_id TEXT;`);
   ensureIoCol("stale", `ALTER TABLE io ADD COLUMN stale INTEGER NOT NULL DEFAULT 0;`);
+  ensureIoCol("command_topic",      `ALTER TABLE io ADD COLUMN command_topic TEXT;`);
+  ensureIoCol("state_topic",        `ALTER TABLE io ADD COLUMN state_topic TEXT;`);
+  ensureIoCol("ha_config",          `ALTER TABLE io ADD COLUMN ha_config TEXT;`);
+  ensureIoCol("ha_discovery_topic", `ALTER TABLE io ADD COLUMN ha_discovery_topic TEXT;`);
 
   try {
     const zCols = db.prepare(`PRAGMA table_info(zones);`).all().map(r => r.name);
@@ -247,8 +251,13 @@ function ensureOptionalColumns(db) {
 
   try {
     const pCols = db.prepare(`PRAGMA table_info(pending_io);`).all().map(r => r.name);
-    if (!pCols.includes("site_id")) db.exec(`ALTER TABLE pending_io ADD COLUMN site_id INTEGER;`);
-    if (!pCols.includes("source")) db.exec(`ALTER TABLE pending_io ADD COLUMN source TEXT;`);
+    if (!pCols.includes("site_id"))            db.exec(`ALTER TABLE pending_io ADD COLUMN site_id INTEGER;`);
+    if (!pCols.includes("source"))             db.exec(`ALTER TABLE pending_io ADD COLUMN source TEXT;`);
+    if (!pCols.includes("command_topic"))      db.exec(`ALTER TABLE pending_io ADD COLUMN command_topic TEXT;`);
+    if (!pCols.includes("state_topic"))        db.exec(`ALTER TABLE pending_io ADD COLUMN state_topic TEXT;`);
+    if (!pCols.includes("ha_component"))       db.exec(`ALTER TABLE pending_io ADD COLUMN ha_component TEXT;`);
+    if (!pCols.includes("ha_config"))          db.exec(`ALTER TABLE pending_io ADD COLUMN ha_config TEXT;`);
+    if (!pCols.includes("ha_discovery_topic")) db.exec(`ALTER TABLE pending_io ADD COLUMN ha_discovery_topic TEXT;`);
   } catch (_) {}
 
   const siteCols = db.prepare(`PRAGMA table_info(sites);`).all().map(r => r.name);

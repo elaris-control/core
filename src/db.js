@@ -4,6 +4,7 @@ const { getDBPath, ensureDirForFile } = require("./paths");
 const { getProfile } = require("./esphome/board_profiles");
 const { ensureProfileCatalogTables, seedProfileCatalog, getCatalogProfile } = require("./esphome/profile_registry");
 const { findBoardPort } = require("./esphome/board_port_registry");
+const { HA_SUPPORTED_COMPONENTS, HA_COMPONENT_GROUP, HA_COMPONENT_TYPE } = require("./mqtt_topics");
 
 function initDB(dbPath) {
   if (!dbPath) dbPath = getDBPath();
@@ -155,14 +156,23 @@ db.exec(`
   ensureIoCol("bus_id", `ALTER TABLE io ADD COLUMN bus_id TEXT;`);
   ensureIoCol("board_profile_id", `ALTER TABLE io ADD COLUMN board_profile_id TEXT;`);
   ensureIoCol("stale", `ALTER TABLE io ADD COLUMN stale INTEGER NOT NULL DEFAULT 0;`);
+  ensureIoCol("command_topic",     `ALTER TABLE io ADD COLUMN command_topic TEXT;`);
+  ensureIoCol("state_topic",       `ALTER TABLE io ADD COLUMN state_topic TEXT;`);
+  ensureIoCol("ha_config",         `ALTER TABLE io ADD COLUMN ha_config TEXT;`);
+  ensureIoCol("ha_discovery_topic",`ALTER TABLE io ADD COLUMN ha_discovery_topic TEXT;`);
   try{
     const zCols = db.prepare(`PRAGMA table_info(zones);`).all().map(r=>r.name);
     if(!zCols.includes("site_id")) db.exec(`ALTER TABLE zones ADD COLUMN site_id INTEGER;`);
   }catch(_){}
   try{
     const pCols = db.prepare(`PRAGMA table_info(pending_io);`).all().map(r=>r.name);
-    if(!pCols.includes("site_id")) db.exec(`ALTER TABLE pending_io ADD COLUMN site_id INTEGER;`);
-    if(!pCols.includes("source")) db.exec(`ALTER TABLE pending_io ADD COLUMN source TEXT;`);
+    if(!pCols.includes("site_id"))            db.exec(`ALTER TABLE pending_io ADD COLUMN site_id INTEGER;`);
+    if(!pCols.includes("source"))             db.exec(`ALTER TABLE pending_io ADD COLUMN source TEXT;`);
+    if(!pCols.includes("command_topic"))      db.exec(`ALTER TABLE pending_io ADD COLUMN command_topic TEXT;`);
+    if(!pCols.includes("state_topic"))        db.exec(`ALTER TABLE pending_io ADD COLUMN state_topic TEXT;`);
+    if(!pCols.includes("ha_component"))       db.exec(`ALTER TABLE pending_io ADD COLUMN ha_component TEXT;`);
+    if(!pCols.includes("ha_config"))          db.exec(`ALTER TABLE pending_io ADD COLUMN ha_config TEXT;`);
+    if(!pCols.includes("ha_discovery_topic")) db.exec(`ALTER TABLE pending_io ADD COLUMN ha_discovery_topic TEXT;`);
   }catch(_){}
 
 
@@ -726,15 +736,21 @@ db.exec(`
     const row = db.prepare(`SELECT * FROM pending_io WHERE id=?`).get(pending_id);
     if (!row) return { ok: false, error: 'not_found' };
     const ts = Date.now();
+    // If type not explicitly provided, derive it: HA component type mapping first, then 'sensor'
+    const resolvedType = type || (row.ha_component && HA_COMPONENT_TYPE[row.ha_component]) || 'sensor';
     const info = db.prepare(`
-      INSERT INTO io (device_id, key, group_name, type, name, zone_id, created_ts, hw_type, kind, unit, source, port_id, bus_id, board_profile_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      INSERT INTO io (device_id, key, group_name, type, name, zone_id, created_ts, hw_type, kind, unit, source, port_id, bus_id, board_profile_id, command_topic, state_topic, ha_config, ha_discovery_topic)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(device_id, group_name, key) DO UPDATE SET
         name=excluded.name, type=excluded.type, zone_id=excluded.zone_id,
         hw_type=excluded.hw_type, kind=excluded.kind, unit=excluded.unit,
         source=excluded.source, port_id=excluded.port_id, bus_id=excluded.bus_id,
-        board_profile_id=excluded.board_profile_id
-    `).run(row.device_id, row.key, row.group_name, type||'sensor', name, zone_id||null, ts, hw_type||null, kind||null, unit||null, source||null, port_id||null, bus_id||null, board_profile_id||null);
+        board_profile_id=excluded.board_profile_id,
+        command_topic=COALESCE(excluded.command_topic, io.command_topic),
+        state_topic=COALESCE(excluded.state_topic, io.state_topic),
+        ha_config=COALESCE(excluded.ha_config, io.ha_config),
+        ha_discovery_topic=COALESCE(excluded.ha_discovery_topic, io.ha_discovery_topic)
+    `).run(row.device_id, row.key, row.group_name, resolvedType, name, zone_id||null, ts, hw_type||null, kind||null, unit||null, source||null, port_id||null, bus_id||null, board_profile_id||null, row.command_topic||null, row.state_topic||null, row.ha_config||null, row.ha_discovery_topic||null);
     db.prepare(`DELETE FROM pending_io WHERE id=?`).run(pending_id);
     return { ok: true, io_id: info.lastInsertRowid };
   }
@@ -796,6 +812,140 @@ db.exec(`
 
     normalizePendingRowsForDevice(deviceId);
     upsertEspHomeRegistry({ deviceId, retained, reviveDeleted: !retained, ts });
+  }
+
+  function noteHaDiscoveryEntity({ topic, payload, ts }) {
+    let cfg;
+    try { cfg = JSON.parse(payload); } catch (_) { return { ok: false, reason: 'invalid_json' }; }
+    if (!cfg || typeof cfg !== 'object') return { ok: false, reason: 'invalid_payload' };
+
+    const parts = String(topic || '').split('/');
+    if (parts.length < 4) return { ok: false, reason: 'invalid_topic' };
+    const component = parts[1] || '';
+
+    // Reject unsupported components (light, fan, cover, climate etc. — out of MVP scope)
+    if (!HA_SUPPORTED_COMPONENTS.has(component)) {
+      return { ok: false, reason: 'unsupported_component', component };
+    }
+
+    // Key: prefer payload fields, fall back to segment just before 'config'
+    const topicObjectId = parts[parts.length - 2];
+    const key = String(cfg.object_id || cfg.unique_id || topicObjectId || '').trim();
+    if (!key || key === 'config') return { ok: false, reason: 'no_key' };
+
+    // Device ID: payload identifiers first, then node_id from topic (5+ part), then topic object_id
+    let deviceId = null;
+    const identifiers = cfg.device?.identifiers;
+    if (Array.isArray(identifiers) && identifiers.length > 0) {
+      deviceId = String(identifiers[0]).trim();
+    }
+    if (!deviceId && parts.length >= 5) deviceId = String(parts[2] || '').trim();
+    if (!deviceId) deviceId = String(parts[2] || topicObjectId || '').trim();
+    if (!deviceId) return { ok: false, reason: 'no_device_id' };
+
+    const commandTopic = String(cfg.command_topic || '').trim() || null;
+    const stateTopic   = String(cfg.state_topic   || '').trim() || null;
+    const group        = HA_COMPONENT_GROUP[component] || 'tele';
+    const haConfig     = JSON.stringify(cfg);
+
+    // Register device in esphome registry so registry gate passes
+    ensureDeviceAssigned(deviceId);
+    upsertEspHomeRegistry({ deviceId, retained: true, reviveDeleted: true, ts,
+      friendlyName: cfg.device?.name || null,
+    });
+
+    if (isBlockedIO.get(deviceId, group, key)) return { ok: false, reason: 'blocked' };
+
+    // Check if already approved — update the live io row so routing stays fresh.
+    // Look up by ha_discovery_topic first (survives deviceId derivation changes),
+    // then fall back to device_id+group_name+key.
+    const approvedIoRow = db.prepare(`
+      SELECT id, state_topic FROM io WHERE ha_discovery_topic=? OR (device_id=? AND group_name=? AND key=?) LIMIT 1
+    `).get(topic, deviceId, group, key);
+    if (approvedIoRow) {
+      const oldStateTopic = approvedIoRow.state_topic || null;
+      db.prepare(`UPDATE io SET command_topic=?, state_topic=?, ha_config=?, ha_discovery_topic=? WHERE id=?`)
+        .run(commandTopic, stateTopic, haConfig, topic, approvedIoRow.id);
+      return { ok: true, reason: 'approved_updated', deviceId, key, group, component, commandTopic, stateTopic, oldStateTopic, haConfig: cfg };
+    }
+
+    // ha_discovery_topic is the canonical identity for HA pending rows.
+    // Use DELETE + INSERT inside a transaction so that if deviceId/key/group change
+    // between discovery messages (e.g. device.identifiers added later), there is
+    // no duplicate row and no conflict on (device_id, group_name, key).
+    let oldStateTopic = null;
+    db.transaction(() => {
+      // Find the existing row — ha_discovery_topic wins, no fallback to derived fields
+      const existing = db.prepare(
+        `SELECT id, state_topic, first_seen FROM pending_io WHERE ha_discovery_topic=?`
+      ).get(topic);
+
+      let firstSeen = ts;
+      if (existing) {
+        oldStateTopic = existing.state_topic || null;
+        firstSeen     = existing.first_seen  || ts;
+        db.prepare(`DELETE FROM pending_io WHERE id=?`).run(existing.id);
+      }
+
+      // Remove any stale row at the target (device_id, group_name, key) position
+      // that belongs to a different discovery topic — avoids UNIQUE constraint failure.
+      db.prepare(
+        `DELETE FROM pending_io WHERE device_id=? AND group_name=? AND key=? AND ha_discovery_topic != ?`
+      ).run(deviceId, group, key, topic);
+
+      db.prepare(`
+        INSERT INTO pending_io
+          (device_id, key, group_name, first_seen, last_seen, last_value,
+           command_topic, state_topic, ha_component, ha_config, ha_discovery_topic)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      `).run(deviceId, key, group, firstSeen, ts, null,
+             commandTopic, stateTopic, component, haConfig, topic);
+    })();
+
+    return { ok: true, reason: 'pending_upserted', deviceId, key, group, component, commandTopic, stateTopic, oldStateTopic, haConfig: cfg };
+  }
+
+  // Handle empty HA discovery payload (entity removed from HA).
+  // For pending entities: delete the row entirely.
+  // For approved entities: clear routing fields so the entity stops getting updates,
+  //   but keep the io row (user approved it intentionally).
+  // Lookup is by ha_discovery_topic — immune to deviceId derivation mismatches.
+  function deleteHaDiscoveryEntity({ topic }) {
+    if (!topic) return { ok: false, reason: 'invalid_topic' };
+
+    let stateTopic = null;
+    let found = false;
+
+    const pendingRow = db.prepare(`SELECT state_topic FROM pending_io WHERE ha_discovery_topic=?`).get(topic);
+    if (pendingRow) {
+      stateTopic = pendingRow.state_topic || null;
+      db.prepare(`DELETE FROM pending_io WHERE ha_discovery_topic=?`).run(topic);
+      found = true;
+    }
+
+    const ioRow = db.prepare(`SELECT id, state_topic FROM io WHERE ha_discovery_topic=?`).get(topic);
+    if (ioRow) {
+      stateTopic = stateTopic || ioRow.state_topic || null;
+      db.prepare(`UPDATE io SET state_topic=NULL, command_topic=NULL WHERE id=?`).run(ioRow.id);
+      found = true;
+    }
+
+    if (!found) return { ok: false, reason: 'not_found' };
+    return { ok: true, stateTopic };
+  }
+
+  function listHaStateTopics() {
+    const fromPending = db.prepare(`SELECT device_id, key, group_name, state_topic, ha_config FROM pending_io WHERE state_topic IS NOT NULL`).all();
+    const fromIo      = db.prepare(`SELECT device_id, key, group_name, state_topic, ha_config FROM io WHERE state_topic IS NOT NULL`).all();
+    // Merge: approved io wins over pending for the same entity
+    const seen = new Map();
+    for (const r of [...fromPending, ...fromIo]) {
+      seen.set(`${r.device_id}:${r.group_name}:${r.key}`, r);
+    }
+    return Array.from(seen.values()).map(r => ({
+      ...r,
+      ha_config: r.ha_config ? (() => { try { return JSON.parse(r.ha_config); } catch(_) { return null; } })() : null,
+    }));
   }
 
   function removeStaleIO(deviceId) {
@@ -1180,6 +1330,9 @@ db.exec(`
 
     noteDeviceAndMaybePendingIO,
     noteDeviceConfig,
+    noteHaDiscoveryEntity,
+    deleteHaDiscoveryEntity,
+    listHaStateTopics,
     removeStaleIO,
     listPendingIO,
     approvePending,

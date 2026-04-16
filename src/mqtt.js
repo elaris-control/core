@@ -8,6 +8,8 @@ const {
   ELARIS_SUBSCRIPTIONS,
   ESPHOME_STANDARD_SUBSCRIPTIONS,
   ESPHOME_COMPONENT_TYPES,
+  HA_DISCOVERY_PREFIX,
+  HA_DISCOVERY_SUBSCRIPTION,
   isIdentitySensorKey,
   elarisCommandTopic,
 } = require("./mqtt_topics");
@@ -106,6 +108,39 @@ function cleanupRetainedTopics(client, deviceId, purgeInfo) {
   }
 }
 
+// ── HA state normalization ──────────────────────────────────────────────────
+// Converts raw HA payloads to values ELARIS understands.
+// Scope: simple direct-topic HA entities (ESPHome discovery default patterns).
+// Handled: top-level JSON { state: ... } extraction, payload_on/off, state_on/off.
+// NOT handled: value_template (Jinja2 — server-side HA), nested JSON attribute paths,
+//   brightness/color/position sub-attributes, multi-value JSON beyond { state }.
+//   Entities that require those features will store the raw payload unchanged.
+function normalizeHaPayload(raw, haConfig) {
+  const str = String(raw == null ? '' : raw).trim();
+  if (!haConfig || typeof haConfig !== 'object') return str;
+
+  // value_template present: we cannot evaluate Jinja2 — return raw
+  if (haConfig.value_template) return str;
+
+  // JSON payload: extract the `state` field (common for lights, climate)
+  if (str.startsWith('{')) {
+    try {
+      const obj = JSON.parse(str);
+      if (typeof obj === 'object' && obj !== null && 'state' in obj) {
+        return String(obj.state);
+      }
+    } catch (_) {}
+  }
+
+  // Custom ON/OFF patterns from discovery config
+  const onVal  = haConfig.payload_on  ?? haConfig.state_on  ?? 'ON';
+  const offVal = haConfig.payload_off ?? haConfig.state_off ?? 'OFF';
+  if (str === String(onVal))  return 'ON';
+  if (str === String(offVal)) return 'OFF';
+
+  return str;
+}
+
 // ── Pipeline steps ──────────────────────────────────────────────────────────
 
 function parseMessage(topic, payloadBuf, packet) {
@@ -122,9 +157,15 @@ function parseMessage(topic, payloadBuf, packet) {
 function classifyMessage(parts, trimmedPayload) {
   const looksInteresting = (
     parts[0] === ELARIS_PREFIX ||
+    parts[0] === HA_DISCOVERY_PREFIX ||
     (parts.length === 2 && parts[1] === 'status') ||
     (parts.length === 4 && ESPHOME_COMPONENT_TYPES.includes(parts[1]) && parts[3] === 'state')
   );
+
+  // HA discovery: homeassistant/<component>/<node_id>/<object_id>/config
+  if (parts[0] === HA_DISCOVERY_PREFIX && parts[parts.length - 1] === 'config') {
+    return { type: 'ha_discovery', looksInteresting };
+  }
 
   if (parts[0] === ELARIS_PREFIX) {
     return {
@@ -164,6 +205,8 @@ function classifyMessage(parts, trimmedPayload) {
 function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto = null }) {
   const client = mqtt.connect(url);
   const missedRetained = new Map();
+  // Map<stateTopic, {deviceId, key, group}> — tracks subscribed HA state topics
+  const haStateTopics = new Map();
 
   function isMqttDebugEnabled() {
     try {
@@ -209,8 +252,22 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
   client.on("connect", () => {
     ELARIS_SUBSCRIPTIONS.forEach(t => client.subscribe(t));
     ESPHOME_STANDARD_SUBSCRIPTIONS.forEach(t => client.subscribe(t));
+    client.subscribe(HA_DISCOVERY_SUBSCRIPTION);
+
+    // Resubscribe to HA state topics known from the DB (persists across restarts)
+    if (typeof dbApi.listHaStateTopics === 'function') {
+      try {
+        const rows = dbApi.listHaStateTopics();
+        for (const r of rows) {
+          client.subscribe(r.state_topic);
+          haStateTopics.set(r.state_topic, { deviceId: r.device_id, key: r.key, group: r.group_name, haConfig: r.ha_config || null });
+        }
+        if (rows.length > 0) mqttDebug('ha_state_resubscribed', { count: rows.length });
+      } catch (_) {}
+    }
+
     console.log("[MQTT] connected & subscribed");
-    mqttDebug('subscriptions_ready', { custom: ELARIS_SUBSCRIPTIONS, standard: ESPHOME_STANDARD_SUBSCRIPTIONS });
+    mqttDebug('subscriptions_ready', { custom: ELARIS_SUBSCRIPTIONS, standard: ESPHOME_STANDARD_SUBSCRIPTIONS, ha_discovery: HA_DISCOVERY_SUBSCRIPTION });
     emit("mqtt_status", { status: "connected" });
   });
 
@@ -378,6 +435,57 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
       return;
     }
 
+    // ── HA discovery topics ──────────────────────────────────────────────────
+    if (msgType === 'ha_discovery') {
+      // Empty payload = entity removed from HA
+      if (!trimmedPayload) {
+        if (typeof dbApi.deleteHaDiscoveryEntity === 'function') {
+          const del = dbApi.deleteHaDiscoveryEntity({ topic: msgTopic });
+          if (del?.ok && del.stateTopic) {
+            haStateTopics.delete(del.stateTopic);
+            try { client.unsubscribe(del.stateTopic); } catch (_) {}
+            mqttDebug('ha_discovery_deleted', { topic: msgTopic, stateTopic: del.stateTopic });
+          }
+        }
+        return;
+      }
+
+      if (typeof dbApi.noteHaDiscoveryEntity === 'function') {
+        const result = dbApi.noteHaDiscoveryEntity({ topic: msgTopic, payload, ts });
+        mqttDebug('ha_discovery_processed', { topic: msgTopic, retained, result: result?.reason || null });
+        if (result?.ok) {
+          // If state_topic changed, unsubscribe the old one
+          if (result.oldStateTopic && result.oldStateTopic !== result.stateTopic) {
+            haStateTopics.delete(result.oldStateTopic);
+            try { client.unsubscribe(result.oldStateTopic); } catch (_) {}
+            mqttDebug('ha_state_unsubscribed_old', { oldStateTopic: result.oldStateTopic });
+          }
+          // Subscribe to the (new) state_topic
+          if (result.stateTopic) {
+            client.subscribe(result.stateTopic);
+            haStateTopics.set(result.stateTopic, { deviceId: result.deviceId, key: result.key, group: result.group, haConfig: result.haConfig || null });
+            mqttDebug('ha_state_subscribed', { stateTopic: result.stateTopic, deviceId: result.deviceId, key: result.key });
+          }
+          emit('ha_discovery', { topic: msgTopic, deviceId: result.deviceId, key: result.key, component: result.component });
+        }
+      }
+      return;
+    }
+
+    // ── HA live state topics ─────────────────────────────────────────────────
+    if (haStateTopics.has(msgTopic)) {
+      const { deviceId, key, group, haConfig } = haStateTopics.get(msgTopic);
+      if (trimmedPayload) {
+        const normalized = normalizeHaPayload(payload, haConfig);
+        cacheState(dbApi, deviceId, `${group}.${key}`, normalized, ts);
+        touchRegistry(dbApi, deviceId, 'online', ts);
+        persistEvent(dbApi, deviceId, msgTopic, payload, ts);
+        triggerSolar(solarAuto, deviceId, `${group}.${key}`);
+        emit('mqtt', { topic: msgTopic, deviceId, group, key: `${group}.${key}`, payload: normalized });
+      }
+      return;
+    }
+
     // Unknown message type — silently ignore
   });
 
@@ -394,6 +502,14 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
     return { topic: topicCmnd, payload };
   }
 
+  function sendCommandDirect(commandTopic, value, meta = {}) {
+    const payload = typeof value === "string" ? value : JSON.stringify(value);
+    client.publish(commandTopic, payload, { qos: 0, retain: false });
+    emit("command_sent", { topic: commandTopic, value: payload, ...meta });
+    console.log("[MQTT] publish (direct)", commandTopic, payload);
+    return { topic: commandTopic, payload };
+  }
+
   function getMissedRetained() {
     const result = [];
     for (const [deviceId, topics] of missedRetained) {
@@ -408,7 +524,7 @@ function initMQTT({ url = "mqtt://localhost:1883", dbApi, broadcast, solarAuto =
     return topics;
   }
 
-  return { client, sendCommand, getMissedRetained, clearMissedRetainedForDevice };
+  return { client, sendCommand, sendCommandDirect, getMissedRetained, clearMissedRetainedForDevice };
 }
 
 module.exports = { initMQTT };
