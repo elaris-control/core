@@ -823,7 +823,7 @@ db.exec(`
     if (parts.length < 4) return { ok: false, reason: 'invalid_topic' };
     const component = parts[1] || '';
 
-    // Reject unsupported components (light, fan, cover, climate etc. — out of MVP scope)
+    // Reject components not in the supported set
     if (!HA_SUPPORTED_COMPONENTS.has(component)) {
       return { ok: false, reason: 'unsupported_component', component };
     }
@@ -843,8 +843,16 @@ db.exec(`
     if (!deviceId) deviceId = String(parts[2] || topicObjectId || '').trim();
     if (!deviceId) return { ok: false, reason: 'no_device_id' };
 
-    const commandTopic = String(cfg.command_topic || '').trim() || null;
-    const stateTopic   = String(cfg.state_topic   || '').trim() || null;
+    // Climate entities expose sub-topics: prefer current_temperature for state,
+    // mode_command_topic for control (most useful primary action).
+    let commandTopic, stateTopic;
+    if (component === 'climate') {
+      commandTopic = String(cfg.mode_command_topic || cfg.command_topic || '').trim() || null;
+      stateTopic   = String(cfg.current_temperature_topic || cfg.state_topic || '').trim() || null;
+    } else {
+      commandTopic = String(cfg.command_topic || '').trim() || null;
+      stateTopic   = String(cfg.state_topic   || '').trim() || null;
+    }
     const group        = HA_COMPONENT_GROUP[component] || 'tele';
     const haConfig     = JSON.stringify(cfg);
 
